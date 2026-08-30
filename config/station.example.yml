@@ -1,0 +1,84 @@
+# Per-station configuration — copy to station.yml and edit.
+#
+#   cp config/station.example.yml config/station.yml
+#
+# ⛔ station.yml is gitignored, and must stay that way. A stationary receiver's
+#    coordinates are a home address — yours, or a friend's if the antenna is on
+#    their roof. Feeder keys are credentials. Neither belongs in a public repo.
+#
+# ⚠️ This file is the seam that lets the rest of the repo be public. If you find
+#    yourself hardcoding a position or a key anywhere else, put it here instead.
+
+station:
+  # Free-form label used in logs. Not a secret, but it does identify a site.
+  id: portable-01
+
+  # portable | stationary — the rest of the file is read differently for each.
+  role: portable
+
+position:
+  # ⛔ STATIONARY ONLY. Survey it once, to a few metres, and leave it alone:
+  #    the decoder needs it to resolve surface positions properly.
+  #
+  # 🎒 A PORTABLE rig must leave these null and take its position from gpsd.
+  #    A stale hardcoded position on a rig that moves is worse than none — it
+  #    produces confident, plausible, wrong data rather than an obvious gap.
+  latitude: null
+  longitude: null
+  altitude_m: null            # antenna height above sea level, not above ground
+
+clock:
+  # ⚠️ Refuse to record until the clock is disciplined. See BUILD.md §7 rule 4.
+  #    An un-disciplined Pi clock silently corrupts every timestamp correlation
+  #    made from the session, and it is cheap to check before starting.
+  require_disciplined: true
+
+  # gps  → portable: gpsd + chrony, per BUILD.md §6
+  # ntp  → stationary: plain chrony. Better than a USB puck when a network exists.
+  source: gps
+
+  # Fail the preflight if chrony reports an offset worse than this.
+  max_offset_ms: 500
+
+dongles:
+  # ⛔ Set unique EEPROM serials or USB enumeration order will shuffle at boot
+  #    and the decoder will grab the wrong radio — RADIOS.md §5, rule 2.
+  #      rtl_eeprom -d 0 -s 1090
+  adsb: "1090"
+  # Second radio: airband on a portable rig, VDL2 on a stationary one. Null if
+  # you are running a single-dongle rig.
+  vhf: null
+
+archive:
+  # 🏠 STATIONARY ONLY. Leave disabled on a rig that leaves the house — a
+  #    continuous archive with holes in it is not an archive.
+  enabled: false
+  path: /mnt/ssd/beast
+  format: beast               # ⛔ not a bespoke format — BUILD.md §9
+
+  # ⛔ Retention is enforced HERE, by the writer, not by a cron job somebody
+  #    forgets. An unbounded archive fills the disk and then silently stops
+  #    recording, which is the one failure that costs you the data.
+  retention_days: 365
+  min_free_gb: 20             # start expiring early rather than hitting zero
+
+feeders:
+  # 🏠 STATIONARY ONLY. Credentials — never commit real values.
+  # ℹ️ Feeding usually earns a better API allowance than registering alone, and
+  #    it is the rent for a public good this kind of project leans on.
+  opensky:
+    enabled: false
+    username: null
+    serial: null
+  airframes:                  # VDL2/ACARS — see RADIOS.md §4
+    enabled: false
+    station_id: null
+
+uploader:
+  # Where decoded samples go, if anywhere. Null means log locally only.
+  # ⛔ Buffer to disk BEFORE uploading, and number batches so a retry is
+  #    idempotent — BUILD.md §7 rule 3.
+  endpoint: null
+  token: null                 # ⛔ a credential; keep it out of the repo
+  batch_seconds: 10
+  spool_dir: /var/lib/adsb-receiver/spool

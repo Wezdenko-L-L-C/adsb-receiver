@@ -1,0 +1,17 @@
+# ⛔ Per-station config. Holds a position (a home address) and feeder/uploader
+#    credentials. This entry is the reason the rest of the repo can be public.
+config/station.yml
+config/*.local.yml
+
+# Captured data never belongs in the repo
+*.beast
+*.beast.gz
+spool/
+archive/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/
