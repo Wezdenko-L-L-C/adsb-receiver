@@ -2,9 +2,9 @@
 
 Build notes for a pair of Raspberry Pi ADS-B receivers: one that travels, one that stays put.
 
-This is a **field-tested build guide**, not a distribution. It exists because most ADS-B
-instructions stop at "it decodes aircraft" — and the failures that cost real time happen after
-that point, silently, in ways that look like a bad antenna.
+This is a **build guide**, not a distribution. It exists because most ADS-B instructions stop at
+"it decodes aircraft" — and the failures that cost real time happen after that point, silently, in
+ways that look like a bad antenna.
 
 ---
 
@@ -63,8 +63,13 @@ gitignored; keep it that way, and agree the siting with whoever owns the roof *b
 ## Status
 
 📋 **Documentation, today.** The archive writer, the extractor, and the uploader are designed but
-not written; where that is true the docs say so rather than pretending otherwise. Hardware notes
-marked ✅ *verified* were confirmed against the actual part.
+not written; where that is true the docs say so rather than pretending otherwise.
+
+⚠️ **Nothing here has been confirmed against a built rig yet.** These are researched notes: the
+power figures in [BUILD.md §5](docs/BUILD.md#5-power-portable-only) come off a pack's spec sheet
+rather than a bench run, and that section names the two things to test before trusting them. ✅ in
+these docs marks **the check to run, or the fix to apply** — never a claim that the part was
+tested here.
 
 ## Licence
 

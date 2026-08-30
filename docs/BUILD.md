@@ -143,7 +143,7 @@ packaged driver.
 
 ℹ️ The stationary rig runs on mains; none of this applies to it.
 
-Worked example, verified against an **Anker Prime 27,650 mAh / 250 W**:
+Worked example, computed from the spec of an **Anker Prime 27,650 mAh / 250 W**:
 
 | | |
 |---|---|
@@ -175,6 +175,8 @@ checking on the spec sheet if the rig travels.
 
 ⛔ **This section is about the portable rig only** — [§2](#2-two-rigs-not-one) explains why the
 argument does not survive the move indoors.
+
+### 6a. What the GPS is carrying
 
 Two separate things, and only one of them is obvious:
 
@@ -281,11 +283,12 @@ stands unchanged.
   dumpvdl2                   → ACARS/VDL2 on a second dongle (RADIOS.md)
   feeder client              → whatever aggregators you feed (§9)
   archive writer (to write)  → BEAST to the SSD, retention enforced in the writer (§9)
+  extractor (to write)       → pulls a time window back out of the archive (§9)
 ```
 
-📋 **The uploader and the archive writer do not exist here yet.** Four rules worth following when
-you write one — the first three apply to any logger, the fourth is specific to a rig with no
-network:
+📋 **The uploader, the archive writer and the extractor do not exist here yet.** Four rules worth
+following when you write the first two — the first three apply to any logger, the fourth is
+specific to a rig with no network:
 
 1. ⛔ Store **every candidate**, never a pick. Narrowing at write time throws away the evidence
    you need to check the pick later.
