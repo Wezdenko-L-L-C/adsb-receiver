@@ -18,7 +18,7 @@ rig carries weight it never needed.
 | | 🎒 **Portable** — goes out | 🏠 **Stationary** — stays home |
 |---|---|---|
 | **Job** | Log tracks where you actually are | Continuous archive, feeding aggregators, harvesting ACARS |
-| **Runs for** | Hours, on battery | 24/7, on mains |
+| **Runs for** | Hours, on battery | 24/7, on wall power |
 | **Position** | ⚠️ Changes every session | ✅ A constant — survey once, put it in config |
 | **Network** | ⛔ None | ✅ Yes |
 | **Clock from** | **GPS** — there is no network to ask | **NTP** — better than the GPS puck, and free |
@@ -78,6 +78,6 @@ rather than a bench run, and that section names the two things to test before tr
 these docs marks **the check to run, or the fix to apply** — never a claim that the part was
 tested here.
 
-## Licence
+## License
 
 Apache-2.0. See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).

@@ -117,13 +117,13 @@ ADS-B aggregator — it is the rent for a public good this kind of project leans
 
 ## 5. What a second dongle does to the Pi
 
-Adding radios is what destabilises a working receiver. All four of these have bitten people:
+Adding radios is what destabilizes a working receiver. All four of these have bitten people:
 
 1. ⛔ **You need a powered USB hub at two dongles plus GPS.** Each dongle draws ~300 mA and a Pi
    4's entire USB budget is ~1.2 A. The 🎒 portable rig — two dongles *and* a GPS puck — runs
    closest to the edge, and the symptom is undervoltage, which
    [BUILD.md §1](BUILD.md#1-which-pi) already warns *looks exactly like an antenna problem*. The
-   🏠 stationary rig has mains behind it and more slack.
+   🏠 stationary rig has wall power behind it and more slack.
    ➡️ [BUILD.md §3d](BUILD.md#3d--the-second-radio--either-rig) part 14.
 2. ⛔ **Set unique serials** — `rtl_eeprom -d 0 -s 1090`, and so on. Otherwise USB enumeration
    order shuffles at boot and your decoder grabs the airband dongle. This is *the* classic

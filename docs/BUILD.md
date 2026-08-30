@@ -31,7 +31,7 @@ These are two machines that happen to share a decoder.
 | | 🎒 **Portable** | 🏠 **Stationary** |
 |---|---|---|
 | **Job** | Log tracks at the location you are shooting from | Continuous archive, feeding, ACARS harvesting |
-| **Runs for** | Hours, on battery | 24/7, on mains |
+| **Runs for** | Hours, on battery | 24/7, on wall power |
 | **Position** | ⚠️ Changes every session | ✅ Constant — survey once, put it in config |
 | **Network** | ⛔ None | ✅ Yes |
 | **Antenna** | Magnetic-mount whip on a car roof | Collinear (e.g. FlightAware 26") up a mast |
@@ -93,16 +93,16 @@ Buy the shared core once per rig, then only the additions for the rig you are bu
 | # | Part | Notes |
 |---|---|---|
 | 6 | **FlightAware 26" antenna + mast/mount** | ⭐ **Height beats everything else you can buy.** Outdoors and high is worth more than any filter or LNA |
-| 7 | **Outdoor-rated coax, as short as the run allows** | ⚠️ Loss at 1090 MHz is brutal — LMR-400 over RG-58 for anything past a few metres, and put the LNA at the *antenna* end (the dongle's bias tee can power it) |
+| 7 | **Outdoor-rated coax, as short as the run allows** | ⚠️ Loss at 1090 MHz is brutal — LMR-400 over RG-58 for anything past a few meters, and put the LNA at the *antenna* end (the dongle's bias tee can power it) |
 | 8 | **USB SSD** | For the archive. ⛔ Do not run a continuous archive onto the SD card |
-| 9 | **Mains PSU — the official 5 V 3 A one** | Not a phone charger. Undervoltage is the same failure as in the field, just permanent |
+| 9 | **Wall power supply — the official 5 V 3 A one** | Not a phone charger. Undervoltage is the same failure as in the field, just permanent |
 | 10 | ⛔ **Not** a GPS, and **not** an RTC | [§2](#2-two-rigs-not-one) — it has a network and a position that never moves |
 
 ### 3d. 📻 The second radio — either rig
 
 ⛔ **Do not buy this with the first order.** [§8](#8-build-order) step 5 is deliberate: a second
 radio goes on only once the base rig is boring, because adding dongles is exactly what
-destabilises a working receiver. Ordering it early does not make that step arrive sooner — it just
+destabilizes a working receiver. Ordering it early does not make that step arrive sooner — it just
 puts a dongle in a drawer.
 
 ➡️ *Which* radio goes on *which* rig, and why, is [RADIOS.md](RADIOS.md). This is only the list.
@@ -113,7 +113,7 @@ puts a dongle in a drawer.
 | 11 | **A second RTL-SDR** | 🎒 airband, 🏠 VDL2. ⭐ If you own a filtered stick **and** a V4, the filtered stick stays on 1090 and the V4 does the VHF work — a general-purpose dongle is a good VHF radio and a middling 1090 one ([RADIOS.md §1](RADIOS.md#1-each-radio-is-its-own-dongle)) |
 | 12 | **A VHF antenna** — 🎒 RTL-SDR Blog dipole kit, 🏠 discone (e.g. Diamond D130J) | ⛔ Your 1090 collinear is **deaf** at 118 MHz; it is cut for 1090 and nothing else. The dipole kit is half-wave at 120 MHz with each leg at ~60 cm, and you may already own one. A discone feeds airband **and** VDL2 off one antenna ([RADIOS.md §2](RADIOS.md#2-your-1090-antenna-will-not-hear-any-of-this)) |
 | 13 | **FM band-stop / notch filter** (~$12) | ⚠️ **Not** the broadcast-AM high-pass, which cuts below ~2 MHz and is irrelevant here. The front-end killer near an airport is **FM broadcast at 88–108 MHz**, immediately adjacent to airband |
-| 14 | **Powered USB hub** | ⛔ **Required on the 🎒 portable rig.** Each dongle draws ~300 mA and a Pi 4's entire USB budget is ~1.2 A — two dongles *plus* the GPS puck is over it. The symptom is undervoltage, which [§1](#1-which-pi) warns looks exactly like an antenna problem. ℹ️ The 🏠 stationary rig has mains behind it and no puck, so it has slack — but this is still the first thing to try if a second dongle destabilises it |
+| 14 | **Powered USB hub** | ⛔ **Required on the 🎒 portable rig.** Each dongle draws ~300 mA and a Pi 4's entire USB budget is ~1.2 A — two dongles *plus* the GPS puck is over it. The symptom is undervoltage, which [§1](#1-which-pi) warns looks exactly like an antenna problem. ℹ️ The 🏠 stationary rig has wall power behind it and no puck, so it has slack — but this is still the first thing to try if a second dongle destabilizes it |
 
 ⚠️ **Short USB extension leads, on both rigs.** Stacked directly, dongles heat each other and
 drift, and the lead also moves them off the Pi's own USB noise
@@ -177,7 +177,7 @@ packaged driver.
 
 ## 5. Power (portable only)
 
-ℹ️ The stationary rig runs on mains; none of this applies to it.
+ℹ️ The stationary rig runs on wall power; none of this applies to it.
 
 Worked example, computed from the spec of an **Anker Prime 27,650 mAh / 250 W**:
 
@@ -355,14 +355,14 @@ specific to a rig with no network:
 
 0. ⛔ **Install the drivers first** ([§4](#4-drivers-first)) and confirm `rtl_test -t` names an
    **R828D**. Every step below would otherwise be debugging the wrong thing.
-1. Build it **on the bench**, on mains power and wifi. Confirm `tar1090` shows aircraft.
+1. Build it **on the bench**, on wall power and wifi. Confirm `tar1090` shows aircraft.
 2. Add GPS and the RTC. Confirm `gpsd` has a fix, `chronyc sources` shows GPS disciplining the
    clock, and the Pi still knows the time after a power cycle **with the network unplugged**.
 3. Only then take it out on battery — that is where undervoltage and antenna placement problems
    appear, and you want everything else already known-good.
 4. Write the uploader last, against a receiver you already trust.
 5. ⭐ **Add a second radio only after all of the above is boring.** Adding dongles is exactly what
-   destabilises a working rig — see [RADIOS.md](RADIOS.md). ➡️ Order its parts at this point, not
+   destabilizes a working rig — see [RADIOS.md](RADIOS.md). ➡️ Order its parts at this point, not
    with the first order: [§3d](#3d--the-second-radio--either-rig).
 6. 🏠 **Then build the stationary rig**, reusing steps 1 and 5 — but ⛔ **not** step 2. Its own
    extra step is the mast, because height is the only thing that materially changes reception.

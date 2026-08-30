@@ -20,7 +20,7 @@ station:
   role: stationary
 
 position:
-  # ✅ Survey it once, to a few metres, and leave it alone: the decoder needs it
+  # ✅ Survey it once, to a few meters, and leave it alone: the decoder needs it
   #    to resolve surface positions properly. On a rig that never moves this is
   #    a constant, which is why there is no GPS puck in the parts list.
   #
