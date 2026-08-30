@@ -54,7 +54,14 @@ Presents as "ADS-B stopped working for no reason."
 |---|---|
 | [`docs/BUILD.md`](docs/BUILD.md) | The rig end to end — Pi choice, parts, power, drivers, GPS/RTC, software, build order |
 | [`docs/RADIOS.md`](docs/RADIOS.md) | The second radio — airband/ATC audio and ACARS/VDL2, antennas, legality, multi-dongle pitfalls |
-| [`config/station.example.yml`](config/station.example.yml) | Template for the per-station settings that must **not** be committed |
+| [`config/station.portable.example.yml`](config/station.portable.example.yml) | 🎒 Template for the per-station settings that must **not** be committed |
+| [`config/station.stationary.example.yml`](config/station.stationary.example.yml) | 🏠 The same, for the rig that stays put |
+
+⭐ **Two templates, one per rig, and they are not two copies of one file.** Each holds only what
+its role actually uses — so the 🎒 portable one has **no `position:` block at all**, because a
+hardcoded position on a rig that moves is the failure mode
+[BUILD.md §6a](docs/BUILD.md#6a-what-the-gps-is-carrying) describes: a complete, plausible,
+confidently wrong track rather than an obvious gap. ⛔ Do not merge them back together.
 
 ⛔ **Your station position is not public data.** A stationary receiver's coordinates are a home
 address — yours, or a friend's if the antenna is on their roof. `config/station.yml` is

@@ -65,6 +65,8 @@ up, not after.
 ## 3. Parts
 
 Buy the shared core once per rig, then only the additions for the rig you are building.
+⛔ **[§3d](#3d--the-second-radio--either-rig) is a later order, not part of the first one** — see
+[§8](#8-build-order).
 
 ### 3a. Shared core — both rigs
 
@@ -96,6 +98,32 @@ Buy the shared core once per rig, then only the additions for the rig you are bu
 | 9 | **Mains PSU — the official 5 V 3 A one** | Not a phone charger. Undervoltage is the same failure as in the field, just permanent |
 | 10 | ⛔ **Not** a GPS, and **not** an RTC | [§2](#2-two-rigs-not-one) — it has a network and a position that never moves |
 
+### 3d. 📻 The second radio — either rig
+
+⛔ **Do not buy this with the first order.** [§8](#8-build-order) step 5 is deliberate: a second
+radio goes on only once the base rig is boring, because adding dongles is exactly what
+destabilises a working receiver. Ordering it early does not make that step arrive sooner — it just
+puts a dongle in a drawer.
+
+➡️ *Which* radio goes on *which* rig, and why, is [RADIOS.md](RADIOS.md). This is only the list.
+🎒 Portable is 1090 + airband; 🏠 stationary is 1090 + VDL2. ⛔ Neither rig runs three dongles.
+
+| # | Part | Notes |
+|---|---|---|
+| 11 | **A second RTL-SDR** | 🎒 airband, 🏠 VDL2. ⭐ If you own a filtered stick **and** a V4, the filtered stick stays on 1090 and the V4 does the VHF work — a general-purpose dongle is a good VHF radio and a middling 1090 one ([RADIOS.md §1](RADIOS.md#1-each-radio-is-its-own-dongle)) |
+| 12 | **A VHF antenna** — 🎒 RTL-SDR Blog dipole kit, 🏠 discone (e.g. Diamond D130J) | ⛔ Your 1090 collinear is **deaf** at 118 MHz; it is cut for 1090 and nothing else. The dipole kit is half-wave at 120 MHz with each leg at ~60 cm, and you may already own one. A discone feeds airband **and** VDL2 off one antenna ([RADIOS.md §2](RADIOS.md#2-your-1090-antenna-will-not-hear-any-of-this)) |
+| 13 | **FM band-stop / notch filter** (~$12) | ⚠️ **Not** the broadcast-AM high-pass, which cuts below ~2 MHz and is irrelevant here. The front-end killer near an airport is **FM broadcast at 88–108 MHz**, immediately adjacent to airband |
+| 14 | **Powered USB hub** | ⛔ **Required on the 🎒 portable rig.** Each dongle draws ~300 mA and a Pi 4's entire USB budget is ~1.2 A — two dongles *plus* the GPS puck is over it. The symptom is undervoltage, which [§1](#1-which-pi) warns looks exactly like an antenna problem. ℹ️ The 🏠 stationary rig has mains behind it and no puck, so it has slack — but this is still the first thing to try if a second dongle destabilises it |
+
+⚠️ **Short USB extension leads, on both rigs.** Stacked directly, dongles heat each other and
+drift, and the lead also moves them off the Pi's own USB noise
+([RADIOS.md §5](RADIOS.md#5-what-a-second-dongle-does-to-the-pi) rule 3). 🎒 The portable list
+already carries them as part 10; 🏠 the stationary one does not, so add them here.
+
+⚠️ **🎒 Recompute the power budget before ordering.** A second dongle and a hub take the worked
+example in [§5](#5-power-portable-only) from ~12 hours to ~9.5 — still longer than any session,
+but no longer the comfortable margin a single-dongle rig enjoys.
+
 ### Optional
 
 - **GPS HAT with a PPS pin** — sub-microsecond time instead of ~100 ms. Overkill for correlating
@@ -122,13 +150,21 @@ bad cable, or an empty sky.
 Installing either from `apt` can quietly pull an old one back in and undo the fix.
 
 ```bash
-sudo apt purge ^librtlsdr          # and remove stale librtlsdr* from /usr/lib, /usr/local/lib
+# ⚠️ This takes readsb / dump1090-fa with it — they link against librtlsdr.
+#    That is the point (they get rebuilt against the new one), but do it knowingly.
+sudo apt purge '^librtlsdr'        # quote it: ^ is a regex for apt, not for the shell
+# then remove any stale librtlsdr* left behind in /usr/lib and /usr/local/lib
 echo 'blacklist dvb_usb_rtl28xxu' | sudo tee /etc/modprobe.d/blacklist-rtl.conf
-# then build current librtlsdr from the Osmocom fork, and re-check with rtl_test -t
+# then build current librtlsdr from osmocom/rtl-sdr, and re-check with rtl_test -t
 ```
 
-⚠️ **Use the Osmocom fork rather than the rtlsdrblog repo** — the latter has carried a broken
-commit that fails to compile with an `rtlsdr_check_dongle_model` implicit-declaration error.
+⚠️ **Build from `osmocom/rtl-sdr`, not `rtlsdrblog/rtl-sdr-blog`.** Osmocom is the **upstream**
+project; the rtlsdrblog repo is the downstream **fork**, and it has carried a broken commit that
+fails to compile with an `rtlsdr_check_dongle_model` implicit-declaration error. ⛔ Get the two the
+wrong way round and you are back to a silent failure, which is the entire subject of this section.
+
+⚠️ **Not verified here:** *which* repo carries R828D support at the revision you actually clone —
+that moves, and a README is not evidence. ✅ The check that settles it is `rtl_test -t` below.
 
 ✅ **Verify before trusting it:** `rtl_test -t` should name the tuner as **R828D**. If it says
 R820T2, or reports nothing, the old driver is still in the path and every reading after this point
@@ -149,8 +185,8 @@ Worked example, computed from the spec of an **Anker Prime 27,650 mAh / 250 W**:
 |---|---|
 | Pack | 27,650 mAh at 3.6 V nominal = **99.5 Wh** (~84.6 Wh usable after conversion loss) |
 | Pi 4 + SDR only | ~5.5 W → ~15 hours |
-| Pi 4 + SDR + GPS + wifi | ~7 W → **~12 hours** |
-| ⚠️ **+ second dongle + powered hub** | ~9 W → **~9.5 hours** |
+| Pi 4 + SDR + GPS + wifi ([local link only](#7-software)) | ~7 W → **~12 hours** |
+| ⚠️ **+ second dongle + powered hub** ([§3d](#3d--the-second-radio--either-rig)) | ~9 W → **~9.5 hours** |
 
 ⚠️ **A second radio is where the headroom goes** — 12 hours down to about 9.5. Still longer than
 any session, but no longer the "far more than needed" a single-dongle rig enjoys.
@@ -271,8 +307,19 @@ stands unchanged.
   gpsd + chrony              → position, and disciplined time (§6)
   i2c-rtc (ds3231)           → wall-clock across a boot, before GPS locks (§6b)
   rtl_airband                → ATC audio on a second dongle (RADIOS.md)
-  uploader (yours to write)  → reads aircraft.json + gpsd, ships it somewhere
+  uploader (yours to write)  → reads aircraft.json + gpsd, spools to disk;
+                               ships on the next network, never in the field
 ```
+
+⛔ **The portable uploader does not upload in the field.** [§2](#2-two-rigs-not-one) means it
+literally: there is no network out there. It writes numbered batches to `spool_dir` for the whole
+session and ships them the next time the rig sees a network. ➡️ Which is why rule 3 below is not
+optional on this rig, and why `uploader.endpoint` may be null — a rig that only ever logs locally
+is a valid rig.
+
+ℹ️ **The wifi in the [§5](#5-power-portable-only) power budget is a local link, not a route out.**
+A phone hotspot or the Pi's own AP, so you can check a headless rig is alive without carrying a
+screen. ⛔ Nothing in the software should assume it reaches the internet.
 
 **🏠 Stationary — everything serves the archive:**
 
@@ -315,7 +362,8 @@ specific to a rig with no network:
    appear, and you want everything else already known-good.
 4. Write the uploader last, against a receiver you already trust.
 5. ⭐ **Add a second radio only after all of the above is boring.** Adding dongles is exactly what
-   destabilises a working rig — see [RADIOS.md](RADIOS.md).
+   destabilises a working rig — see [RADIOS.md](RADIOS.md). ➡️ Order its parts at this point, not
+   with the first order: [§3d](#3d--the-second-radio--either-rig).
 6. 🏠 **Then build the stationary rig**, reusing steps 1 and 5 — but ⛔ **not** step 2. Its own
    extra step is the mast, because height is the only thing that materially changes reception.
 

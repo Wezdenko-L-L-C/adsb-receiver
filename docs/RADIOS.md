@@ -14,6 +14,10 @@ Two more receivers doing jobs the 1090 MHz chain cannot. **ATC audio** gives you
 [§5](#5-what-a-second-dongle-does-to-the-pi) applies to both at two dongles, and bites hardest if
 you ever stack a third.
 
+➡️ **What to order is [BUILD.md §3d](BUILD.md#3d--the-second-radio--either-rig)** — the dongle, a
+VHF antenna, the FM notch filter and (on the portable rig) a powered hub. ⛔ Not with the first
+order: [BUILD.md §8](BUILD.md#8-build-order) step 5.
+
 ---
 
 ## 1. Each radio is its own dongle
@@ -120,6 +124,7 @@ Adding radios is what destabilises a working receiver. All four of these have bi
    closest to the edge, and the symptom is undervoltage, which
    [BUILD.md §1](BUILD.md#1-which-pi) already warns *looks exactly like an antenna problem*. The
    🏠 stationary rig has mains behind it and more slack.
+   ➡️ [BUILD.md §3d](BUILD.md#3d--the-second-radio--either-rig) part 14.
 2. ⛔ **Set unique serials** — `rtl_eeprom -d 0 -s 1090`, and so on. Otherwise USB enumeration
    order shuffles at boot and your decoder grabs the airband dongle. This is *the* classic
    multi-dongle bug, and it presents as **"ADS-B stopped working for no reason"**.

@@ -1,6 +1,13 @@
 # ⛔ Per-station config. Holds a position (a home address) and feeder/uploader
 #    credentials. This entry is the reason the rest of the repo can be public.
-config/station.yml
+#
+# ⚠️ Ignore every station*.yml and allow the two templates back by name, rather
+#    than ignoring one filename. A real config named after the template it came
+#    from (station.portable.yml) is the obvious mistake, and it must not be a
+#    committable one.
+config/station*.yml
+!config/station.portable.example.yml
+!config/station.stationary.example.yml
 config/*.local.yml
 
 # Captured data never belongs in the repo
