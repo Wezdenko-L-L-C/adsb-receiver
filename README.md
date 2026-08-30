@@ -52,8 +52,9 @@ Presents as "ADS-B stopped working for no reason."
 
 | | |
 |---|---|
+| [`docs/PLAN.md`](docs/PLAN.md) | ⭐ **The why** — the architecture as one base plus radio slots, what the real constraints are, and what was rejected |
 | [`docs/BUILD.md`](docs/BUILD.md) | The rig end to end — Pi choice, parts, power, drivers, GPS/RTC, software, build order |
-| [`docs/RADIOS.md`](docs/RADIOS.md) | The second radio — airband/ATC audio and ACARS/VDL2, antennas, legality, multi-dongle pitfalls |
+| [`docs/RADIOS.md`](docs/RADIOS.md) | The second radio — airband/ATC audio and ACARS/VDL2, antennas, legality, multi-dongle pitfalls. ⚠️ Currently behind [`PLAN.md §1`](docs/PLAN.md#1-one-base-several-radio-slots) |
 | [`config/station.portable.example.yml`](config/station.portable.example.yml) | 🎒 Template for the per-station settings that must **not** be committed |
 | [`config/station.stationary.example.yml`](config/station.stationary.example.yml) | 🏠 The same, for the rig that stays put |
 
