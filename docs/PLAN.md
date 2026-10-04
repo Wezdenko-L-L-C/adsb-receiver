@@ -298,9 +298,19 @@ Every step ends in a `verify` that checks **what the step was for, not the setti
 
 | Checks this | Not this |
 |---|---|
-| `rtl_test -t` names the R828D and prints `RTL-SDR Blog V4 Detected` | `dpkg -l` shows the package |
+| ~~`rtl_test -t` names the R828D and prints `RTL-SDR Blog V4 Detected`~~ *`rtl_test -t` opens a device and names its tuner. An R828D must come with `RTL-SDR Blog V4 Detected`, and a V4 line on any other tuner fails. Any other tuner passes, with a warning that is louder when `rtl_eeprom` claims Blog or V4. Interim; see the 2026-10-04 update below* | `dpkg -l` shows the package |
 | `chronyc tracking` reports an offset inside `clock.max_offset_ms` | `systemctl is-active chrony` |
 | `aircraft.json` is advancing | `systemctl is-active readsb` |
+
+**Update 2026-10-04: an interim ruling.** The first row did not describe the verify in
+`setup/steps/00-drivers.sh`. That verify does fail an R828D with no V4 line, the
+[BUILD.md §4](BUILD.md#4-drivers-first) silent failure. But it passes any other tuner, such as the
+R820T on the stick in [§9j](#9j--verified-on-hardware-2026-10-03), with a warning, and exits 0.
+**(Chris), 2026-10-04:** the code stands and the row changes, *"I do not have a genuine V4 yet so the
+later while waiting for a genuine V4"* ("the later" being the code's behavior). A verify that
+required the R828D would fail on the only stick in hand. ⚠️ **This holds only while no genuine V4 is
+in hand.** Whether the verify goes back to requiring the R828D and the V4 line once one is, is not
+yet ruled.
 
 The verify prints its raw evidence and exits non-zero on failure. `--verify` runs the check on its
 own.
@@ -463,6 +473,25 @@ Chris pasted this output from the 🎒 portable rig, a Pi 4 (4 GB) with hostname
 - `python3` imports `yaml`.
 - ⚠️ **`apt policy readsb` shows `readsb` 3.14.1630+git20240609.adc080d-1 in Debian trixie
   `main`.** This corrects a belief from the consultation that `readsb` is not packaged.
+  - **Update 2026-10-04: packaged, but built without RTL-SDR support.** ⚠️ *Packaged* does not mean
+    *usable here.* Not from the rig: the trixie package was downloaded from deb.debian.org and
+    inspected. Its arm64 `Depends` are `libc6, libncurses6, libtinfo6, libzstd1, zlib1g, adduser`,
+    with no `librtlsdr0`. The binary's `NEEDED` libraries are `libm`, `libzstd`, `libz`,
+    `libncurses`, `libtinfo` and `libc`, with no `librtlsdr`. Its help lists the device types
+    `modesbeast`, `gnshulc` and `ifile`, and has no RTL-SDR options section. The cause is in the
+    source package: `debian/rules` sets `RTLSDR=yes` only when the build profile `rtlsdr` is in
+    `DEB_BUILD_PROFILES`, and the archive build does not use it. ➡️ **trixie's packaged `readsb`
+    cannot drive an RTL-SDR at all.**
+  - ➡️ **(Chris), 2026-10-04:** *"We build from source, but add it to an sh install for the pi -
+    lets make this easy on ourselves."* **`readsb` is built from source, at a pinned commit, with
+    RTL-SDR support, against the packaged `librtlsdr` 2.0.2, and never installed from apt.** The
+    build is scripted in the step script the Pi runs, `10-decoder`, not done by hand. `tar1090`
+    stays pinned by SHA.
+  - ℹ️ Debian forky and sid carry `readsb` 3.16-2, whose arm64 `Depends` do include `librtlsdr0`
+    (plus `libbladerf2`, `libhackrf0`, `libsoapysdr0.8`, `libiio0` and `libad9361-0`). trixie does
+    not. On an upgrade to forky the apt package would become a working RTL-SDR decoder, and the
+    [BUILD.md §4](BUILD.md#4-drivers-first) concern about apt pulling in a library would apply to it
+    again.
 - `tar1090` is **not** packaged (*"Unable to locate package"*).
 - The `rtl-sdr` package installed **no** modprobe blacklist file. A grep of `/etc/modprobe.d` and
   `/usr/lib/modprobe.d` for `rtl28xxu` found nothing.
@@ -567,8 +596,9 @@ tell you whether the rig is fine or nobody looked.
 
 | Where | Now says | Needs |
 |---|---|---|
-| BUILD.md §7 / §8 step 1 | — | `10-decoder` may install `readsb` from apt (whether the 2024 snapshot is current enough is still to decide) and pin only `tar1090`'s installer by SHA |
-| BUILD.md §4 | ⚠️ "Installing either from `apt` can quietly pull an old one back in" | Re-examine. On trixie the packaged `readsb` links the same 2.0.2 library ([§9j](#9j--verified-on-hardware-2026-10-03)) |
+| BUILD.md §7 / §8 step 1 | — | `10-decoder` ~~may install `readsb` from apt (whether the 2024 snapshot is current enough is still to decide) and pin only~~ *builds `readsb` from source at a pinned commit, with RTL-SDR support, against the packaged `librtlsdr` 2.0.2, and does not install it from apt (2026-10-04, [§9j](#9j--verified-on-hardware-2026-10-03)). It pins* `tar1090`'s installer by SHA |
+| BUILD.md §4 | ⚠️ "Installing either from `apt` can quietly pull an old one back in" | Re-examine. ~~On trixie the packaged `readsb` links the same 2.0.2 library ([§9j](#9j--verified-on-hardware-2026-10-03))~~ *Corrected 2026-10-04: on trixie the packaged `readsb` links no `librtlsdr` at all. It is built without RTL-SDR support and cannot drive the stick ([§9j](#9j--verified-on-hardware-2026-10-03)). Lines 149 and 153–154 make the same linking claim. On forky, whose `readsb` 3.16-2 depends on `librtlsdr0`, the concern applies again* |
+| README "The three traps that cost the most time", trap 1, lines 39–40 | "`readsb`/`dump1090-fa` link against it, so installing either from `apt` can quietly undo the fix" | *Added 2026-10-04.* The same correction as the BUILD.md §4 row above: on trixie the packaged `readsb` links no `librtlsdr` and cannot drive an RTL-SDR ([§9j](#9j--verified-on-hardware-2026-10-03)) |
 | BUILD.md §4, lines 169–171 | "If it says R820T2, or reports nothing, the old driver is still in the path" | The inference "R820T2 means the old driver" is wrong in at least one case. A stick reporting R820T on a current library may be a counterfeit, not an old driver ([§9j](#9j--verified-on-hardware-2026-10-03)) |
 | README "The three traps that cost the most time" / BUILD.md §3a parts table, row 3 | — | Warn that counterfeit V4s are sold, Amazon included ([§9j](#9j--verified-on-hardware-2026-10-03)). The check is `rtl_eeprom` (its Manufacturer and Product strings) plus `rtl_test` naming the R828D. Buy from RTL-SDR Blog or a seller listed on rtl-sdr.com |
 | BUILD.md §7 | "uploader (yours to write)" | It ships in this repo |
