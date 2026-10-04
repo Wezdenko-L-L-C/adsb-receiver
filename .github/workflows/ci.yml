@@ -65,3 +65,8 @@ jobs:
             grep -qE '^verify\(\)' "$f"    || { echo "::error file=$f::has no verify() function"; bad=1; }
           done
           exit "$bad"
+
+      - name: every Markdown anchor names a heading
+        # Emoji and em-dashes in headings make GitHub's anchors double-hyphened, and a broken
+        # anchor fails silently. Why, in the script's header.
+        run: python3 .github/scripts/check-anchors.py
