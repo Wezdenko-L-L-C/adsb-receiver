@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#
+# clock-preflight: is the system clock disciplined, and close enough, to record
+# now? PLAN §9i, BUILD.md §7 rule 4. Installed by setup/steps/20-portable-clock.sh
+# to /usr/local/bin/clock-preflight (copied, so it runs outside the clone).
+# Runs as root, because station.yml is root-only. Takes no arguments.
+#
+# The readiness tier (PLAN §9c). Its exit codes are a fixed interface (PLAN §9i):
+#   0  ready: disciplined, and |offset| <= clock.max_offset_ms; or, with
+#      clock.require_disciplined: false, undisciplined and allowed by the config
+#   2  not ready; the reason is printed: chrony has no reference
+#      (unsynchronized, or only its local clock), no source is selected, or
+#      the offset is over the bar
+#   1  the check itself could not run: not root, station.yml unreadable or
+#      its clock keys missing or invalid, chronyc missing, or chronyc failing
+# It prints its raw evidence.
+#
+# ⭐ Ready on ANY disciplined source: NTP at home, GPS in the field. That is
+#    Chris's reading of BUILD.md §7 rule 4, 2026-10-04: the rule is
+#    "disciplined", and GPS is required in the field by construction, because
+#    there is no network there. So the preflight stays role-neutral, and the
+#    stationary rig's clock step can install it too. It does not read
+#    station.role.
+# ⚠️ With clock.source: gps it also WARNS, loudly, when chronyc sources lists
+#    no GPS refclock or lists it with reach 0, so a dead puck is caught at
+#    home, where NTP keeps the rig ready, without refusing to record. A
+#    warning, never an exit code.
+#
+# What "disciplined" means here, all three:
+#   - `chronyc tracking` names a reference that is neither 00000000 (none) nor
+#     7F7F0101 (chrony's local clock);
+#   - its Leap status is not "Not synchronised";
+#   - `chronyc sources` marks a source selected ('*').
+# The offset judged is tracking's "System time" line: chrony's estimate of how
+# far the system clock is from true time now. It means nothing while chrony
+# has no reference, so it is judged only when the clock is disciplined.
+#
+# ⚠️ A known limit: chrony keeps a source selected ('*') for several polls
+#    after it falls silent, until its reach decays. In that window a puck that
+#    has just died still reads as disciplined. Nothing here shortens it.
+#
+# Self-contained: installed outside the repo, it cannot source setup/lib.sh.
+
+set -euo pipefail
+# Any failure not handled below means the check could not run: exit 1, never a
+# stray code that a caller would misread (PLAN §9i).
+trap 'printf "xx  CHECK FAILED TO RUN: unexpected failure at line %s\n" "$LINENO" >&2; exit 1' ERR
+
+STATION=/etc/adsb-receiver/station.yml
+
+log()      { printf '==> %s\n' "$*"; }
+warn()     { printf '!!  WARNING: %s\n' "$*" >&2; }
+cantrun()  { printf 'xx  CHECK FAILED TO RUN: %s\n' "$*" >&2; exit 1; }
+notready() { printf 'xx  NOT READY: %s\n' "$*" >&2; exit 2; }
+
+# --- Can the check run? -> 1 ---------------------------------------------------
+
+((EUID == 0)) || cantrun "run as root"
+for t in python3 chronyc awk; do
+  command -v "$t" >/dev/null || cantrun "$t is not installed"
+done
+[[ -r $STATION ]] || cantrun "cannot read $STATION; run setup/steps/05-config.sh"
+
+cfg=$(python3 - "$STATION" <<'PY'
+import math, sys, yaml
+try:
+    with open(sys.argv[1]) as fh:
+        doc = yaml.safe_load(fh)
+except Exception as e:
+    print(f"{sys.argv[1]} does not parse: {e}", file=sys.stderr)
+    sys.exit(1)
+clock = doc.get("clock") if isinstance(doc, dict) else None
+if not isinstance(clock, dict):
+    print(f"{sys.argv[1]} has no clock: block", file=sys.stderr)
+    sys.exit(1)
+m, r, s = clock.get("max_offset_ms"), clock.get("require_disciplined"), clock.get("source")
+# bool is an int in Python; a YAML true is not a number of milliseconds. YAML
+# also parses .inf and .nan as floats.
+if isinstance(m, bool) or not isinstance(m, (int, float)) or not math.isfinite(m) or m <= 0:
+    print(f"{sys.argv[1]}: clock.max_offset_ms must be a positive, finite number, not {m!r}", file=sys.stderr)
+    sys.exit(1)
+if not isinstance(r, bool):
+    print(f"{sys.argv[1]}: clock.require_disciplined must be true or false, not {r!r}", file=sys.stderr)
+    sys.exit(1)
+print(m)
+print("true" if r else "false")
+print(s if isinstance(s, str) else "")
+PY
+) || cantrun "could not read clock.max_offset_ms and clock.require_disciplined from $STATION"
+max_ms='' require='' source=''
+{ read -r max_ms; read -r require; read -r source; } <<<"$cfg"
+log "station.yml: clock.max_offset_ms $max_ms, clock.require_disciplined $require, clock.source ${source:-(unset)}"
+
+# -n: numeric addresses, so no DNS lookup can stall or fail the check.
+tracking=$(chronyc -n tracking 2>&1) || { printf '%s\n' "$tracking" >&2; cantrun "chronyc tracking failed; is chrony running? (systemctl status chrony)"; }
+sources=$(chronyc -n sources 2>&1) || { printf '%s\n' "$sources" >&2; cantrun "chronyc sources failed; is chrony running? (systemctl status chrony)"; }
+log "chronyc -n tracking (raw output follows)"
+printf '%s\n' "$tracking"
+echo "----"
+log "chronyc -n sources (raw output follows)"
+printf '%s\n' "$sources"
+echo "----"
+
+# field <label>: the value after "<label> : " in the tracking output.
+field() {
+  awk -v k="$1" -F' : ' '{ sub(/[[:space:]]+$/, "", $1) } $1 == k { print $2; exit }' <<<"$tracking"
+}
+refid_line=$(field 'Reference ID')
+leap=$(field 'Leap status')
+systime=$(field 'System time')
+[[ -n $refid_line && -n $leap && -n $systime ]] \
+  || cantrun "chronyc tracking printed no Reference ID, Leap status or System time line; see above"
+refid=${refid_line%% *}
+
+# "0.000325977 seconds slow of NTP time": the magnitude in ms. Fast or slow,
+# the bar is on |offset|.
+offset_ms=$(awk '$2 == "seconds" && $1 ~ /^[0-9.]+$/ { printf "%.3f", $1 * 1000; ok = 1 } END { exit !ok }' <<<"$systime") \
+  || cantrun "could not parse the System time line: '$systime'"
+selected=$(grep -E '^.\*' <<<"$sources" | head -n1) || true
+
+# The GPS refclock's health, on a rig whose clock.source is gps (R3 above).
+# Refclock lines start '#'; Reach is the fifth column, in octal.
+if [[ $source == gps ]]; then
+  gps_line=$(grep -E '^#.[[:space:]]+GPS[[:space:]]' <<<"$sources" | head -n1) || true
+  gps_reach=$(awk '{ print $5 }' <<<"$gps_line")
+  if [[ -z $gps_line || $gps_reach == 0 ]]; then
+    warn "################################################################"
+    if [[ -z $gps_line ]]; then
+      warn "chronyc sources lists NO GPS refclock, and clock.source is gps."
+    else
+      warn "The GPS refclock has reach 0: chrony has had no sample from the puck."
+    fi
+    warn "Check the puck (gpspipe -r -n 5) before going out: in the field"
+    warn "there is no network, and GPS is the only source. Not refusing."
+    warn "################################################################"
+  else
+    log "the GPS refclock: reach $gps_reach (octal)"
+  fi
+fi
+
+why=()
+if [[ $refid == 00000000 ]]; then
+  why+=("chrony has no reference (Reference ID 00000000)")
+elif [[ ${refid^^} == 7F7F0101 ]]; then
+  why+=("chrony's reference is its own local clock (7F7F0101), not a real source")
+fi
+# chrony's own spelling.
+if [[ $leap == "Not synchronised" ]]; then
+  why+=("Leap status is '$leap'")
+fi
+if [[ -z $selected ]]; then
+  why+=("chronyc sources marks no source selected ('*')")
+fi
+reasons=$(printf '%s; ' "${why[@]}")
+reasons=${reasons%; }
+
+if ((${#why[@]} > 0)); then
+  if [[ $require == true ]]; then
+    notready "the clock is not disciplined: $reasons. Under the sky, a GPS fix can take a minute or more; at a house, check the network"
+  fi
+  # No offset is judged or printed as meaningful: with no reference, chrony's
+  # System time line measures nothing.
+  warn "the clock is NOT disciplined: $reasons"
+  warn "Exiting 0 only because clock.require_disciplined is false in $STATION. The offset is not judged: with no reference it means nothing"
+  exit 0
+fi
+
+log "disciplined: reference $refid_line; selected source $(awk '{ print $2 }' <<<"$selected")"
+log "offset: $systime = ${offset_ms} ms; the bar is ${max_ms} ms"
+if awk -v o="$offset_ms" -v m="$max_ms" 'BEGIN { exit !(o > m) }'; then
+  notready "the system clock is ${offset_ms} ms off, over clock.max_offset_ms (${max_ms} ms)"
+fi
+
+log "READY: disciplined, offset ${offset_ms} ms within ${max_ms} ms"
+exit 0

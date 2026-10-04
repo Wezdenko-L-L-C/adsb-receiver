@@ -10,8 +10,6 @@
 #   setup/steps/30-archive-drive.sh            install, then verify
 #   setup/steps/30-archive-drive.sh --verify   verify only
 #
-# As of 2026-10-04, nothing in this step has run on hardware.
-#
 # ⛔ It never formats anything. Formatting is a human gate (PLAN §9m): with no
 #    ext4 filesystem carrying archive.label, it prints the commands and exits
 #    non-zero. It runs no mkfs, and tune2fs only to read (-l).
@@ -160,8 +158,10 @@ install_mount_point() {
   fi
   guard_path "$MP"
   [[ -d $MP ]] || run mkdir -p "$MP"
-  # ⚠️ 0555 stops only a writer that is not root (PLAN §9m). The real guards are
-  #    the preflight and the writer's RequiresMountsFor=.
+  # ⚠️ 0555 stops only a writer that is not root (PLAN §9m). The other guard is
+  #    archive-preflight, which the writer's unit runs before every start: the
+  #    unit only Wants= the mount (step 40), so the preflight's refusal is what
+  #    keeps it off the SD card.
   if [[ $(stat -c '%U:%G %a' "$MP") == "root:root 555" ]]; then
     log "$MP is root:root 0555"
   else
@@ -313,7 +313,8 @@ verify() {
     || die "$MP is mounted nobarrier; the design needs barriers on (PLAN §9m). Remove it from the mount options"
 
   # The labeled filesystem mounted anywhere else too, for instance a desktop
-  # auto-mount under /media. ⚠️ Unverified whether the Pi's image auto-mounts.
+  # auto-mount under /media. Pi OS Lite was seen not to auto-mount the drive
+  # (PLAN §9m); the check stays for an image or a desktop that does.
   local targets others
   targets=$(findmnt -nr -o TARGET --source "$DEV") || true
   log "findmnt --source $DEV: every mount of the drive (raw output follows)"

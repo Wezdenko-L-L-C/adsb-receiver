@@ -11,8 +11,6 @@
 #   setup/steps/05-config.sh            install, then verify
 #   setup/steps/05-config.sh --verify   verify only
 #
-# As of 2026-10-04, nothing in this step has run on hardware.
-#
 # What it installs:
 #   - config/station.yml -> /etc/adsb-receiver/station.yml, root:root 0600.
 #   - Group adsb-operator (system). Its members are meant to read and delete

@@ -30,7 +30,6 @@
 #    item 3); the record lands there later. This script writes no status.json.
 #
 # Self-contained: installed outside the repo, it cannot source setup/lib.sh.
-# As of 2026-10-04, nothing in it has run on hardware.
 
 set -euo pipefail
 # Any failure not handled below means the check could not run: exit 1, never a
