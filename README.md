@@ -1,8 +1,10 @@
 # adsb-receiver
 
-Build notes for a pair of Raspberry Pi ADS-B receivers: one that travels, one that stays put.
+How to build a pair of Raspberry Pi ADS-B receivers, one that travels and one that stays put, and
+the software that runs them.
 
-This is a **build guide**, not a distribution. It exists because most ADS-B instructions stop at
+This is a **build guide that ships its own software**. ⚠️ The software is not written yet; see
+[Status](#status). The guide exists because most ADS-B instructions stop at
 "it decodes aircraft" — and the failures that cost real time happen after that point, silently, in
 ways that look like a bad antenna.
 
