@@ -245,15 +245,21 @@ change. ➡️ [§9k](#9k-the-first-deliverable-in-order) item 1 is done.
   `yaml`, the role checks of [§9b](#9b-one-bash-script-per-build-step), and the
   [§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away) denylist. A
   `systemctl` wrapper, `unit`, refuses denylisted units, and `00-drivers.sh` calls it. A write
-  guard, `guard_path`, is defined, but no step calls it yet.
+  guard, `guard_path`, is defined~~, but no step calls it yet~~. *Corrected 2026-10-04: since commit
+  `47ed4ed`, `05-config` and `30-archive-drive` call it on the paths they install.*
 - `00-drivers.sh` installs `rtl-sdr` from apt, and its verify reads the output of `rtl_test -t` and
   `rtl_eeprom`.
 - CI runs `bash -n`, `shellcheck`, the §9h denylist grep, and a check that every step has a
-  `verify` and takes `--verify`. ⚠️ **The arm64 trixie dry run and the job that fast-forwards
+  `verify` and takes `--verify`. *Update 2026-10-04: it now also runs the check that a role-gated
+  step calls `require_role` first (commit `47ed4ed`, [§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable))
+  and a check that every Markdown anchor names a heading, and `bash -n` and `shellcheck` now cover
+  `bin/` as well as `setup/`.* ⚠️ **The arm64 trixie dry run and the job that fast-forwards
   `stable`, both in [§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable), are not
   built.** The workflow marks both as TODO for §9k item 3.
-- Still not written: `bin/`, `setup/foundation/`, `05-config`, `10-decoder`, `update.sh`, the
-  timers, `status.json`, and the clock steps.
+- Still not written: ~~`bin/`,~~ `setup/foundation/`, ~~`05-config`,~~ `10-decoder`, `update.sh`, the
+  timers, `status.json`, and the clock steps. *Corrected 2026-10-04: commit `47ed4ed` wrote
+  `05-config`, `30-archive-drive` and `bin/archive-preflight`
+  ([§9m](#9m--the-portable-rigs-archive-drive)). `bin/clock-preflight` is still not written.*
 
 `00-drivers.sh` has been run once, on the 🎒 portable rig on 2026-10-03. Its verify failed when the
 stick dropped off the USB bus during the check. ⚠️ That run is not recorded in §9j: its output was
@@ -292,8 +298,10 @@ is one script in `setup/steps/NN-*.sh`, and shared helpers go in `setup/lib.sh`.
   setting the wrong half makes a step fail.
 - ⛔ **No `--role` flag anywhere.** The role comes from the config the rig already carries.
 
-**Update 2026-10-04: how `update.sh` skips the other role's steps. (Chris), 2026-10-04.** 📋 Not
-built. `update.sh` runs the candidate's steps ([§9f](#9f-what-updatesh-does)), and a role-specific
+**Update 2026-10-04: how `update.sh` skips the other role's steps. (Chris), 2026-10-04.** ~~📋 Not
+built.~~ *Half built, corrected 2026-10-04: the `lib.sh` half, `--skip-other-role` and
+`ADSB_RC_OTHER_ROLE`, and CI's check that `require_role` comes first, are in commit `47ed4ed`.
+`update.sh`, which is to use them, is not built.* `update.sh` runs the candidate's steps ([§9f](#9f-what-updatesh-does)), and a role-specific
 step dies in `require_role` on the other rig. Without a rule for that, every update on one rig would
 fail on the other rig's steps.
 
@@ -356,7 +364,10 @@ the rule. The reason: `update.sh` runs every step's verify ([§9f](#9f-what-upda
 verify for the pull step that started the pull window would end a session, and trigger an update
 from inside an update ([§9m](#9m--the-portable-rigs-archive-drive)).
 
-**Update 2026-10-04: two tiers, checked by two programs. (Chris), 2026-10-04.** 📋 Not built.
+**Update 2026-10-04: two tiers, checked by two programs. (Chris), 2026-10-04.** ~~📋 Not built.~~
+*Partly built, corrected 2026-10-04: `bin/archive-preflight` is in commit `47ed4ed`, and
+`30-archive-drive`'s verify invokes it, treating `0` and `2` as a pass and `1` as a failure.
+`bin/clock-preflight` is not in `47ed4ed`.*
 
 - **A step's `--verify` checks the install tier:** what the step put in place is in place and
   wired, observed by effects that depend on nothing outside the rig.
@@ -517,7 +528,8 @@ the portable has ever run it.
 
 **Update 2026-10-04: CI and the role skip. (Chris), 2026-10-04.**
 
-- 📋 **Now:** one cheap check. In every step that contains `require_role`, the first non-comment
+- ~~📋~~ **Now:** one cheap check. *Built 2026-10-04, in commit `47ed4ed`: the `ci.yml` step "a
+  role-gated step calls require_role first".* In every step that contains `require_role`, the first non-comment
   command after `parse_args` and `require_root` is the `require_role` call
   ([§9b](#9b-one-bash-script-per-build-step)). The two existing checks, the denylist grep and the
   check that every step has a `verify` and takes `--verify`, do not change. `--skip-other-role` is
@@ -540,13 +552,15 @@ boot disk live in `setup/foundation/`. Those scripts are run by hand, and they a
 
 | Paths | Units |
 |---|---|
-| `/boot/firmware`, `/etc/network*`, `/etc/NetworkManager`, `/etc/systemd/network`, `/etc/ssh`, `/etc/apt/sources.list*`, 📋 *`/etc/fstab` (decided 2026-10-04, not yet in `lib.sh`; see below)* | `tailscaled`, `ssh`, `NetworkManager` |
+| `/boot/firmware`, `/etc/network*`, `/etc/NetworkManager`, `/etc/systemd/network`, `/etc/ssh`, `/etc/apt/sources.list*`, ~~📋~~ *`/etc/fstab` (decided 2026-10-04, ~~not yet in `lib.sh`~~ in `lib.sh` since commit `47ed4ed`; see below)* | `tailscaled`, `ssh`, `NetworkManager` |
 
 **Update 2026-10-04: `/etc/fstab` joins the denylist.** **(Chris), 2026-10-04.** It is a guard: no
 step writes `/etc/fstab` under the archive-drive design, which mounts the drive with a systemd mount
 unit instead ([§9m](#9m--the-portable-rigs-archive-drive)). ⚠️ **`ADSB_DENY_PATHS` in `setup/lib.sh`
-must change with this table, and has not yet.** Its comment says the list is written as in this
-table, and CI reads that array, so until it changes the CI grep does not check for `/etc/fstab`.
+must change with this table~~, and has not yet~~.** Its comment says the list is written as in this
+table, and CI reads that array~~, so until it changes the CI grep does not check for `/etc/fstab`~~.
+*Corrected 2026-10-04: `ADSB_DENY_PATHS` gained `/etc/fstab` in commit `47ed4ed`, so the CI grep of
+`setup/steps/` now checks for it.*
 
 **Update 2026-10-04: a step installs a sudoers drop-in.** ⚠️ The 🎒 portable's pull step,
 `NN-portable-pull.sh`, installs `/etc/sudoers.d/adsb-receiver`
@@ -619,8 +633,12 @@ from `readsb` on an RTL-SDR carry a 12 MHz MLAT counter rather than UTC. If that
 has to supply wall time itself. ➡️ Settle it on the bench before designing the writer: capture port
 30005 and compare the frame timestamps against `date`.
 
-**Update 2026-10-04: the archive drive.** 📋 Decided, not built; see
-[§9m](#9m--the-portable-rigs-archive-drive).
+**Update 2026-10-04: the archive drive.** 📋 Decided, ~~not built~~ *partly built*; see
+[§9m](#9m--the-portable-rigs-archive-drive). *Corrected 2026-10-04: commit `47ed4ed` built the mount
+at `/var/lib/adsb-receiver/archive` (`30-archive-drive`), the portable template's `spool_dir` on the
+drive, the `tmpfiles.d` entry for `/run/adsb-receiver` and the recording lock file (`05-config`),
+and `bin/archive-preflight` with the exit codes below. The writer, and with it the storage contract,
+is not built, and `bin/clock-preflight` is not in `47ed4ed`.*
 
 - `/var/lib/adsb-receiver/archive` becomes a mount point. On the 🎒 portable rig it is where the
   archive drive is mounted. How the 🏠 stationary rig's SSD backs it is not decided.
@@ -733,7 +751,8 @@ on the stock 2.0.2 library.
 ### 9k. The first deliverable, in order
 
 1. `setup/lib.sh` + `setup/steps/00-drivers.sh` + the CI workflow, **in one change.**
-2. `05-config` + `10-decoder`.
+2. `05-config` + `10-decoder`. *Half done, 2026-10-04: `05-config` is built, widened as in
+   [§9m](#9m--the-portable-rigs-archive-drive), in commit `47ed4ed`. `10-decoder` is not.*
 3. `update.sh` + the timers + `status.json` + the job that advances `stable`.
 4. `20-portable-clock` + `clock-preflight`.
 
@@ -846,8 +865,31 @@ day. Chris accepted it, and that acceptance is the decision, as in
 [§9](#9-the-software-step-scripts-run-from-a-clone-on-the-pi-updating-themselves). The choices he
 made himself are marked **(Chris)**.
 
-📋 **None of this exists yet.** No step, preflight, mount unit, template change or writer has been
-written. Every mechanism below is decided, not built.
+📋 **~~None of this exists yet.~~** ~~No step, preflight, mount unit, template change or writer has been
+written. Every mechanism below is decided, not built.~~ *Part of it is built; see the 2026-10-04
+update below.*
+
+**Update 2026-10-04: what is built.** Commit `47ed4ed`, the afternoon of the day this section was
+decided, built:
+
+- `setup/steps/05-config.sh`, widened as in the steps below.
+- `setup/steps/30-archive-drive.sh`, which renders and installs the mount unit and its drop-in.
+- `bin/archive-preflight`.
+- The `setup/lib.sh` changes: `--skip-other-role` and `ADSB_RC_OTHER_ROLE`
+  ([§9b](#9b-one-bash-script-per-build-step)), and `/etc/fstab` in `ADSB_DENY_PATHS`.
+- The template changes, portable and stationary, as in the templates paragraph below.
+- CI's check that a role-gated step calls `require_role` first
+  ([§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable)).
+
+📋 **Still not built:** the writer and its unit, the pull window, the sudoers drop-in, the pull
+wrapper, `NN-portable-pull`, `update.sh`, `status.json`, and the login banner. The choices the build
+made where this section left them open, and the first run on hardware, are at the end of this
+section.
+
+⭐ **(Chris), 2026-10-04: the field-loss rule.** *"we may need to pivot if these decisions cause
+issues recording in the field (losing the data from one days shooting is ok as long as it is fixed,
+losing it continuously is not acceptable)."* ➡️ This is the test for revisiting today's choices: one
+lost day that gets fixed is acceptable; a failure that keeps losing data is not.
 
 **What it is for.** **(Chris), 2026-10-03:** both rigs archive everything, for matching to
 photographs by UTC time. **(Chris), 2026-10-04:** each rig saves to its own disk, and the data is
@@ -868,7 +910,9 @@ below), and it detects corruption: `errors=remount-ro`, an fsck on every mount, 
 checklist.
 
 **The filesystem: ext4,** in its default `data=ordered` mode, mounted `noatime,errors=remount-ro`,
-with barriers on and journal checksums (confirm with `tune2fs -l`). No `discard`: continuous TRIM
+with barriers on and journal checksums (~~confirm with `tune2fs -l`~~ *confirmed from the live mount,
+`findmnt` and `/proc/fs/ext4/<dev>/options`, not `tune2fs -l`; corrected 2026-10-04, see the build
+choices at the end of this section*). No `discard`: continuous TRIM
 over USB mass storage is often unsupported, and it can stall a cheap controller. The weekly
 `fstrim.timer` is the safe alternative, because it skips a device without TRIM. Rejected: exFAT, which has no journal **(Chris)**; f2fs,
 whose repair tool is unfamiliar, for a workload that is sequential; btrfs, because CPU is the binding
@@ -876,11 +920,19 @@ constraint ([§3](#3--cpu-is-the-binding-constraint-not-power)) and this is a si
 ignore flushes; `data=journal`, which doubles the writes; a `sync` mount, for throughput and wear.
 
 **Formatting is a human gate.** A human formats the drive once, by hand: confirm the device with
-`lsblk`, run `mkfs.ext4 -L adsb-archive -m 0 /dev/sdX`, then `tune2fs -c 1`. ⛔ **No step ever runs
+`lsblk`, run ~~`mkfs.ext4 -L adsb-archive -m 0 /dev/sdX`, then `tune2fs -c 1`~~
+*`mkfs.ext4 -L adsb-archive -m 0 /dev/sdX1`, then `tune2fs -c 1 /dev/sdX1` (corrected 2026-10-04;
+see below)*. ⛔ **No step ever runs
 `mkfs`.** When the step finds no ext4 filesystem with the label, it prints the format command and
 exits non-zero. The reason is that [§9f](#9f-what-updatesh-does) runs the steps on every update,
 including on the remote stationary rig. Rejected: a step that formats when `blkid` shows no
 filesystem.
+
+**Update 2026-10-04: the partition, not the whole device. (Chris), 2026-10-04.** The format
+commands name partition 1, `/dev/sdX1`, not `/dev/sdX`. The drive came with an MBR partition table
+holding one partition, and formatting partition 1 keeps that table. Rejected: formatting the whole
+device. Whether formatting it over an existing table leaves a stale table was not verified, and was
+not tested. Step 30's format help prints the partition commands.
 
 **Found by its label,** `archive.label: adsb-archive` in `station.yml`, which is the template
 default. The preflight refuses if more than one block device carries the label. It is the
@@ -899,6 +951,14 @@ device timeout of about 10 s. No hot-plug and no automount: the drive is a fixtu
   does not pull in `systemd-fsck@` by itself. Verify on the Pi. The observable effect is a boot
   without the drive reaching the login banner in seconds, and `journalctl -u 'systemd-fsck@*'`
   showing a run.
+  - **Update 2026-10-04, after the first run on the 🎒 portable (at the end of this section).**
+    ✅ The explicit wiring works: on a remount,
+    `systemd-fsck@dev-disk-by\x2dlabel-adsb\x2darchive.service` ran, and e2fsck forced a check.
+    ⚠️ Still unverified: that a native mount unit does not pull in `systemd-fsck@` by itself. The
+    unit wires it explicitly, so this run cannot tell. ⚠️ Still unverified: the device timeout, a
+    drop-in on the device unit setting `JobRunningTimeoutSec=10s`, believed to match what fstab's
+    `x-systemd.device-timeout=` generates; and that a boot without the drive reaches the login
+    banner in seconds. Both wait on the pre-field checklist's boot with the drive pulled.
 - ⚠️ If the native unit cannot do both, the fallback is `/etc/fstab` with
   `nofail,x-systemd.device-timeout=10s`. That conflicts with the denylist ruling below, so it goes
   back to Chris.
@@ -928,6 +988,18 @@ prints its raw evidence, and checks:
 - It renames a torn `.part` to `.torn` (see the storage contract below).
 - It reports free space, and below `archive.min_free_gb` it warns that the writer will expire old
   files. ⛔ **It does not refuse on free space;** see the backstop below.
+  - **Update 2026-10-04: a full drive counts as ready.** Found in review: the write probe failed
+    with ENOSPC on a 100%-full drive, and the preflight exited `2`. That refused on space, and it
+    would have kept the writer, the one component that expires files, from ever starting, against
+    the ⛔ above and the backstop ruling below. Now, with under 1 MiB available or no free inodes,
+    the preflight warns loudly, skips the probe, and exits `0`. A probe that fails with ENOSPC is
+    excused the same way. Chris approved this on 2026-10-04. ⚠️ The ENOSPC path was simulated, not
+    seen on hardware.
+- **(Chris), 2026-10-04: it creates a missing `beast/` or `spool/`,** as
+  `adsb-receiver:adsb-operator 2770`, and reports it. A freshly formatted spare drive has neither, and
+  nothing else could create them: the root of the new ext4 filesystem is root-owned `0755`. So "a
+  spare drive formatted the same way works in the field with no config edit", above, was false as
+  designed. This makes it true.
 - **(Chris), 2026-10-04: it checks and repairs modes.** A `find` over `beast/` and `spool/` looks
   for anything not in group `adsb-operator`, a file without `g+r`, a directory without `g+rwx`, or a
   sticky bit. It reports and fixes each one (`chgrp`; `chmod g+rw` on files and `chmod g+rwx` on
@@ -956,6 +1028,10 @@ rejection of choosing the writer's language now stands.
 - **(Chris), 2026-10-04:** everything the writer creates on the drive is in group `adsb-operator`.
   Files are group-readable, directories are group-writable and traversable, and nothing has a
   sticky bit. ⚠️ The pull depends on it.
+- ⚠️ **OPEN, for the writer's design (added 2026-10-04).** The preflight's guards against renaming a
+  live `.part` (see the build choices at the end of this section) assume that the writer either
+  holds its `.part` open or runs as `adsb-writer.service`. The contract does not say so yet. It also
+  does not say whether the writer reuses a 10-minute file name after a crash.
 - ➡️ The names use wall time, so the contract does not depend on §9i's open item about the time in
   a BEAST frame.
 
@@ -1104,7 +1180,8 @@ recording session ([§9c](#9c-every-step-ends-in-a-check-of-the-observable-effec
   reason it lives here: the 🏠 stationary rig needs the same user whatever its open question
   decides, so a step gated to the portable cannot own it.
   - `--verify`: `id adsb-receiver` shows a system user with no login shell; `getent group
-    adsb-operator` lists the installing user; `/run/adsb-receiver` exists, with its mode, after
+    adsb-operator` ~~lists the installing user~~ *lists at least one member besides `adsb-receiver`
+    (corrected 2026-10-04; see the build choices at the end of this section)*; `/run/adsb-receiver` exists, with its mode, after
     `systemd-tmpfiles --create`.
 - **`setup/steps/30-archive-drive.sh`, portable-only for now,** after the `20-*-clock` steps and
   before the writer. It reads `archive.label` and `archive.min_free_gb`. It carries a dated
@@ -1119,8 +1196,11 @@ recording session ([§9c](#9c-every-step-ends-in-a-check-of-the-observable-effec
     and start the mount; `beast/` and `spool/`, chowned to `adsb-receiver:adsb-operator 2770`; and
     `bin/archive-preflight`. It creates no users or groups.
   - **`--verify`:** `findmnt` shows the path mounted from the labeled device, ext4, read-write; the
-    mount unit enabled and active; `tune2fs -l` showing the label, `errors=remount-ro` and a check
-    on every mount; `lsusb -t` showing the drive at 480M; `stat` showing `beast/` and `spool/` as
+    mount unit enabled and active; `tune2fs -l` showing the label~~, `errors=remount-ro`~~ and a check
+    on every mount; *the live mount's options showing `errors=remount-ro` (corrected 2026-10-04; see
+    the build choices at the end of this section)*; ~~`lsusb -t` showing the drive at 480M~~ *the
+    drive's USB link at 480 Mb/s, judged from the sysfs `speed` file of the USB device above the
+    block device, with `lsusb -t` printed raw beside it (corrected 2026-10-04)*; `stat` showing `beast/` and `spool/` as
     `adsb-receiver:adsb-operator 2770`; the preflight, probing as `adsb-receiver`; and `df -h`, raw.
     Nothing about a writer or an update. ➡️ The drive is install tier, so a dead drive stops updates
     from applying until it is replaced ([§9c](#9c-every-step-ends-in-a-check-of-the-observable-effect)).
@@ -1197,6 +1277,69 @@ mount. That belongs to the stationary build. ℹ️ **The consultation's lean, n
 `adsb-archive` partition on the SSD, so a full archive cannot fill the root filesystem and
 `errors=remount-ro` cannot take the OS read-only. The cost is one partition at foundation time.
 
+**Update 2026-10-04: the choices this section left open, made in the build.** Made in commit
+`47ed4ed`, and approved by Chris on 2026-10-04: he said he had no problem with them.
+
+- **`adsb-receiver`'s primary group is `adsb-operator`,** so anything it creates outside a setgid
+  directory is still in group `adsb-operator`.
+- **The `tmpfiles.d` entry also pre-creates the lock file,** `/run/adsb-receiver/recording.lock`,
+  `0644`, `adsb-receiver:adsb-operator`, beside the `0755` directory. So `update.sh` and the writer
+  never race to create it. ⚠️ That `flock(1)` can lock a file it opened read-only, which is what
+  makes `0644` enough for both, is a belief, not checked.
+- **The preflight is copied to `/usr/local/bin/archive-preflight`,** not run from the clone, because
+  `update.sh` will flip between two worktrees ([§9f](#9f-what-updatesh-does)), and a symlink into one
+  would follow the flip.
+- **`errors=remount-ro` and journal checksums are judged from the live mount,** `findmnt`'s options
+  and `/proc/fs/ext4/<dev>/options`, not from `tune2fs -l` as this section first worded it. The
+  format commands set neither in the superblock: `tune2fs -l` showed `Errors behavior: Continue`.
+  And on the Pi, `tune2fs`'s journal features read "none" while the kernel listed
+  `journal_checksum`. The two places above that said `tune2fs -l` for these are struck through.
+  ➡️ The same principle as [§9c](#9c-every-step-ends-in-a-check-of-the-observable-effect): check the
+  effect, not the setting. `tune2fs -l` is still read for the volume name and the maximum mount
+  count. A missing `journal_checksum` warns, and does not fail the verify.
+- **`min_free_gb: 4` on the 🎒 portable template,** read as GiB, the G that `df -h` prints. A
+  backstop, not a budget.
+- **The preflight never renames a `.part` that any process holds open,** found by a scan of
+  `/proc/*/fd`, **nor any `.part` while `adsb-writer.service` is active.** Only "active": the writer's
+  own `ExecStartPre=` run of the preflight sees "activating", and that boot-time run is the one that
+  should rename. On a name collision it uses `X.1.torn`, `X.2.torn`, and so on. ⚠️ These guards rest
+  on the OPEN item in the storage contract above.
+- **`05-config` repairs a wrong primary group or shell on an existing `adsb-receiver`, but never
+  renumbers it,** because files on the drive carry the UID. A UID outside the system range stops the
+  step, with a manual remedy.
+- **(Chris), 2026-10-04: the installing user is `$SUDO_USER`,** added only when it is set and is not
+  root. Under `update.sh` nobody is added, and the verify requires at least one member of
+  `adsb-operator` besides `adsb-receiver`. ⚠️ **The consequence: if the group empties, every update
+  fails `05-config`'s verify until someone runs the step by hand, with sudo.**
+
+**✅ Verified on hardware, 2026-10-04: the first run.** On the 🎒 portable rig, under Raspberry Pi
+OS Lite (trixie), from the pasted output:
+
+- **The format, by hand.** `mke2fs 1.47.2` reported *"/dev/sda1 contains a exfat file system
+  labelled 'USB DISK'"*, and wrote 15359992 4k blocks. `tune2fs` printed *"Setting maximal mount
+  count to 1"*.
+- **`05-config`.** The config was installed `root:root 600`. `getent` showed
+  `adsb-receiver:x:999:985::/nonexistent:/usr/sbin/nologin`, and `adsb-operator:x:985:` with the
+  installing user as its member. `/run/adsb-receiver` was `755` and the lock `644`, both
+  `adsb-receiver:adsb-operator`. Every check printed PASS.
+- **`30-archive-drive`.** `findmnt` showed
+  `/var/lib/adsb-receiver/archive /dev/sda1 ext4 rw,noatime,errors=remount-ro`. The mount unit was
+  enabled and active. `tune2fs` showed the volume name `adsb-archive` and a maximum mount count of 1.
+  The link was 480 Mb/s. `beast/` and `spool/` were `adsb-receiver:adsb-operator 2770`. The
+  preflight printed READY and exited `0`, with the probe ok. `df -h`: 58G, 2.1M used. Every check
+  printed PASS.
+- **The drive unmounted and pulled.** The preflight printed `NOT READY: no device is labeled
+  adsb-archive. Is the archive drive plugged in?` and exited `2`.
+- **The remount.** `systemd-fsck@dev-disk-by\x2dlabel-adsb\x2darchive.service` ran, and e2fsck
+  printed *"adsb-archive has been mounted 1 times without being checked, check forced"*, then passes
+  1–5. ✅ So the fsck on every mount works, and the explicit `Requires=` and `After=` on
+  `systemd-fsck@` run it.
+- **The group alone.** A fresh login, with no sudo, could list `beast/` (`drwxrws---`).
+- **The kernel's mount options.** `/proc/fs/ext4/<dev>/options` listed `journal_checksum`, `barrier`,
+  `data=ordered` and `nodiscard`.
+- **No auto-mount.** Pi OS Lite boots to `multi-user.target`, and udisks2 is installed, but nothing
+  auto-mounted the drive. Step 30's `findmnt --source` listed only the archive path.
+
 ### 📋 Consequences for the other docs (not yet made)
 
 | Where | Now says | Needs |
@@ -1211,7 +1354,7 @@ mount. That belongs to the stationary build. ℹ️ **The consultation's lean, n
 | BUILD.md §2 | "reachable over something like Tailscale" | Tailscale key expiry, and disabling it. ⚠️ The 180-day default is an unverified claim from the consultation |
 | BUILD.md §3c | Stationary parts list | Add a powered hub or a low-draw SSD enclosure, and a smart plug |
 | `config/station.stationary.example.yml` | — | Add `update.soak_days`, `notify.discord_webhook` and `notify.healthcheck_url`. ⛔ The portable template must not get them |
-| `config/station.stationary.example.yml` | `archive.path: /mnt/ssd/beast` | Reconcile with `/var/lib/adsb-receiver/archive` in [§9i](#9i-what-is-not-chosen-yet-the-writer-the-extractor-the-uploader). *Settled 2026-10-04 ([§9m](#9m--the-portable-rigs-archive-drive)), for both rigs: the path is the §9i interface path, and `archive.path` is replaced by a comment naming it. See the templates row below. What backs that path on the stationary rig is not decided* |
+| `config/station.stationary.example.yml` | `archive.path: /mnt/ssd/beast` | Reconcile with `/var/lib/adsb-receiver/archive` in [§9i](#9i-what-is-not-chosen-yet-the-writer-the-extractor-the-uploader). *Settled 2026-10-04 ([§9m](#9m--the-portable-rigs-archive-drive)), for both rigs: the path is the §9i interface path, and `archive.path` is replaced by a comment naming it. See the templates row below. What backs that path on the stationary rig is not decided. Done 2026-10-04, in commit `47ed4ed`* |
 | README "What is here" and "Status" | Docs and two templates; "Documentation, today" | `setup/`, and the software's state |
 | `.gitignore` | `config/*.local.yml`, with no comment | Document what it is for, or drop it |
 | BUILD.md §2, the **Job** row | 🎒 "Log tracks at the location you are shooting from"; 🏠 "Continuous archive, feeding, ACARS harvesting" | *Added 2026-10-04.* Both rigs archive everything, for matching to photographs by UTC time (**(Chris)**, 2026-10-03, [§9m](#9m--the-portable-rigs-archive-drive)) |
@@ -1220,11 +1363,11 @@ mount. That belongs to the stationary build. ℹ️ **The consultation's lean, n
 | BUILD.md §8 | No archive step | *Added 2026-10-04.* Name `30-archive-drive`, after the clock step and before the writer. Add formatting the drive as a human gate, and the 🎒 pre-field checklist ([§9m](#9m--the-portable-rigs-archive-drive)) |
 | BUILD.md §9, the heading and first line | "🏠 The archive, and feeding"; "⛔ This is the stationary rig's job, and it is why that rig exists." | *Added 2026-10-04.* The archive is no longer the stationary rig's alone: both rigs archive everything (**(Chris)**, 2026-10-03, [§9m](#9m--the-portable-rigs-archive-drive)) |
 | README "The idea worth stealing", the **Job** row, line 22 | 🏠 "Continuous archive, feeding aggregators, harvesting ACARS" | *Added 2026-10-04.* The same as the BUILD.md §2 row above: both rigs archive everything |
-| `config/station.portable.example.yml` and `config/station.stationary.example.yml` | Portable: no `archive:` block, `spool_dir: /var/lib/adsb-receiver/spool`. Stationary: `archive.path: /mnt/ssd/beast`, `archive.format: beast` | *Added 2026-10-04 ([§9m](#9m--the-portable-rigs-archive-drive)).* The portable gets an `archive:` block with `archive.label` (default `adsb-archive`) and `archive.min_free_gb`, and the BEAST ⛔ ([BUILD.md §9](BUILD.md#9--the-archive-and-feeding) item 2) as a comment. ⛔ The stationary does not get `archive.label` yet. The archive-drive step is portable-only until the stationary rig's SSD question is decided. The stationary changes in one place: `archive.path: /mnt/ssd/beast` is replaced by a comment naming the §9i interface path and pointing at that open question. ⛔ It keeps `enabled`, `format: beast` with its ⛔, `retention_days` and `min_free_gb`. The portable gets no `retention_days`, and says why: the pull moves the data off, and the `min_free_gb` backstop is the only other deletion. The portable's `uploader.spool_dir` becomes `/var/lib/adsb-receiver/archive/spool`. ⛔ The portable still must not get `update.soak_days` or `notify.*` |
+| `config/station.portable.example.yml` and `config/station.stationary.example.yml` | Portable: no `archive:` block, `spool_dir: /var/lib/adsb-receiver/spool`. Stationary: `archive.path: /mnt/ssd/beast`, `archive.format: beast` | *Added 2026-10-04 ([§9m](#9m--the-portable-rigs-archive-drive)).* The portable gets an `archive:` block with `archive.label` (default `adsb-archive`) and `archive.min_free_gb`, and the BEAST ⛔ ([BUILD.md §9](BUILD.md#9--the-archive-and-feeding) item 2) as a comment. ⛔ The stationary does not get `archive.label` yet. The archive-drive step is portable-only until the stationary rig's SSD question is decided. The stationary changes in one place: `archive.path: /mnt/ssd/beast` is replaced by a comment naming the §9i interface path and pointing at that open question. ⛔ It keeps `enabled`, `format: beast` with its ⛔, `retention_days` and `min_free_gb`. The portable gets no `retention_days`, and says why: the pull moves the data off, and the `min_free_gb` backstop is the only other deletion. The portable's `uploader.spool_dir` becomes `/var/lib/adsb-receiver/archive/spool`. ⛔ The portable still must not get `update.soak_days` or `notify.*`. *Done 2026-10-04, in commit `47ed4ed`, for both templates* |
 | BUILD.md §8 | No pull step | *Added 2026-10-04.* Name the 🎒 pull step, `NN-portable-pull`, after both the writer's step and `update.sh`'s step. Its number is not assigned yet ([§9m](#9m--the-portable-rigs-archive-drive)) |
 | README "What is here" | No `tools/` path | *Added 2026-10-04.* The new top-level `tools/` path for the pull wrapper. Its exact name is not chosen yet ([§9m](#9m--the-portable-rigs-archive-drive)) |
-| PLAN.md [§9k](#9k-the-first-deliverable-in-order), items 2 and 3 | 2: "`05-config` + `10-decoder`"; 3: "`update.sh` + the timers + `status.json` + the job that advances `stable`" | *Added 2026-10-04 ([§9m](#9m--the-portable-rigs-archive-drive)).* Item 2: `05-config` is widened. It creates the `adsb-receiver` system user, the `adsb-operator` group with the installing user, and the `tmpfiles.d` entry for `/run/adsb-receiver`. Item 3: `update.sh` needs its own `TimeoutStartSec`, and it must roll back on SIGTERM ([§9f](#9f-what-updatesh-does)) |
-| `setup/lib.sh`, `parse_args` and `require_role` | `--verify` and `--help` only; `require_role` always dies on a mismatch | *Added 2026-10-04.* `parse_args` gains `--skip-other-role`, and `lib.sh` gains the constant `ADSB_RC_OTHER_ROLE`, an unused value below 126 and not 3. With the flag, `require_role` on a mismatch logs the skip and exits that code. `require_absent` is unchanged ([§9b](#9b-one-bash-script-per-build-step)) |
-| `.github/workflows/ci.yml` | Two step checks: the denylist grep, and `parse_args` plus `verify()` in every step | *Added 2026-10-04.* A third check: in every step containing `require_role`, the first non-comment command after `parse_args` and `require_root` is the `require_role` call ([§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable)) |
+| PLAN.md [§9k](#9k-the-first-deliverable-in-order), items 2 and 3 | 2: "`05-config` + `10-decoder`"; 3: "`update.sh` + the timers + `status.json` + the job that advances `stable`" | *Added 2026-10-04 ([§9m](#9m--the-portable-rigs-archive-drive)).* Item 2: `05-config` is widened. It creates the `adsb-receiver` system user, the `adsb-operator` group with the installing user, and the `tmpfiles.d` entry for `/run/adsb-receiver`. Item 3: `update.sh` needs its own `TimeoutStartSec`, and it must roll back on SIGTERM ([§9f](#9f-what-updatesh-does)). *Update 2026-10-04: item 2's `05-config` half is done, in commit `47ed4ed`; `10-decoder` is not. Item 3 is not done* |
+| `setup/lib.sh`, `parse_args` and `require_role` | `--verify` and `--help` only; `require_role` always dies on a mismatch | *Added 2026-10-04.* `parse_args` gains `--skip-other-role`, and `lib.sh` gains the constant `ADSB_RC_OTHER_ROLE`, an unused value below 126 and not 3. With the flag, `require_role` on a mismatch logs the skip and exits that code. `require_absent` is unchanged ([§9b](#9b-one-bash-script-per-build-step)). *Done 2026-10-04, in commit `47ed4ed`. `ADSB_RC_OTHER_ROLE` is 100* |
+| `.github/workflows/ci.yml` | Two step checks: the denylist grep, and `parse_args` plus `verify()` in every step | *Added 2026-10-04.* A third check: in every step containing `require_role`, the first non-comment command after `parse_args` and `require_root` is the `require_role` call ([§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable)). *Done 2026-10-04, in commit `47ed4ed`* |
 | BUILD.md §8 step 2 | "Confirm `gpsd` has a fix, `chronyc sources` shows GPS disciplining the clock, and the Pi still knows the time after a power cycle **with the network unplugged**" | *Added 2026-10-04.* When this step names `20-portable-clock`, say that the script's verify checks only the install tier, and that these checks stay human gates under the sky ([§9c](#9c-every-step-ends-in-a-check-of-the-observable-effect)) |
-| `setup/lib.sh`, `ADSB_DENY_PATHS` | No `/etc/fstab`; its comment says the list is "Written as in the PLAN §9h table" | *Added 2026-10-04.* Add `/etc/fstab` (**(Chris)**, [§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away)). CI reads this array for its grep of `setup/steps/` |
+| `setup/lib.sh`, `ADSB_DENY_PATHS` | No `/etc/fstab`; its comment says the list is "Written as in the PLAN §9h table" | *Added 2026-10-04.* Add `/etc/fstab` (**(Chris)**, [§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away)). CI reads this array for its grep of `setup/steps/`. *Done 2026-10-04, in commit `47ed4ed`* |
