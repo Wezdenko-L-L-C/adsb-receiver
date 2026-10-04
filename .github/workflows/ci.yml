@@ -25,13 +25,13 @@ jobs:
       - name: bash -n
         run: |
           set -euo pipefail
-          find setup -name '*.sh' -print0 | xargs -0 -n1 bash -n
+          { find setup -name '*.sh' -print0; find bin -type f -print0; } | xargs -0 -n1 bash -n
 
       - name: shellcheck
         run: |
           set -euo pipefail
           shellcheck --version
-          find setup -name '*.sh' -print0 | xargs -0 shellcheck -x
+          { find setup -name '*.sh' -print0; find bin -type f -print0; } | xargs -0 shellcheck -x
 
       - name: steps never reference the foundation denylist
         # The list itself is read from setup/lib.sh, so it is written down once.
@@ -63,6 +63,33 @@ jobs:
           for f in setup/steps/*.sh; do
             grep -q 'parse_args "\$@"' "$f" || { echo "::error file=$f::does not call parse_args \"\$@\""; bad=1; }
             grep -qE '^verify\(\)' "$f"    || { echo "::error file=$f::has no verify() function"; bad=1; }
+          done
+          exit "$bad"
+
+      - name: a role-gated step calls require_role first
+        # PLAN §9b: set, source, parse_args, require_root, require_role, then everything else,
+        # so a step run with --skip-other-role never half-runs. Lines before parse_args are not
+        # read; after it, blank lines and comments are skipped.
+        run: |
+          set -euo pipefail
+          bad=0
+          for f in setup/steps/*.sh; do
+            grep -qE '^[[:space:]]*([^#[:space:]].*)?\brequire_role\b' "$f" || continue
+            msg=$(awk '
+              /^[[:space:]]*(#|$)/ { next }
+              state == 0 { if ($0 ~ /^[[:space:]]*parse_args "\$@"[[:space:]]*$/) state = 1; next }
+              state == 1 { if ($0 ~ /^[[:space:]]*require_root "\$@"[[:space:]]*$/) { state = 2; next }
+                           print "line " NR ": the command after parse_args must be require_root \"$@\""
+                           state = 9; exit }
+              state == 2 { if ($0 !~ /^[[:space:]]*require_role[[:space:]]/)
+                             print "line " NR ": the first command after require_root must be require_role"
+                           state = 3; exit }
+              # An exit still runs END; states 3 and 9 print nothing there.
+              END { if (state == 0) print "no parse_args \"$@\" line"
+                    else if (state == 1) print "no require_root \"$@\" after parse_args"
+                    else if (state == 2) print "nothing follows require_root" }
+            ' "$f")
+            if [[ -n $msg ]]; then echo "::error file=$f::$msg"; bad=1; fi
           done
           exit "$bad"
 

@@ -57,7 +57,9 @@ dongles:
 archive:
   # ⛔ This is why the stationary rig exists. Do not run it onto the SD card.
   enabled: false
-  path: /mnt/ssd/beast
+  # The archive lives at /var/lib/adsb-receiver/archive, a fixed interface path
+  # (PLAN §9i), not a key. What backs that path on this rig, its boot SSD or a
+  # separate mount, is not decided (PLAN §9m).
   format: beast               # ⛔ not a bespoke format — BUILD.md §9
 
   # ⛔ Retention is enforced HERE, by the writer, not by a cron job somebody

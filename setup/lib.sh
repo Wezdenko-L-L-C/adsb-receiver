@@ -14,6 +14,12 @@ fi
 ADSB_REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 ADSB_ETC=/etc/adsb-receiver
 
+# The exit code of a step run with --skip-other-role on the other role's rig
+# (PLAN §9b). Any unused value below 126 would do. ⛔ Not 3: station_get exits 3
+# for an absent key. update.sh is to record it as "skipped (role)" (PLAN §9f);
+# update.sh is not written yet.
+ADSB_RC_OTHER_ROLE=100
+
 # --- Logging -----------------------------------------------------------------
 
 log()  { printf '==> %s\n' "$*"; }
@@ -27,18 +33,24 @@ run() { printf '+ %s\n' "$*"; "$@"; }
 # --- Arguments -----------------------------------------------------------------
 
 # Every step takes the same arguments. `--verify` runs only the step's check.
-# Sets VERIFY_ONLY to 0 or 1.
+# `--skip-other-role` changes only what a role mismatch means (see require_role);
+# it names no role, so the role still comes from station.yml (PLAN §9b).
+# Sets VERIFY_ONLY and SKIP_OTHER_ROLE to 0 or 1.
 VERIFY_ONLY=0
+SKIP_OTHER_ROLE=0
 # shellcheck disable=SC2034  # VERIFY_ONLY is read by the steps
 parse_args() {
   while (($#)); do
     case $1 in
       --verify) VERIFY_ONLY=1 ;;
+      --skip-other-role) SKIP_OTHER_ROLE=1 ;;
       -h|--help)
-        echo "usage: $0 [--verify]"
-        echo "  --verify  run only this step's check of the observable effect"
+        echo "usage: $0 [--verify] [--skip-other-role]"
+        echo "  --verify           run only this step's check of the observable effect"
+        echo "  --skip-other-role  if this step is for the other rig, say so and exit $ADSB_RC_OTHER_ROLE"
+        echo "                     instead of failing (how update.sh is to run every step, PLAN §9b)"
         exit 0 ;;
-      *) die "unknown argument: $1 (usage: $0 [--verify])" ;;
+      *) die "unknown argument: $1 (usage: $0 [--verify] [--skip-other-role])" ;;
     esac
     shift
   done
@@ -99,11 +111,19 @@ station_has() {
 }
 
 # require_role <portable|stationary>: the role comes from the config the rig
-# carries. There is no --role flag anywhere (PLAN §9b).
+# carries. There is no --role flag anywhere (PLAN §9b). On a mismatch it dies,
+# unless --skip-other-role was given: then it says so and exits
+# ADSB_RC_OTHER_ROLE. A step calls it before any other command after
+# parse_args and require_root, so a skip never half-runs; CI checks that order.
 require_role() {
   local want=$1 got
   got=$(station_get station.role) || die "station.yml has no station.role"
-  [[ $got == "$want" ]] || die "this step is for the $want rig; station.yml says station.role: ${got:-null}"
+  [[ $got == "$want" ]] && return 0
+  if ((SKIP_OTHER_ROLE)); then
+    log "skipped: this step is for the $want rig; station.yml says ${got:-null}"
+    exit "$ADSB_RC_OTHER_ROLE"
+  fi
+  die "this step is for the $want rig; station.yml says station.role: ${got:-null}"
 }
 
 # require_absent <dotted.key>: refuse the other role's blocks (PLAN §9b).
@@ -127,6 +147,7 @@ ADSB_DENY_PATHS=(
   /etc/systemd/network
   /etc/ssh
   '/etc/apt/sources.list*'
+  /etc/fstab
 )
 # ssh.service is also reachable as sshd.service on Debian, so both names are listed.
 ADSB_DENY_UNITS=(tailscaled ssh sshd NetworkManager)

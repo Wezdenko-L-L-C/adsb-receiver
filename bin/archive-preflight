@@ -1,0 +1,246 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#
+# archive-preflight: is the archive drive ready to record onto, now? PLAN §9m.
+# Installed by setup/steps/30-archive-drive.sh to /usr/local/bin/archive-preflight
+# (copied, so it runs outside the clone). Runs as root. Takes no arguments.
+#
+# The readiness tier (PLAN §9c). Its exit codes are a fixed interface (PLAN §9i):
+#   0  ready
+#   2  not ready, for a reason outside the rig, printed: no labeled device, more
+#      than one, not mounted, not ext4, mounted read-only, beast/ or spool/
+#      cannot be created, the probe failed for a reason other than a full drive
+#   1  the check itself could not run: not root, station.yml unreadable or
+#      missing its archive keys, a required tool missing, no adsb-receiver user
+# It prints its raw evidence.
+#
+# ⛔ It never refuses on free space (PLAN §9m). A full drive skips the probe and
+#    warns loudly: the writer's backstop expires old files, and it can only do
+#    that if this lets it start. Below archive.min_free_gb it warns.
+#
+# It also repairs, and reports each repair, then carries on (PLAN §9m):
+#   - creates a missing beast/ or spool/ (Chris, 2026-10-04), so a spare drive
+#     formatted with the label records in the field with no step run;
+#   - group and mode drift under beast/ and spool/;
+#   - a torn .part becomes .torn, ⛔ never deleted, and never one that is live
+#     (two guards, below).
+#
+# 📋 PLAN §9m records a refusal as `recording: refused`, with the reason, in
+#    status.json and the login banner. status.json is not built (PLAN §9k
+#    item 3); the record lands there later. This script writes no status.json.
+#
+# Self-contained: installed outside the repo, it cannot source setup/lib.sh.
+# As of 2026-10-04, nothing in it has run on hardware.
+
+set -euo pipefail
+# Any failure not handled below means the check could not run: exit 1, never a
+# stray code that a caller would misread (PLAN §9i). ℹ️ No `set -E`: with it the
+# trap would also fire inside $(...) for failures that are handled outside it.
+trap 'printf "xx  CHECK FAILED TO RUN: unexpected failure at line %s\n" "$LINENO" >&2; exit 1' ERR
+
+STATION=/etc/adsb-receiver/station.yml
+MP=/var/lib/adsb-receiver/archive
+USER_NAME=adsb-receiver
+GROUP_NAME=adsb-operator
+
+log()      { printf '==> %s\n' "$*"; }
+warn()     { printf '!!  WARNING: %s\n' "$*" >&2; }
+fixed()    { printf 'fix %s\n' "$*"; }
+cantrun()  { printf 'xx  CHECK FAILED TO RUN: %s\n' "$*" >&2; exit 1; }
+notready() { printf 'xx  NOT READY: %s\n' "$*" >&2; exit 2; }
+
+# --- Can the check run? -> 1 ---------------------------------------------------
+
+((EUID == 0)) || cantrun "run as root"
+cd /
+for t in python3 blkid findmnt runuser stat find df awk chgrp chown chmod mkdir mv sync realpath systemctl; do
+  command -v "$t" >/dev/null || cantrun "$t is not installed"
+done
+[[ -r $STATION ]] || cantrun "cannot read $STATION; run setup/steps/05-config.sh"
+
+cfg=$(python3 - "$STATION" <<'PY'
+import sys, yaml
+try:
+    with open(sys.argv[1]) as fh:
+        doc = yaml.safe_load(fh)
+except Exception as e:
+    print(f"{sys.argv[1]} does not parse: {e}", file=sys.stderr)
+    sys.exit(1)
+archive = doc.get("archive") if isinstance(doc, dict) else None
+if not isinstance(archive, dict) or archive.get("label") is None or archive.get("min_free_gb") is None:
+    print(f"{sys.argv[1]} has no archive.label or archive.min_free_gb", file=sys.stderr)
+    sys.exit(1)
+# A string, and only a string: setup/lib.sh's station_get prints a YAML true as
+# "true" where Python prints "True", so the two parsers would disagree.
+if not isinstance(archive["label"], str):
+    print(f"{sys.argv[1]}: archive.label must be a string, not {archive['label']!r}", file=sys.stderr)
+    sys.exit(1)
+print(archive["label"])
+print(archive["min_free_gb"])
+PY
+) || cantrun "could not read archive.label and archive.min_free_gb from $STATION"
+label='' min_free_gb=''
+{ read -r label; read -r min_free_gb; } <<<"$cfg"
+[[ $label =~ ^[A-Za-z0-9_-]{1,16}$ ]] || cantrun "archive.label '$label' is not 1-16 letters, digits, '-' or '_'"
+[[ $min_free_gb =~ ^[0-9]+([.][0-9]+)?$ ]] || cantrun "archive.min_free_gb '$min_free_gb' is not a number"
+getent passwd "$USER_NAME" >/dev/null || cantrun "no user $USER_NAME to probe as; run setup/steps/05-config.sh"
+getent group "$GROUP_NAME" >/dev/null || cantrun "no group $GROUP_NAME; run setup/steps/05-config.sh"
+log "station.yml: archive.label $label, archive.min_free_gb $min_free_gb"
+
+# --- Is the drive there, and mounted read-write? -> 2 --------------------------
+
+# Exactly one device carries the label. -c /dev/null: probe, do not trust the cache.
+devs=$(blkid -c /dev/null -o device -t "LABEL=$label" 2>/dev/null) || true
+log "blkid: devices labeled $label (raw output follows)"
+printf '%s\n' "${devs:-(none)}"
+echo "----"
+n=$(grep -c . <<<"$devs") || true
+((n > 0)) || notready "no device is labeled $label. Is the archive drive plugged in?"
+((n == 1)) || notready "$n devices are labeled $label; unplug all but one"
+dev=$devs
+fstype=$(blkid -c /dev/null -o value -s TYPE "$dev" 2>/dev/null) || true
+[[ $fstype == ext4 ]] || notready "$dev is ${fstype:-not formatted}, not ext4"
+
+log "findmnt --mountpoint $MP (raw output follows)"
+findmnt --mountpoint "$MP" 2>&1 || true
+echo "----"
+fm=$(findmnt -nr -o SOURCE,FSTYPE,OPTIONS --mountpoint "$MP" | tail -n1) || true
+[[ -n $fm ]] || notready "nothing is mounted at $MP"
+read -r src mfstype opts <<<"$fm"
+[[ $(realpath -- "$src") == "$(realpath -- "$dev")" ]] || notready "$MP is mounted from $src, not from $dev (label $label)"
+[[ $mfstype == ext4 ]] || notready "$MP is mounted as $mfstype, not ext4"
+[[ ,$opts, == *,rw,* ]] || notready "$MP is mounted read-only; errors=remount-ro may have tripped. Check dmesg, then fsck the drive"
+# --- Repairs, before the probe: report each, then carry on ----------------------
+
+# A missing beast/ or spool/ is created (Chris, 2026-10-04): a spare drive,
+# formatted by hand with the label, then records with no step run.
+for d in beast spool; do
+  if [[ ! -d $MP/$d ]]; then
+    { mkdir -- "$MP/$d" && chown "$USER_NAME:$GROUP_NAME" "$MP/$d" && chmod 2770 "$MP/$d"; } \
+      || notready "could not create $MP/$d (check dmesg)"
+    fixed "created $MP/$d, $USER_NAME:$GROUP_NAME 2770"
+  fi
+done
+
+# Group and modes (Chris, 2026-10-04): the pull reads and deletes as a member of
+# adsb-operator, so anything the group cannot reach would pile up. Before the
+# probe, so a beast/ that has drifted is fixed rather than refused.
+repair() {
+  local what=$1; shift
+  local f
+  while IFS= read -r -d '' f; do
+    if "$@" "$f"; then fixed "$what: $f"; else warn "could not fix ($what): $f"; fi
+  done
+}
+repair "chgrp $GROUP_NAME" chgrp -h "$GROUP_NAME" \
+  < <(find "$MP/beast" "$MP/spool" ! -type l ! -group "$GROUP_NAME" -print0)
+repair "chmod g+rw" chmod g+rw < <(find "$MP/beast" "$MP/spool" -type f ! -perm -g=r -print0)
+repair "chmod g+rwx" chmod g+rwx < <(find "$MP/beast" "$MP/spool" -type d ! -perm -g=rwx -print0)
+repair "chmod -t" chmod -t < <(find "$MP/beast" "$MP/spool" ! -type l -perm -1000 -print0)
+
+# The probe's own files. Named .part, so the pull's *.part exclude skips one; a
+# power cut mid-probe leaves one behind. They are this script's own, so deleting
+# them is allowed. One whose PID is still alive belongs to a concurrent run.
+probe_re='/\.archive-preflight-probe\.([0-9]+)\.part$'
+while IFS= read -r -d '' f; do
+  if [[ $f =~ $probe_re ]] && [[ -d /proc/${BASH_REMATCH[1]} ]]; then
+    continue
+  fi
+  if rm -f -- "$f"; then fixed "deleted a stale probe file: $f"; else warn "could not delete $f"; fi
+done < <(find "$MP/beast" "$MP/spool" -maxdepth 1 -type f -name '.archive-preflight-probe.*' -print0)
+
+# A .part found here is torn (PLAN §9m storage contract): renamed .torn, never
+# deleted, so the pull (which skips *.part) can move it. Both beast/ and spool/:
+# the pull's exclude covers the whole drive, so a torn .part anywhere would pile up.
+#
+# Two guards keep a live file from being torn, for instance by a hand-run verify
+# while recording:
+#   1. if adsb-writer.service is active, no .part is renamed at all. Only
+#      "active": the writer's own ExecStartPre= run of this script sees
+#      "activating", and that boot-time run is the one that should rename.
+#   2. a .part that any process holds open (a scan of /proc/*/fd) is skipped.
+# ⚠️ Together they still assume the writer either holds its .part open or runs
+#    as adsb-writer.service. The storage contract does not state that yet
+#    (PLAN §9m); the writer's design must.
+writer_state=$(systemctl show -p ActiveState --value adsb-writer.service 2>/dev/null) || true
+open_files=$(find /proc/[0-9]*/fd -maxdepth 1 -type l -lname "$MP/*" -printf '%l\n' 2>/dev/null | sort -u) || true
+torn=0
+if [[ $writer_state == active ]]; then
+  log "adsb-writer.service is active: no .part is renamed this run, since one is the writer's open file"
+else
+  while IFS= read -r -d '' f; do
+    if [[ -n $open_files ]] && grep -Fxq -- "$f" <<<"$open_files"; then
+      log "skipping $f: a process holds it open, so it is not torn"
+      continue
+    fi
+    # X.torn taken: X.1.torn, X.2.torn, ... ⛔ Never strand or delete a .part.
+    target=${f%.part}.torn
+    i=0
+    while [[ -e $target ]]; do
+      i=$((i + 1))
+      target=${f%.part}.$i.torn
+    done
+    if mv -n -- "$f" "$target" && [[ ! -e $f && -e $target ]]; then
+      fixed "torn: $f -> $target"
+      torn=$((torn + 1))
+    else
+      warn "could not rename $f; it is left as it is"
+    fi
+  done < <(find "$MP/beast" "$MP/spool" -type f -name '*.part' ! -name '.archive-preflight-probe.*' -print0)
+fi
+log "torn .part files renamed: $torn"
+
+# --- Free space, and the probe ----------------------------------------------------
+
+log "df -h $MP; df -i $MP (raw output follows)"
+df -h "$MP" 2>&1 || true
+df -i "$MP" 2>&1 || true
+echo "----"
+avail=$(df -P -B1 "$MP" | awk 'NR == 2 { print $4 }')
+iavail=$(df -P -i "$MP" | awk 'NR == 2 { print $4 }')
+
+full_drive() {
+  warn "################################################################"
+  warn "The archive drive is FULL ($1). Not refusing on space (PLAN §9m):"
+  warn "the writer must expire the oldest closed files before it can record."
+  warn "Pull the drive soon."
+  warn "################################################################"
+}
+
+# Under 1 MiB, or no inodes left, counts as full: the probe would fail with
+# ENOSPC, and a refusal here would keep the writer's backstop from ever running.
+if ((avail < 1048576 || iavail == 0)); then
+  full_drive "$avail bytes and $iavail inodes free"
+  log "probe: skipped, the drive is full"
+else
+  # A write, fsync, read and delete, as the user that will write. ℹ️ The read
+  # comes back from the page cache, so it proves the path and the permissions,
+  # not the medium.
+  probe=$MP/beast/.archive-preflight-probe.$$.part
+  token="archive-preflight $$ $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  log "probe: write, fsync, read, delete $probe as $USER_NAME"
+  perr=''
+  # shellcheck disable=SC2016  # $1 and $2 expand in the inner sh, on purpose
+  if ! perr=$(runuser -u "$USER_NAME" -- sh -c '
+      printf "%s" "$2" > "$1" && sync "$1" && [ "$(cat "$1")" = "$2" ] && rm -f "$1"
+    ' sh "$probe" "$token" 2>&1); then
+    rm -f -- "$probe" || true
+    printf '%s\n' "$perr"
+    if [[ $perr == *"No space left on device"* ]]; then
+      full_drive "the probe got ENOSPC"
+      log "probe: failed only for space; not refusing"
+    else
+      notready "the probe failed as $USER_NAME in $MP/beast (read-only, or an I/O error: check dmesg)"
+    fi
+  else
+    log "probe: ok"
+  fi
+fi
+
+# GiB, the G that df -h prints, so the warning agrees with the line above.
+if awk -v a="$avail" -v m="$min_free_gb" 'BEGIN { exit !(a < m * 1073741824) }'; then
+  warn "free space is below archive.min_free_gb ($min_free_gb G). The writer is to expire the oldest closed files; pull the drive soon (PLAN §9m)"
+fi
+
+log "READY: $dev mounted read-write at $MP"
+exit 0

@@ -51,6 +51,28 @@ dongles:
   # ⛔ Two dongles plus the GPS puck needs a powered hub — BUILD.md §3d part 14.
   vhf: null
 
+archive:
+  # 🎒 The archive drive: a USB flash drive, formatted ext4 BY HAND, once, and
+  #    found by this label. No script formats it: setup/steps/30-archive-drive.sh
+  #    prints the commands when no ext4 filesystem carries the label. A spare
+  #    drive formatted with the same label works with no edit here. PLAN §9m.
+  # ⚠️ ext4 caps a label at 16 bytes. Letters, digits, - and _ only.
+  label: adsb-archive
+
+  # ⛔ BEAST, not a bespoke format — BUILD.md §9. There is no `format:` key here
+  #    yet: the archive writer is not designed (PLAN §9i), and the key comes
+  #    with it.
+
+  # A backstop, not a budget. ~10 MB an hour is an estimate (PLAN §9m), not a
+  # measurement. Below this much free space the archive writer, once it exists,
+  # expires the oldest closed files and says so, rather than stopping; the
+  # preflight warns.
+  min_free_gb: 4
+
+  # ℹ️ There is deliberately no `retention_days` on this rig. The pull moves the
+  #    data off the drive (PLAN §9m), and the min_free_gb backstop above is the
+  #    only other deletion.
+
 uploader:
   # ⛔ THIS DOES NOT UPLOAD IN THE FIELD. There is no network out there. It
   #    spools batches to disk for the whole session and ships them the next
@@ -62,5 +84,6 @@ uploader:
   batch_seconds: 10
 
   # ⚠️ Sized for a whole session, not for a retry window — nothing drains this
-  #    until you are home. Put it somewhere with room.
-  spool_dir: /var/lib/adsb-receiver/spool
+  #    until you are home. It is on the archive drive (PLAN §9m), not the SD
+  #    card: the drive has the room, and it is the one place to pull from.
+  spool_dir: /var/lib/adsb-receiver/archive/spool
