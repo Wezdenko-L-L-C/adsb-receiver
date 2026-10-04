@@ -508,8 +508,8 @@ with -1` and `[R82XX] PLL not locked!`. A photo of the case, sent by Chris the s
 HF"*. R860 is the marketing name for the R828D. The packaged 2.0.2 library opened the stick and
 detached the kernel driver, but identified an R820T tuner and no V4.
 
-⚠️ **The mismatch between the label and the chip ~~is unresolved~~** *most likely means a counterfeit;
-see the 2026-10-03 update below.* The leading suspect is a
+⚠️ **The mismatch between the label and the chip ~~is unresolved~~** *~~most likely~~ means a counterfeit;
+see the 2026-10-03 update below.* *The board settled it on 2026-10-04; see that update below.* The leading suspect is a
 counterfeit V4: an R820T inside a V4 case. A rewritten EEPROM is less likely, because the library
 probes the tuner by chip, not by the USB string. ℹ️ A genuine V4 is believed to report the USB
 strings *"RTLSDRBlog, Blog V4"*. That belief is unverified.
@@ -520,14 +520,34 @@ serial number enabled *yes*, IR endpoint enabled *yes*, remote wakeup *no*, and 
 *"Found Rafael Micro R820T tuner"*. The stick was bought on Amazon (Chris, 2026-10-03). The seller
 is not yet identified.
 
-➡️ **The stick is most likely a counterfeit V4: a generic R820T TV-tuner stick in a printed V4
+➡️ **The stick is ~~most likely~~ a counterfeit V4: a generic R820T TV-tuner stick in a printed V4
 case.** That is not proven from software alone. The seller's name, or the marking on the PCB, would
-settle it. ℹ️ *"IR endpoint enabled: yes"* is believed to be a TV-dongle default that RTL-SDR Blog
-units ship with disabled. That belief is unverified.
+settle it. *The marking on the PCB did, on 2026-10-04; see the update below.* ℹ️ *"IR endpoint
+enabled: yes"* is believed to be a TV-dongle default that RTL-SDR Blog units ship with disabled.
+That belief is unverified.
+
+**Update 2026-10-04: the board.** Chris opened the case and sent photos of both sides of the case
+and the board, with close-ups. ✅ Read from those photos:
+
+- The tuner chip is marked *"Rafael Micro R820T2"*, then *"D3B2220GBC"* and *"1345ZE"*. It is not
+  an R828D (marketed as R860), the tuner a V4 uses.
+- The silkscreen carries the date *"2018.9.13"*, and no RTL-SDR Blog name, model or version.
+  ℹ️ RTL-SDR Blog reports the V4's release as 2023, which would make the board older than the V4.
+  That release date is unverified here.
+- Also on the board: the RTL2832U, an 8-pin chip marked *"24C02A"*, a small 4-pad metal-can
+  oscillator, and a thermal pad on the underside.
+- The back of the case reads *"Genuine RTL-SDR Blog? Check at: www.rtl-sdr.com/genuine"* and
+  *"Designed in New Zealand. Made in China."*
+
+➡️ **The stick is a generic R820T2 board, a V3-class design, in a counterfeit V4 case.** That
+matches the software: `rtl_test` printed an R820T tuner, and the library reports the R820T2 as
+*"R820T"*.
 
 **(Chris), 2026-10-03: return the stick, and buy a genuine V4** from RTL-SDR Blog's store or a
 seller listed on rtl-sdr.com. Building continues on this stick meanwhile, because it decodes 1090
 on the stock 2.0.2 library.
+
+**(Chris), 2026-10-04:** *"I will return these."* He is returning them.
 
 ⛔ **V4 support on 2.0.2 is untested on a confirmed V4.** No run has shown an R828D or
 `RTL-SDR Blog V4 Detected`.
