@@ -232,9 +232,33 @@ the portable rig first, drivers first, second radio only once the base is boring
 the same day. Chris accepted it to be recorded, and that acceptance is the decision. The four
 choices he made himself are marked **(Chris)** where they come up.
 
-📋 **None of this software exists yet.** Every path under `setup/`, `bin/` and the CI workflow
-named below is planned, not written. The hardware facts in [§9j](#9j--verified-on-hardware-2026-10-03)
-are the only part of this section that has been run.
+📋 **~~None of this software exists yet.~~** *Part of it exists; see the 2026-10-04 update below.*
+~~Every path under `setup/`, `bin/` and the CI workflow named below is planned, not written.~~ The
+hardware facts in [§9j](#9j--verified-on-hardware-2026-10-03) ~~are the only part of this section
+that has been run~~ *are the only part of this section recorded as run.*
+
+**Update 2026-10-04.** That status has been false since 2026-10-03. Commit `95bcba6` added
+`setup/lib.sh`, `setup/steps/00-drivers.sh` and the CI workflow `.github/workflows/ci.yml`, in one
+change. ➡️ [§9k](#9k-the-first-deliverable-in-order) item 1 is done.
+
+- `lib.sh` holds the shared helpers: `--verify` parsing, reading `station.yml` with `python3` and
+  `yaml`, the role checks of [§9b](#9b-one-bash-script-per-build-step), and the
+  [§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away) denylist. A
+  `systemctl` wrapper, `unit`, refuses denylisted units, and `00-drivers.sh` calls it. A write
+  guard, `guard_path`, is defined, but no step calls it yet.
+- `00-drivers.sh` installs `rtl-sdr` from apt, and its verify reads the output of `rtl_test -t` and
+  `rtl_eeprom`.
+- CI runs `bash -n`, `shellcheck`, the §9h denylist grep, and a check that every step has a
+  `verify` and takes `--verify`. ⚠️ **The arm64 trixie dry run and the job that fast-forwards
+  `stable`, both in [§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable), are not
+  built.** The workflow marks both as TODO for §9k item 3.
+- Still not written: `bin/`, `setup/foundation/`, `05-config`, `10-decoder`, `update.sh`, the
+  timers, `status.json`, and the clock steps.
+
+`00-drivers.sh` has been run once, on the 🎒 portable rig on 2026-10-03. Its verify failed when the
+stick dropped off the USB bus during the check. ⚠️ That run is not recorded in §9j: its output was
+not pasted here, and [§9c](#9c-every-step-ends-in-a-check-of-the-observable-effect) says a record of
+a run goes in the docs with the output pasted.
 
 ### 9a. The repo ships its own software, and the Pi pulls it
 
