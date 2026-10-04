@@ -22,16 +22,53 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
+      # The shell scripts are setup/**/*.sh and the files under bin/ whose shebang names sh or
+      # bash. bin/ also holds Python (adsb-writer): the Python step below checks those, and fails
+      # on a bin/ or tools/ file that is neither, so nothing there goes unchecked.
       - name: bash -n
         run: |
           set -euo pipefail
-          { find setup -name '*.sh' -print0; find bin -type f -print0; } | xargs -0 -n1 bash -n
+          {
+            find setup -name '*.sh' -print0
+            for f in bin/*; do
+              if [[ -f $f && $(head -n1 "$f") =~ ^#!.*[/[:space:]](ba)?sh([[:space:]]|$) ]]; then printf '%s\0' "$f"; fi
+            done
+          } | xargs -0 -n1 bash -n
 
       - name: shellcheck
         run: |
           set -euo pipefail
           shellcheck --version
-          { find setup -name '*.sh' -print0; find bin -type f -print0; } | xargs -0 shellcheck -x
+          {
+            find setup -name '*.sh' -print0
+            for f in bin/*; do
+              if [[ -f $f && $(head -n1 "$f") =~ ^#!.*[/[:space:]](ba)?sh([[:space:]]|$) ]]; then printf '%s\0' "$f"; fi
+            done
+          } | xargs -0 shellcheck -x
+
+      - name: Python programs compile, and the unit tests pass
+        # bin/adsb-writer and tools/adsb-extract are standard-library Python (PLAN §9i). The tests
+        # synthesize their BEAST streams: no capture is committed. Bytecode goes to the runner's
+        # temp directory, not beside the sources.
+        run: |
+          set -euo pipefail
+          python3 --version
+          export PYTHONPYCACHEPREFIX="${RUNNER_TEMP:-/tmp}/pycache"
+          bad=0
+          py=()
+          for f in bin/* tools/*; do
+            [[ -f $f ]] || continue
+            first=$(head -n1 "$f")
+            if [[ $first =~ ^#!.*[/[:space:]]python3([[:space:]]|$) ]]; then
+              py+=("$f")
+            elif ! [[ $first =~ ^#!.*[/[:space:]](ba)?sh([[:space:]]|$) ]]; then
+              echo "::error file=$f::neither a shell nor a python3 shebang, so no CI step checks it"; bad=1
+            fi
+          done
+          ((bad == 0))
+          python3 -m py_compile "${py[@]}"
+          echo "compiled: ${py[*]}"
+          python3 -m unittest discover -s tests -v
 
       - name: steps never reference the foundation denylist
         # The list itself is read from setup/lib.sh, so it is written down once.

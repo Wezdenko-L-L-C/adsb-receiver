@@ -1,0 +1,266 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+#
+# adsb-extract: stage 1 of the extractor for bin/adsb-writer's archive. Runs on
+# the workstation, on pulled files. Python 3, standard library only.
+#
+#   adsb-extract DIR TIME [--window S] [--csv OUT.csv] [--beast OUT.bin]
+#       Every record within S seconds (default 30) of TIME (ISO 8601, UTC; a
+#       time with no zone is read as UTC), from the files under DIR. Frames and
+#       events go to a CSV (stdout by default), one row each, in file order.
+#       --beast also writes the frames in the window as a plain BEAST stream:
+#       their payloads concatenated, escaping intact.
+#   adsb-extract --check FILE [FILE ...]
+#       Per file: record counts, first and last wall time, and a least-squares
+#       fit of the BEAST 12 MHz counter against the wall stamp, one segment per
+#       counter run (a readsb restart resets the counter). The slope is in ppm
+#       against 12 MHz; the residuals are the wall stamp's scatter about the
+#       fit, in ms, which is the per-file latency check.
+#
+# The file format is described in bin/adsb-writer's header: classic pcap,
+# nanosecond stamps, linktype 147; a payload starting 0x1a is a BEAST frame,
+# anything else a one-line UTF-8 event. A torn tail (a power cut mid-write) is
+# tolerated: reading stops at the last complete record, and says so.
+#
+# Candidate files are chosen by name, YYYYMMDDTHHMMSSZ being the second each
+# was opened: those opened inside the window, plus every file opened at the
+# latest second before it, which holds the window's start.
+#
+# ⛔ Stage 2, decoding positions from the frames, is not here.
+
+import argparse
+import csv
+import datetime
+import os
+import re
+import struct
+import sys
+import time
+
+MAGICS = {
+    b"\x4d\x3c\xb2\xa1": ("<", 1),      # nanosecond, little-endian
+    b"\xa1\xb2\x3c\x4d": (">", 1),      # nanosecond, big-endian
+    b"\xd4\xc3\xb2\xa1": ("<", 1000),   # microsecond, little-endian
+    b"\xa1\xb2\xc3\xd4": (">", 1000),   # microsecond, big-endian
+}
+LINKTYPE_USER0 = 147
+MAX_RECORD = 65535
+ESC = 0x1A
+TICKS_PER_S = 12_000_000
+NAME_RE = re.compile(r"^(\d{8}T\d{6}Z)(?:\.\d+)?\.beast\.pcap(?:(?:\.\d+)?\.torn)?$")
+
+
+def read_pcap(path):
+    """(records, note): records are (wall_ns, payload); note is None for a
+    clean file, or says where reading stopped."""
+    with open(path, "rb") as f:
+        data = f.read()
+    if len(data) < 24:
+        return [], f"torn: {len(data)} bytes, shorter than the pcap header"
+    fmt = MAGICS.get(data[:4])
+    if fmt is None:
+        return [], f"not a pcap file (magic {data[:4].hex()})"
+    end, scale = fmt
+    linktype = struct.unpack(end + "I", data[20:24])[0]
+    note = None if linktype == LINKTYPE_USER0 else f"linktype {linktype}, not {LINKTYPE_USER0}"
+    out = []
+    off = 24
+    while off < len(data):
+        if off + 16 > len(data):
+            return out, f"torn: {len(data) - off} bytes of a record header at offset {off}"
+        sec, frac, incl, _orig = struct.unpack(end + "IIII", data[off:off + 16])
+        # A zeroed or garbled tail stops reading too, rather than yielding junk.
+        if incl == 0 or incl > MAX_RECORD or frac * scale >= 1_000_000_000:
+            return out, f"torn: an invalid record header at offset {off}"
+        if off + 16 + incl > len(data):
+            return out, f"torn: a record cut short at offset {off}"
+        out.append((sec * 1_000_000_000 + frac * scale, data[off + 16:off + 16 + incl]))
+        off += 16 + incl
+    return out, note
+
+
+def decode_frame(raw):
+    """(type, counter, signal, data) from a raw, escaped BEAST frame."""
+    body = raw[2:].replace(b"\x1a\x1a", b"\x1a")
+    return raw[1], int.from_bytes(body[0:6], "big"), body[6], body[7:]
+
+
+def iso_ns(ns):
+    sec, frac = divmod(ns, 1_000_000_000)
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(sec)) + f".{frac:09d}Z"
+
+
+def parse_utc(s):
+    d = datetime.datetime.fromisoformat(s.replace("Z", "+00:00") if s.endswith("Z") else s)
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=datetime.timezone.utc)
+    d = d.astimezone(datetime.timezone.utc)
+    epoch = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
+    delta = d - epoch
+    return (delta.days * 86400 + delta.seconds) * 1_000_000_000 + delta.microseconds * 1000
+
+
+def stem_ns(stem):
+    d = datetime.datetime.strptime(stem, "%Y%m%dT%H%M%SZ").replace(tzinfo=datetime.timezone.utc)
+    return int(d.timestamp()) * 1_000_000_000
+
+
+def find_files(root):
+    """(opened_ns, path) for every archive file under root, oldest first."""
+    found = []
+    for dirpath, _dirs, names in os.walk(root):
+        for name in names:
+            m = NAME_RE.match(name)
+            if m:
+                found.append((stem_ns(m.group(1)), os.path.join(dirpath, name)))
+    found.sort()
+    return found
+
+
+def candidates(files, lo, hi):
+    """The files opened in [lo, hi], plus those opened at the latest second before lo."""
+    before = [t for t, _ in files if t < lo]
+    start = max(before) if before else None
+    return [p for t, p in files if (start is not None and t == start) or lo <= t <= hi]
+
+
+def extract(root, t_ns, window_s, out_csv, beast_out=None):
+    lo = t_ns - int(window_s * 1e9)
+    hi = t_ns + int(window_s * 1e9)
+    files = candidates(find_files(root), lo, hi)
+    w = csv.writer(out_csv)
+    w.writerow(["wall_time_utc", "kind", "beast_type", "counter", "signal", "data_hex", "event", "file"])
+    frames = events = 0
+    for path in files:
+        records, note = read_pcap(path)
+        if note:
+            print(f"{path}: {note}", file=sys.stderr)
+        for ts, payload in records:
+            if not lo <= ts <= hi:
+                continue
+            rel = os.path.relpath(path, root)
+            if payload[:1] == b"\x1a":
+                if len(payload) < 9:
+                    continue
+                typ, counter, sig, data = decode_frame(payload)
+                w.writerow([iso_ns(ts), "frame", f"0x{typ:02x}", counter, sig, data.hex(), "", rel])
+                if beast_out is not None:
+                    beast_out.write(payload)
+                frames += 1
+            else:
+                w.writerow([iso_ns(ts), "event", "", "", "", "", payload.decode("utf-8", "replace"), rel])
+                events += 1
+    print(f"{len(files)} file(s) read; {frames} frames and {events} events in the window", file=sys.stderr)
+    return frames, events
+
+
+def fit(points):
+    """Least squares wall = a + b * (counter / 12 MHz). Returns (n, span_s,
+    ppm, max_abs_ms, std_ms), or None for too few distinct counter values."""
+    if len(points) < 2:
+        return None
+    c0, w0 = points[0]
+    xs = [(c - c0) / TICKS_PER_S for c, _ in points]
+    ys = [(w - w0) / 1e9 for _, w in points]
+    n = len(xs)
+    mx = sum(xs) / n
+    my = sum(ys) / n
+    sxx = sum((x - mx) ** 2 for x in xs)
+    if sxx == 0:
+        return None
+    b = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / sxx
+    a = my - b * mx
+    res = [(y - (a + b * x)) * 1000 for x, y in zip(xs, ys)]
+    std = (sum(r * r for r in res) / n) ** 0.5
+    # b is wall seconds per 12 MHz-second; the counter's own rate is 1/b.
+    return n, xs[-1] - xs[0], (1 / b - 1) * 1e6, max(abs(r) for r in res), std
+
+
+def check(path, out=sys.stdout):
+    records, note = read_pcap(path)
+    frames = [(ts, p) for ts, p in records if p[:1] == b"\x1a" and len(p) >= 9]
+    events = [p.decode("utf-8", "replace") for _, p in records if p[:1] != b"\x1a"]
+    print(f"{path}: {len(records)} records ({len(frames)} frames, {len(events)} events); "
+          f"{note or 'complete'}", file=out)
+    if records:
+        print(f"  first {iso_ns(records[0][0])}  last {iso_ns(records[-1][0])}", file=out)
+    kinds = {}
+    for e in events:
+        k = e.split(" ", 1)[0]
+        kinds[k] = kinds.get(k, 0) + 1
+    if kinds:
+        print("  events: " + ", ".join(f"{k} {v}" for k, v in sorted(kinds.items())), file=out)
+    segments, cur, last = [], [], None
+    keepalives = zero_other = 0
+    for ts, p in frames:
+        typ, counter, sig, data = decode_frame(p)
+        if counter == 0:
+            # ✅ Verified on the Pi, 2026-10-04 (a read-only 30 s capture of
+            # 30005): 5 type-0x31 frames, about one every 6 s, every one all
+            # zero (counter 000000000000, signal 0, data 0000). That is readsb's
+            # keepalive, not a Mode A/C reply, and only that exact frame is
+            # dropped. Any other counter-0 frame is unexpected: it stays out of
+            # the fit too, but is counted and reported, not silently dropped.
+            if typ == 0x31 and sig == 0 and data == b"\x00\x00":
+                keepalives += 1
+            else:
+                zero_other += 1
+            continue
+        if last is not None and counter < last:
+            segments.append(cur)
+            cur = []
+        cur.append((counter, ts))
+        last = counter
+    if cur:
+        segments.append(cur)
+    if keepalives:
+        print(f"  keepalives (all-zero 0x31), not fitted: {keepalives}", file=out)
+    if zero_other:
+        print(f"  counter 0, not a keepalive, not fitted: {zero_other}", file=out)
+    if not segments:
+        print("  no frames with a counter: nothing to fit", file=out)
+    for i, seg in enumerate(segments, 1):
+        r = fit(seg)
+        if r is None:
+            print(f"  segment {i}: {len(seg)} frame(s), too few to fit", file=out)
+            continue
+        n, span, ppm, mx, std = r
+        print(f"  segment {i}: {n} frames over {span:.1f} s; counter {ppm:+.1f} ppm vs 12 MHz; "
+              f"residual max {mx:.2f} ms, std {std:.2f} ms", file=out)
+    return len(records), note
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="adsb-extract",
+                                 description="Stage 1: frames and events around a UTC time, or a per-file check.")
+    ap.add_argument("dir", nargs="?", help="a directory of pulled archive files")
+    ap.add_argument("time", nargs="?", help="the UTC time, ISO 8601 (2026-10-04T12:34:56Z)")
+    ap.add_argument("--window", type=float, default=30.0, help="seconds either side of TIME (default 30)")
+    ap.add_argument("--csv", help="write the CSV here instead of stdout")
+    ap.add_argument("--beast", help="also write the window's frames here, as a plain BEAST stream")
+    ap.add_argument("--check", nargs="+", metavar="FILE", help="check these files instead")
+    a = ap.parse_args(argv)
+    if a.check:
+        for path in a.check:
+            check(path)
+        return 0
+    if not a.dir or not a.time:
+        ap.error("give DIR and TIME, or --check FILE")
+    try:
+        t_ns = parse_utc(a.time)
+    except ValueError as e:
+        ap.error(f"cannot read the time {a.time!r}: {e}")
+    beast = open(a.beast, "wb") if a.beast else None
+    out = open(a.csv, "w", newline="") if a.csv else sys.stdout
+    try:
+        extract(a.dir, t_ns, a.window, out, beast)
+    finally:
+        if beast:
+            beast.close()
+        if a.csv:
+            out.close()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

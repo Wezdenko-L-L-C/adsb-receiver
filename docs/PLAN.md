@@ -108,6 +108,11 @@ hub fixes it. It is a part you buy. Solved problems are not constraints.
 [RADIOS.md §5](RADIOS.md#5-what-a-second-dongle-does-to-the-pi) rule 4. The rest are estimates and
 have not been measured on a Pi. ✅ marks a figure with a source; ⚠️ marks a guess.
 
+*Update 2026-10-04: ✅ a first measurement of one process in the last row. The archive writer,
+`bin/adsb-writer`, used 1.1% of a core, averaged over its first 30 s on the 🎒 portable Pi, start-up
+included (`ps`). Seen by Claude on 2026-10-04; see the end of
+[§9m](#9m--the-portable-rigs-archive-drive). The row's ~0.7 is still an estimate.*
+
 ➡️ **Even allowing for the guesses being wrong, the shape holds: about three radios fit a Pi 4
 comfortably, and five do not.** Five puts you near 3.5 of 4 cores with the archive writer competing
 for the remainder, on a board that already throttles under sustained load.
@@ -235,7 +240,10 @@ choices he made himself are marked **(Chris)** where they come up.
 📋 **~~None of this software exists yet.~~** *Part of it exists; see the 2026-10-04 update below.*
 ~~Every path under `setup/`, `bin/` and the CI workflow named below is planned, not written.~~ The
 hardware facts in [§9j](#9j--verified-on-hardware-2026-10-03) ~~are the only part of this section
-that has been run~~ *are the only part of this section recorded as run.*
+that has been run~~ ~~*are the only part of this section recorded as run.*~~ *Corrected 2026-10-04:
+no longer the only part recorded as run. [§9m](#9m--the-portable-rigs-archive-drive) records runs
+on the 🎒 portable Pi in its two "✅ Verified on hardware, 2026-10-04" blocks, at the end of that
+section.*
 
 **Update 2026-10-04.** That status has been false since 2026-10-03. Commit `95bcba6` added
 `setup/lib.sh`, `setup/steps/00-drivers.sh` and the CI workflow `.github/workflows/ci.yml`, in one
@@ -257,9 +265,13 @@ change. ➡️ [§9k](#9k-the-first-deliverable-in-order) item 1 is done.
   `stable`, both in [§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable), are not
   built.** The workflow marks both as TODO for §9k item 3.
 - Still not written: ~~`bin/`,~~ `setup/foundation/`, ~~`05-config`,~~ `10-decoder`, `update.sh`, the
-  timers, `status.json`, and the clock steps. *Corrected 2026-10-04: commit `47ed4ed` wrote
+  timers, `status.json`, and ~~the clock steps~~ *`20-stationary-clock`*. *Corrected 2026-10-04: commit `47ed4ed` wrote
   `05-config`, `30-archive-drive` and `bin/archive-preflight`
-  ([§9m](#9m--the-portable-rigs-archive-drive)). `bin/clock-preflight` is still not written.*
+  ([§9m](#9m--the-portable-rigs-archive-drive)).* ~~*`bin/clock-preflight` is still not written.*~~
+  *Corrected 2026-10-04, later: `20-portable-clock` and `bin/clock-preflight` are written, and
+  step 20 ran on the 🎒 portable Pi. So are `40-archive-writer`, `bin/adsb-writer` and
+  `tools/adsb-extract`, and step 40 ran there too. Both runs are at the end of
+  [§9m](#9m--the-portable-rigs-archive-drive).*
 
 `00-drivers.sh` has been run once, on the 🎒 portable rig on 2026-10-03. Its verify failed when the
 stick dropped off the USB bus during the check. ⚠️ That run is not recorded in §9j: its output was
@@ -617,9 +629,17 @@ wired port.
 
 ### 9i. What is not chosen yet: the writer, the extractor, the uploader
 
-⛔ **Their language and packaging are not chosen now.** BUILD.md §8 step 4 says to write the uploader
+⛔ ~~**Their language and packaging are not chosen now.**~~ BUILD.md §8 step 4 says to write the uploader
 last, and [BUILD.md §9](BUILD.md#9--the-archive-and-feeding) says to build the extractor alongside
 the writer. Choosing for them now would get ahead of both.
+
+**Corrected 2026-10-04: the writer's and the extractor's language and packaging are chosen. (Chris),
+2026-10-04:** Python 3, standard library only. The ruling and its reasons are in
+[§9m](#9m--the-portable-rigs-archive-drive), under "The archive writer". The timing this section
+waited for has come: the writer is being built now, and its extractor is built alongside it, as
+BUILD.md §9 says. 📋 Decided, ~~not built~~ *built: corrected 2026-10-04, `bin/adsb-writer` and
+`tools/adsb-extract` are written, and the writer records on the 🎒 portable Pi (the end of §9m)*. The uploader's language is still not chosen; BUILD.md §8
+step 4 still puts it last.
 
 **Only the interfaces are fixed:**
 
@@ -628,25 +648,68 @@ the writer. Choosing for them now would get ahead of both.
 - `bin/clock-preflight` comes first. It parses `chronyc tracking` against `clock.max_offset_ms`
   and `clock.require_disciplined`.
 
-📋 **OPEN ITEM — what time is in a BEAST frame?** It is **believed, not verified**, that BEAST frames
+~~📋 **OPEN ITEM — what time is in a BEAST frame?**~~ It is **believed, not verified**, that BEAST frames
 from `readsb` on an RTL-SDR carry a 12 MHz MLAT counter rather than UTC. If that is true, the writer
 has to supply wall time itself. ➡️ Settle it on the bench before designing the writer: capture port
 30005 and compare the frame timestamps against `date`.
+
+**✅ Settled 2026-10-04: a BEAST frame carries a 12 MHz counter, not UTC.** Checked with a 60 s
+read-only capture of port 30005 on the 🎒 portable Pi, run over SSH: 5,381 frames, with the Pi clock
+disciplined by NTP to 0.65 ms, and the counter fitted against the wall clock by least squares.
+
+- **A 12 MHz counter:** 11,999,700 ticks per second, about −25 ppm against the disciplined clock.
+  ~~It follows the radio's crystal, not the Pi's clock.~~
+  - *Corrected 2026-10-04: "follows the radio's crystal" is struck as unsupported. −25 ppm is what
+    this 60 s capture gave. ✅ A 525.5 s fit of the writer's first closed file, on the 🎒 portable
+    Pi later the same day, gives the counter at +0.1 ppm against 12 MHz (`tools/adsb-extract
+    --check`, seen by Claude on 2026-10-04; see the end of [§9m](#9m--the-portable-rigs-archive-drive)).
+    The two disagree, and the cause of the difference is not known. ⚠️ Belief, not checked: the
+    clock was NTP-disciplined to 0.65 ms for this capture, but whether chrony's frequency estimate
+    had settled is unknown. The writer is unaffected: it stamps wall time itself (R1 in §9m).*
+- **It counts from `readsb`'s start, and resets on every `readsb` restart.** `readsb` started at
+  monotonic 17.2 s; at uptime ≈ 665.7 s the counter read 647.6 s.
+- **It is monotonic:** zero backward steps in the capture.
+- **It is not UTC in any encoding.** Read as Radarcape seconds-of-day, it gave 7 s against a real
+  76,990 s.
+- **~~Mode A/C frames, type `0x31`,~~ Type-`0x31` frames carry timestamp 0.** *Corrected 2026-10-04: this
+  overstated the case. The only `0x31` frames seen were all-zero keepalives, and no Mode A/C reply
+  has been observed; see the correction below. ✅ Mode A/C decoding is not switched on: checked by
+  Claude on 2026-10-04 over read-only SSH, the running `readsb`'s command line has no `--modeac`, and
+  `/etc/default/readsb` does not mention it. ⚠️ Still a belief, not verified: that `readsb`'s default
+  with no `--modeac` is off.*
+- ➡️ **The writer supplies wall time.** How it does that is the ruling in
+  [§9m](#9m--the-portable-rigs-archive-drive), "The archive writer".
+- ~~⚠️ **Belief, not verified:**~~ that the timestamp-0 `0x31` frames are `readsb`'s idle BEAST heartbeat,
+  sent every `--net-heartbeat` ~~(believed to default to 60 s)~~. If so, they are evidence of "connected,
+  empty sky". Check it in a capture.
+- **✅ Corrected 2026-10-04: checked. They are `readsb`'s keepalive, and the 60 s interval was
+  wrong.** Checked by Claude with a read-only 30 s capture of port 30005 on the 🎒 portable Pi: 5
+  type-`0x31` frames in 30 s, about one every 6 s, and every one entirely zero (counter
+  `000000000000`, signal 0, data `0000`). ➡️ They are `readsb`'s keepalive, an all-zero Mode A/C
+  frame, not Mode A/C replies. The belief about what they are holds; the belief about how often they
+  come was wrong. Whether the ~6 s interval is set by `--net-heartbeat` is not checked.
+  - The writer keeps them like any other frame (R1 in [§9m](#9m--the-portable-rigs-archive-drive)).
+    📋 The extractor's per-file fit is being changed, in `tools/adsb-extract`, to drop a `0x31` frame
+    only when it is all-zero.
 
 **Update 2026-10-04: the archive drive.** 📋 Decided, ~~not built~~ *partly built*; see
 [§9m](#9m--the-portable-rigs-archive-drive). *Corrected 2026-10-04: commit `47ed4ed` built the mount
 at `/var/lib/adsb-receiver/archive` (`30-archive-drive`), the portable template's `spool_dir` on the
 drive, the `tmpfiles.d` entry for `/run/adsb-receiver` and the recording lock file (`05-config`),
-and `bin/archive-preflight` with the exit codes below. The writer, and with it the storage contract,
-is not built, and `bin/clock-preflight` is not in `47ed4ed`.*
+and `bin/archive-preflight` with the exit codes below.* ~~*The writer, and with it the storage contract,
+is not built, and*~~ *`bin/clock-preflight` is not in `47ed4ed`. Corrected 2026-10-04, later: the
+writer is written and records on the 🎒 portable Pi, and `bin/clock-preflight` is written and
+installed there by `20-portable-clock`; see the end of [§9m](#9m--the-portable-rigs-archive-drive).*
 
 - `/var/lib/adsb-receiver/archive` becomes a mount point. On the 🎒 portable rig it is where the
   archive drive is mounted. How the 🏠 stationary rig's SSD backs it is not decided.
 - 🎒 On the portable rig the spool moves onto the drive: `uploader.spool_dir` becomes
   `/var/lib/adsb-receiver/archive/spool`. The rest of `/var/lib/adsb-receiver/` stays on the SD card.
 - The storage contract for the writer in §9m is one of the fixed interfaces: UTC file names,
-  10-minute rotation, `.part` while open, fsync, `.torn`, and group `adsb-operator` permissions. The
-  writer's language and packaging are still not chosen.
+  10-minute rotation, `.part` while open, fsync, `.torn`, and group `adsb-operator` permissions. ~~The
+  writer's language and packaging are still not chosen.~~ *Corrected 2026-10-04: chosen, and the
+  contract's open items are closed; see the correction at the top of this section and §9m, "The
+  archive writer".*
 - **(Chris), 2026-10-04:** the recording lock, `/run/adsb-receiver/recording.lock`, is one of the
   fixed interfaces too. It lives on tmpfs, in a directory created by a `tmpfiles.d` entry
   ([§9f](#9f-what-updatesh-does), §9m).
@@ -754,7 +817,8 @@ on the stock 2.0.2 library.
 2. `05-config` + `10-decoder`. *Half done, 2026-10-04: `05-config` is built, widened as in
    [§9m](#9m--the-portable-rigs-archive-drive), in commit `47ed4ed`. `10-decoder` is not.*
 3. `update.sh` + the timers + `status.json` + the job that advances `stable`.
-4. `20-portable-clock` + `clock-preflight`.
+4. `20-portable-clock` + `clock-preflight`. *Done 2026-10-04: both are written, and step 20 ran on
+   the 🎒 portable Pi; see the end of [§9m](#9m--the-portable-rigs-archive-drive).*
 
 The foundation scripts come when the stationary build starts.
 
@@ -805,6 +869,10 @@ tell you whether the rig is fine or nobody looked.
 
 ⛔ **Rejected: choosing the writer's language now.** See
 [§9i](#9i-what-is-not-chosen-yet-the-writer-the-extractor-the-uploader).
+*Update 2026-10-04: the timing this rejection waited for has come. The writer is being built now,
+and its extractor is built alongside it, as [BUILD.md §9](BUILD.md#9--the-archive-and-feeding) item 3
+says. **(Chris), 2026-10-04:** Python 3, standard library only; the ruling, and the languages
+rejected with it, are in [§9m](#9m--the-portable-rigs-archive-drive), "The archive writer".*
 
 ⛔ **Rejected: `yq`.** It is not on the image. `python3` with its `yaml` module is
 ([§9j](#9j--verified-on-hardware-2026-10-03)).
@@ -881,8 +949,10 @@ decided, built:
 - CI's check that a role-gated step calls `require_role` first
   ([§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable)).
 
-📋 **Still not built:** the writer and its unit, the pull window, the sudoers drop-in, the pull
-wrapper, `NN-portable-pull`, `update.sh`, `status.json`, and the login banner. The choices the build
+📋 **Still not built:** ~~the writer and its unit,~~ the pull window, the sudoers drop-in, the pull
+wrapper, `NN-portable-pull`, `update.sh`, `status.json`, and the login banner. *Corrected
+2026-10-04, later: the writer, its unit and its step, `40-archive-writer`, are written, and step 40
+ran on the 🎒 portable Pi; see the end of this section.* The choices the build
 made where this section left them open, and the first run on hardware, are at the end of this
 section.
 
@@ -976,11 +1046,16 @@ login user without root. There is no sticky bit anywhere on the drive. On the po
   symlinks that can dangle, to reach what a direct mount at the interface path gives for free. The
   guard of an unwritable mount point would have to be rebuilt at each link.
 - ⚠️ The `0555` mount point only stops a writer that is not root. The real guard is the preflight
-  and `RequiresMountsFor=`, so the writer runs as its own system user, `adsb-receiver`.
+  ~~and `RequiresMountsFor=`~~, so the writer runs as its own system user, `adsb-receiver`.
+  *Corrected 2026-10-04: the guard against writing to the SD card is now `archive-preflight` plus
+  the `0555` mount point, and no unit dependency. **(Chris), 2026-10-04:** the writer's unit has
+  `Wants=` and `After=` on the archive's mount unit instead of `RequiresMountsFor=`; see the
+  correction in "The writer's unit, and the recording lock" below.*
 
-**A preflight, `bin/archive-preflight`,** beside `clock-preflight`, plus
-`RequiresMountsFor=/var/lib/adsb-receiver/archive` on the writer's unit once the writer exists. It
-prints its raw evidence, and checks:
+**A preflight, `bin/archive-preflight`,** beside `clock-preflight`~~, plus
+`RequiresMountsFor=/var/lib/adsb-receiver/archive` on the writer's unit once the writer exists~~.
+*Corrected 2026-10-04: not `RequiresMountsFor=`; the writer's unit has `Wants=` and `After=` on the
+archive's mount unit (see the writer's unit below).* It prints its raw evidence, and checks:
 
 - `findmnt` shows the path mounted from the labeled device, ext4, read-write.
 - Exactly one device carries the label.
@@ -1016,8 +1091,14 @@ refusal, and it leaves a record that survives, so a refused window is a third fa
 ([§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away)), so a refusal there
 also needs the push alert. That is left to the stationary build.
 
-**The storage contract for the writer.** An interface, not a writer design: [§9l](#9l-rejected)'s
-rejection of choosing the writer's language now stands.
+*Update 2026-10-04: nothing was named to produce that record; the preflights write nothing. **(Chris),
+2026-10-04:** a refusal is read from systemd, and the writer's own state goes to a file it owns. See
+"The archive writer" below, ruling (f).*
+
+**The storage contract for the writer.** An interface, not a writer design~~: [§9l](#9l-rejected)'s
+rejection of choosing the writer's language now stands~~. *Corrected 2026-10-04: the writer is now
+designed, and its language chosen ([§9l](#9l-rejected)'s update); see "The archive writer" below. The
+contract stands as written, with its OPEN item closed there.*
 
 - Files are named in UTC, by the disciplined Pi clock, and rotated on 10-minute UTC boundaries.
 - A file is named `.part` while open. It is fsynced at least every 10 s and on close, and renamed to
@@ -1032,6 +1113,9 @@ rejection of choosing the writer's language now stands.
   live `.part` (see the build choices at the end of this section) assume that the writer either
   holds its `.part` open or runs as `adsb-writer.service`. The contract does not say so yet. It also
   does not say whether the writer reuses a 10-minute file name after a crash.
+  - *Closed 2026-10-04 by **(Chris), 2026-10-04**, ruling (d) in "The archive writer" below: the
+    writer holds exactly one `.part` open for its whole life, as `adsb-writer.service`; files are
+    named by the UTC second they were opened; and the writer never reuses a name.*
 - ➡️ The names use wall time, so the contract does not depend on §9i's open item about the time in
   a BEAST frame.
 
@@ -1118,14 +1202,214 @@ and what remains.
 - Rejected: `ExecStartPost=` running `update.sh`. `systemctl start` would block for a source build
   that takes minutes.
 
-**The writer's unit, and the recording lock.** 📋 The writer itself is not designed
-([§9i](#9i-what-is-not-chosen-yet-the-writer-the-extractor-the-uploader)); its unit is.
+**The archive writer. Decided 2026-10-04, in the afternoon.** Chris ruled it through
+multiple-choice questions. Each time he took the architecture consultation's recommendation, and
+that choice is the decision, as at the top of this section. It follows the BEAST timestamp being
+settled the same day ([§9i](#9i-what-is-not-chosen-yet-the-writer-the-extractor-the-uploader)).
+📋 **Decided, ~~not built~~** *built*. ~~The writer, its unit, its step, the extractor and the CI test below are
+not written. Every mechanism here is planned.~~ *Corrected 2026-10-04, later: `bin/adsb-writer`,
+`setup/steps/40-archive-writer.sh` and the unit it renders, `tools/adsb-extract`, and CI's
+`unittest` run over `tests/` are written. Step 40 ran on the 🎒 portable Pi, and the writer
+records; see the end of this section, which also lists what has not yet been seen on the Pi.*
+
+**R1, wall time and the container. (Chris), 2026-10-04.**
+
+- **The writer stamps every frame when it receives it, from `CLOCK_REALTIME`**, the disciplined Pi
+  clock. A BEAST frame carries no wall time (§9i).
+- **The container is classic pcap,** with the nanosecond magic `0xa1b23c4d` and the linktype
+  `DLT_USER0` (147). There is one record per BEAST frame. The record's payload is the frame exactly
+  as received from port 30005, with its `0x1a` escaping and its 12 MHz counter intact.
+  ➡️ Concatenating the payloads that begin with `0x1a` reproduces a valid BEAST stream.
+- **Event records are payloads that do not begin with `0x1a`:** one UTF-8 line each.
+  - `start`
+  - `stop reason=…`
+  - `connected <addr>`
+  - `disconnected reason=…`
+  - `clock <chronyc tracking offset and leap status>`, at start and at each rotation
+  - `expired <path> <bytes>`
+  - `resync`, on an unknown type byte
+  - `position`, under R-pos below
+- **A file is written for every interval the writer is up, even with zero frames.** No file means
+  the writer was not running. A file of events alone means connected with an empty sky, or
+  disconnected, and the events say which. Frames mean traffic. ➡️
+  [BUILD.md §7](BUILD.md#7-software) rule 2, a gap and an empty sky being different facts, is met in
+  the data itself.
+- **Why:**
+  - A time on every record needs no anchor, no reset detection, and no special case for the
+    timestamp-0 frames.
+  - Keeping the raw frame keeps the counter, for the spacing of frames inside one flush.
+  - pcap records delimit themselves, so a `.torn` file reads cleanly up to its last complete record.
+- ⭐ **Why this is not the "bespoke format" that [BUILD.md §9](BUILD.md#9--the-archive-and-feeding)
+  item 2 refuses.** The data is BEAST and the container is pcap: both are existing formats, with
+  their own tools (`capinfos`, `tcpdump -r`, Wireshark). What item 2 refused was a bespoke JSON
+  archive, *"a format only you can read"*.
+- **The cost** is about 16 bytes a record, ~12 MB an hour at today's ~92 frames/s. ⚠️ That is an
+  estimate, not a measurement.
+  - *Update 2026-10-04: ✅ measured on the writer's first closed file on the 🎒 portable Pi:
+    1,317,614 bytes, 37,988 records, over 8 min 46 s, about 9 MB an hour. Seen by Claude on
+    2026-10-04; see the end of this section.*
+- Rejected:
+  - **An anchor per file or per session, with counter offsets.** It needs reset detection,
+    re-anchoring, a rule for the timestamp-0 frames and a rule for drift: logic that can fail in the
+    field, to save about 8 bytes a frame.
+  - **Rewriting the timestamp into the Radarcape GPS encoding.** It destroys the counter, drops the
+    date, needs a status frame to switch readers into that mode, and puts byte-rewriting on the data
+    path.
+  - **A sidecar index file.** Two files per interval breaks every per-file mechanism already
+    decided: `.part` to `.torn`, the rsync move, and expiry.
+  - **In-band sync frames in BEAST grammar.** An invented type is a hidden bespoke extension, and a
+    forged `0x34` can switch `readsb` into Radarcape mode.
+  - **No custom writer: `nc` or `socat` into a file.** It cannot rotate on a frame boundary, fsync,
+    rename, expire, or record a lost connection.
+- ➡️ **What would change it:** a consumer that needs pure BEAST files on disk, with no strip step.
+
+**R2, latency. (Chris), 2026-10-04: not measured absolutely, and no constant applied.** The kit
+cannot measure the latency from the antenna to the writer: the GNSS puck is NMEA over USB, with no
+PPS known, and NMEA-disciplined chrony is good to about 0.1 s. A documented error budget stands in
+its place. ⚠️ **Every figure in it is a belief, not a measurement:**
+
+- the Pi clock, disciplined by NMEA: ≲ 0.1 s;
+- `readsb`'s USB buffering and demodulation: ~50–150 ms;
+- `readsb`'s output flush interval: tens to hundreds of ms;
+- the camera clock: ~0.1 s.
+
+➡️ The sum is well under the ±1 s that matching to photographs needs. **The part that can be
+measured is checked per file:** a linear fit of the counter against the wall stamp, giving the
+slope in ppm and the residual's maximum and standard deviation. A growing residual, or a step, shows
+the writer falling behind.
+
+- Rejected:
+  - **Subtracting an estimated constant.** It would present an assumption as a result.
+  - **Buying PPS and a reference receiver.** Out of proportion to ±1 s.
+  - **The ADS-B T bit.** The T bit marks position epochs synchronized to UTC, and transponders
+    rarely set it, so a measurement built on it would rest on a flag most aircraft do not send.
+    ⚠️ That is the architecture consultation's assessment, not verified here.
+- ➡️ **What would change it:** a requirement tighter than about 0.3 s, which means PPS first; or an
+  MLAT network's sync statistics, on the 🏠 stationary rig.
+
+**R3, language and packaging. (Chris), 2026-10-04.** This answers
+[§9i](#9i-what-is-not-chosen-yet-the-writer-the-extractor-the-uploader) and [§9l](#9l-rejected).
+
+- **The writer is Python 3, standard library only, in one file, `bin/adsb-writer`.** The writer's
+  step copies it to `/usr/local/bin/adsb-writer`, for the preflights' reason: `update.sh` will flip
+  between two worktrees ([§9f](#9f-what-updatesh-does)), and a symlink into one would follow the
+  flip.
+- **The extractor is Python 3, standard library only, under `tools/`.** It runs on the workstation,
+  on pulled data.
+- **CI gains a standard-library `unittest`,** run on a small committed BEAST sample.
+- **Why:** at ~92 frames/s the work is shaped by I/O. The cost per frame is estimated at well under
+  1% of a core here; ⚠️ that is arithmetic, not a measurement. And no build step keeps the
+  `git pull` model.
+  - *Update 2026-10-04: ✅ a first measurement: 1.1% of a core, averaged over the writer's first
+    30 s on the 🎒 portable Pi, start-up included (`ps`). Seen by Claude on 2026-10-04; see the end
+    of this section.*
+- Rejected:
+  - **C, built on the Pi.** Every update compiles, a build failure becomes a rollback, CI cannot
+    check it, and it buys nothing at this rate.
+  - **A Go or Rust binary in the repo.** It sits where §9l's rejected image sits: it bakes in a
+    version, cannot be reviewed as a diff, and is a binary blob in a public repo.
+- ➡️ **What would change it:** a Python writer measured above ~25% of a core, or dropping frames, at
+  the 🏠 stationary rig's real rate. Then the hot loop moves to C, with the same file format and the
+  same unit.
+
+**R-pos, the receiver's position. (Chris), 2026-10-04:** the archive records it. On the 🎒 portable,
+a `position` event from `gpsd` is written at start and at each rotation. **Why:** the extractor's
+"what was overhead" needs it, and the portable moves every shoot. ⚠️ The archive files never enter
+this repo.
+
+**R-ext, the extractor. (Chris), 2026-10-04: stage 1 is built with the writer.** Given a UTC window,
+it gives per-frame times, as CSV, and a slice of plain BEAST. The default window is t ± 30 s, so the
+CPR even and odd pairs survive. Stage 2, frames to positions, is deferred, and does not block
+recording.
+
+**The writer's rulings (a) to (g). (Chris), 2026-10-04,** accepted as a set:
+
+- **(a) Its values are command-line arguments in `ExecStart=`,** such as `--min-free-gb`,
+  `--source 127.0.0.1:30005` and `--archive <beast dir>`. The writer's step renders the unit from
+  `station.yml` (render, diff, install, as for the mount unit). `station.yml` stays `root:root 0600`
+  ([§9d](#9d-config)).
+  - Rejected: widening `station.yml`'s mode. It carries keys and tokens.
+  - ℹ️ An environment file is a workable alternative, not taken.
+- **(b) A lost connection to port 30005 does not stop the writer.** It keeps its `.part` open,
+  writes a `disconnected` event, retries every 1–2 s, writes `connected` when the port returns, and
+  keeps rotating. ⛔ It never exits on a disconnect.
+  - Rejected: exiting and relying on `Restart=`. That leaves a 30 s hole with no record, and restart
+    flapping.
+  - Rejected: logging to the journal only. The journal does not travel with the pull.
+- **(c) On SIGTERM or SIGINT** (the pull window's `Conflicts=` is one), the writer finishes the
+  current frame, writes `stop`, fsyncs, renames the `.part`, and exits `0`. The unit keeps the
+  default `KillMode=control-group`, so the writer gets the signal directly. ⚠️ **Belief, not
+  verified:** that `flock(1)` does not forward signals, and that the child inherits the lock's file
+  descriptor.
+- **(d) This closes the storage contract's OPEN item above.**
+  - The writer holds exactly one `.part` open for its whole life, as `adsb-writer.service`.
+  - Files are named by the UTC second they were **opened**, not by the interval's start:
+    `beast/YYYY-MM-DD/YYYYMMDDTHHMMSSZ.beast.pcap`, with `.part` appended while open.
+  - Rotation is on the 10-minute UTC boundary, on a frame boundary.
+  - The writer never reuses a name. The final rename does not clobber: on a collision it falls back
+    to `.1`, `.2` and so on, as the preflight does.
+  - ⭐ **Why names by opening time:** a crash is not the only collision. A pull window stopped and
+    restarted inside one interval would, with names by interval start, rename onto an existing
+    closed file and overwrite real data.
+  - ➡️ The extractor finds files by their name range, and always opens the file before the window
+    too.
+- **(e) Expiry runs at start, as already ruled, and at every rotation,** after the closed file is
+  renamed. It is the same routine: the oldest closed files, `.torn` included, until free space is at
+  or above `min_free_gb`, each one an `expired` event. **Why:** a 🏠 stationary writer never
+  restarts. ➡️ "The writer is the only deleter" stands.
+  - *Update 2026-10-04: **(Chris), 2026-10-04:** the routine checks first and deletes nothing when
+    the threshold cannot be reached, and at rotation it spares the file just closed. See "When the
+    drive is nearly full", below.*
+- **(f) The writer owns a state file, ~~`/var/lib/adsb-receiver/writer.json`~~
+  `/var/lib/adsb-receiver/writer/writer.json`,** on the SD card, written by tmp and rename, at start,
+  at each rotation and at each event. It holds the state, the current file, the frames in this file,
+  the last `clock` event and the last expiry list. `update.sh`, not built, may copy it into
+  `status.json`.
+  - *Path adjusted by Claude 2026-10-04, pending Chris's approval of the diff:* the file lives in a
+    directory, `/var/lib/adsb-receiver/writer/`, that the writer's step creates as
+    `adsb-receiver:adsb-operator 2770`. The reason: on the 🎒 portable Pi, a read-only `stat` on
+    2026-10-04 showed `/var/lib/adsb-receiver` as `root:root 0755`, and `id` showed `adsb-receiver`
+    with primary group `adsb-operator`. So the writer could not create the temporary file there to
+    rename. Widening that directory is not wanted.
+  - **Refusals are read from systemd,** because the preflights write nothing:
+    `systemctl show -p ActiveState,Result,ExecMainStatus adsb-writer`, and
+    `journalctl -u adsb-writer -p err`.
+  - ⭐ **This names the owner of the `recording: refused` record this section assumed earlier,
+    which nothing produced.**
+- **(g) The unit's commands:**
+  - `ExecStartPre=+/usr/local/bin/clock-preflight`
+  - `ExecStartPre=+/usr/local/bin/archive-preflight`
+  - `ExecStart=/usr/bin/flock /run/adsb-receiver/recording.lock /usr/local/bin/adsb-writer …`
+  - ⚠️ The `+` corrects a defect in this section's unit order as first written; see the correction
+    there, below. That `+` runs a command as root under a unit's `User=` is a systemd fact ~~still to
+    be verified on the Pi~~. *Corrected 2026-10-04: ✅ verified for systemd 259 on the workstation;
+    see the correction there.* *Update 2026-10-04, later: ✅ and seen on the Pi's systemd 257, on
+    step 40's first run; see the end of this section.*
+
+**R5, build order. (Chris), 2026-10-04.**
+
+- **The writer depends on port 30005 answering, not on how `readsb` got there.** The writer's step
+  treats 30005 as a readiness fact, and the writer waits and records the gap, under (b). ⛔ It is
+  never an install check on `10-decoder`.
+- **`20-portable-clock`, `bin/clock-preflight`, and the writer with its step run on the Pi now,**
+  because they do not touch the radio. Each is committed once it passes there. `10-decoder` waits for
+  its Pi run on a new radio.
+- ➡️ The rule holds that nothing reaches `main` before its run on the Pi passes. The 🎒 portable
+  tracks `main` ([§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable)).
+
+**The writer's unit, and the recording lock.** 📋 ~~The writer itself is not designed
+([§9i](#9i-what-is-not-chosen-yet-the-writer-the-extractor-the-uploader)); its unit is.~~ *Corrected
+2026-10-04: the writer is now designed, ~~not built~~; see "The archive writer" above.* *Corrected
+2026-10-04, later: built, and recording on the 🎒 portable Pi; see the end of this section.*
 
 - **(Chris), 2026-10-04: the writer's unit holds the recording lock exactly as long as the writer
   runs:** `ExecStart=/usr/bin/flock /run/adsb-receiver/recording.lock <writer>`. The lock file is on
   tmpfs, its directory is created by a `tmpfiles.d` entry, and it joins §9i's fixed interfaces. The
   reason: §9l keeps the writer's language unchosen, so the lock lives in a unit file, not in the
   writer's code. And on tmpfs, a crash or a reboot leaves no stale lock.
+  - *Update 2026-10-04: the first of those reasons has lapsed, because the writer's language is now
+    chosen ("The archive writer" above, R3). The lock stays in the unit file: **(Chris), 2026-10-04**,
+    ruling (g) keeps `flock` in `ExecStart=`.*
   - **(Chris), 2026-10-04: nothing writes into the lock file.** The holder is `flock`, which writes
     nothing, and having the writer write it would put lock bookkeeping into the writer's code.
     Instead, the login banner derives the holder: `lslocks` gives the PID and the path,
@@ -1141,11 +1425,90 @@ and what remains.
   - Rejected: `update.sh` waiting for the lock. A session lasts hours.
   - Rejected: a bounded `flock -w` for the writer. It adds a new failure, and the writer has nothing
     better to do than wait again.
-- The unit's order: `RequiresMountsFor=/var/lib/adsb-receiver/archive`; then `ExecStartPre=`
+- The unit's order: ~~`RequiresMountsFor=/var/lib/adsb-receiver/archive`~~ *`Wants=` and `After=` on
+  the archive's mount unit (corrected 2026-10-04; see below)*; then `ExecStartPre=`
   `clock-preflight`, then `archive-preflight`; then `ExecStart=`, which is the wait for the lock and
   then the writer. `Restart=on-failure`, `RestartSec=30s`, `StartLimitIntervalSec=0`. So a preflight
   that fails at boot, for instance with no GPS lock yet, is retried until the clock is disciplined,
   and each refusal is recorded in `status.json`.
+  - **Corrected 2026-10-04.** ⚠️ **As written above, the unit could never start.** `ExecStartPre=`
+    runs as the unit's `User=` unless its command is prefixed `+`, and the writer runs as
+    `adsb-receiver`. Both preflights refuse to run as anyone but root, and exit `1`, "run as root"
+    (`bin/archive-preflight` line 53, `bin/clock-preflight` line 59). **(Chris), 2026-10-04,** ruling
+    (g) in "The archive writer" above: the order is unchanged, and both preflights carry the `+`:
+    `ExecStartPre=+/usr/local/bin/clock-preflight`, then
+    `ExecStartPre=+/usr/local/bin/archive-preflight`, then
+    `ExecStart=/usr/bin/flock /run/adsb-receiver/recording.lock /usr/local/bin/adsb-writer …`.
+    ~~⚠️ The `+` behavior is a systemd fact still to be verified on the Pi.~~ *Corrected
+    2026-10-04:* ✅ **The `+` behavior is verified for systemd 259,** from the `systemd.service(5)`
+    man page on the workstation: *"If the executable path is prefixed with "+" then the process is
+    executed with full privileges. In this mode privilege restrictions configured with User=,
+    Group= … are not applied to the invoked command line (but still affect any other ExecStart=,
+    ExecStop=, … lines)."* ✅ The writer's unit as rendered passes `systemd-analyze verify` on
+    systemd 259. ~~⚠️ **Still unverified:** that the Pi's systemd 257 behaves the same. Step 40's
+    first run on the Pi shows it.~~ *Corrected 2026-10-04, later: ✅ it does, for the `+` prefix.
+    On step 40's first run on the 🎒 portable Pi, `systemd-analyze verify` printed nothing on
+    systemd 257, and both `ExecStartPre=+` preflights ran as root and printed READY. Seen by Claude
+    on 2026-10-04; see the end of this section.* Who records a refusal is ruling (f) there.
+  - **Corrected 2026-10-04: the archive's mount is wanted, not required. (Chris), 2026-10-04,
+    option A1.** ⚠️ **As first written, a missing drive stopped the writer silently, with no
+    retry.** `RequiresMountsFor=` adds `Requires=` and `After=` on the mount unit. When the mount
+    fails, as with the drive absent at boot, the writer's start job fails with result `dependency`
+    before any process runs. The writer is left inactive (dead), with `Result=success` and
+    `NRestarts=0`. `Restart=on-failure` never fires, because it governs processes that ran.
+    ➡️ Booting without the drive and plugging it in later recorded nothing until a reboot or a
+    manual start, and nothing showed it. Also: under `Requires=`, stopping the required unit stops
+    the dependent, with no restart. ✅ Both seen by Claude on 2026-10-04 with stand-in user units on
+    systemd 259; the Pi runs systemd 257. ➡️ "Retried until the clock is disciplined", above, held
+    only for a preflight's refusal, until this ruling.
+    - **The ruling:** the writer's unit carries `Wants=` and `After=` on
+      `var-lib-adsb\x2dreceiver-archive.mount`, the archive's mount unit (the name read on the Pi),
+      instead of `RequiresMountsFor=`. ✅ Each step of the mechanism was seen on systemd 259 with
+      stand-in units, 2026-10-04:
+      - a failed wanted unit does not fail the writer's start, so `ExecStartPre=+archive-preflight`
+        runs and exits `2`, not ready;
+      - `Restart=on-failure`, with `RestartSec=30s`, retries;
+      - each retry enqueues a fresh start job for the wanted mount: four mount attempts for four
+        writer attempts;
+      - between retries the writer reads `activating` (`auto-restart`), not `failed`.
+    - ➡️ **A drive plugged in late is mounted and recorded within about one cycle,** the device
+      timeout (10 s, if the drop-in above works) plus 30 s, with no hands. The refusal is the
+      preflight's on every attempt. The retry now covers a failed mount, as well as a preflight's
+      refusal. The guard against writing to the SD card is `archive-preflight` plus the `0555`
+      mount point (corrected above).
+    - ℹ️ With the drive absent, the refusal that `archive-preflight` prints is *"no device is
+      labeled adsb-archive"*, as seen on the Pi below, which it checks before the mount. *"Nothing is
+      mounted"* is its refusal when the drive is there but its mount failed.
+    - 📋 **Decided; ~~not yet run on the Pi~~** *built, and run on the Pi*. ~~The change is being made in~~
+      *The change is in* `setup/steps/40-archive-writer.sh`. ~~Nothing above has been seen on the Pi's systemd 257.~~
+      *Corrected 2026-10-04, later: step 40 ran on the 🎒 portable Pi, and the writer's unit, with
+      `Wants=` and `After=` on the mount, came up and records on systemd 257; see the end of this
+      section. ⚠️ The mechanism above is still not seen on the Pi: no failed mount, no late plug and
+      no retry has happened there. The late-plug test in the pre-field checklist below shows it.*
+    - Rejected:
+      - **(A2) Also triggering the mount on hot-plug,** with the mount unit `WantedBy=` the
+        by-label device unit. It shortens the gap to seconds and mounts inside the pull window. But
+        it reverses this section's "No hot-plug and no automount", needs step 30 to re-enable a
+        changed unit, and its trigger is provable only by a real plug. The field-loss rule does not
+        need it.
+      - **(B) Keeping `RequiresMountsFor=` and starting the writer when the device appears.** Any
+        other mount failure, such as an fsck error or a corrupt drive, still leaves the writer
+        silently dead, with no refusal recorded.
+      - **(C) Surfacing it only.** It still needs a manual start in the field, which Chris's ruling
+        on automation rules out.
+      - **`/etc/fstab` with `nofail`.** `/etc/fstab` is on the denylist, and `nofail` does not
+        change the writer's dependency type.
+      - **An `.automount`.** This section ruled out an automount; autofs shows at the mount point,
+        and a touch there with no drive blocks.
+      - **A timer or a `.path` unit re-poking the mount.** Redundant with the restart loop.
+    - ⚠️ **OPEN, a belief corrected.** The architecture consultation believed that the mount unit
+      is `BindsTo=` its device, so that pulling the drive mid-session would stop the mount. Read on
+      the Pi on 2026-10-04 with `systemctl show`: the mount unit has `Requires=dev-sda1.device` and
+      an empty `BindsTo=`. ➡️ So a pull mid-session is unverified. The mount may stay on a vanished
+      device. The writer would then exit on its write or fsync error, logging `fatal:` (⚠️ a belief:
+      that the kernel returns an error rather than hanging), and keep retrying, refused, until a
+      reboot. That is one lost session, fixed by a reboot, which the field-loss rule accepts. The
+      pre-field checklist below tests it.
 - **(Chris), 2026-10-04: `UMask=0007`** on the writer's unit, and later on the uploader's. Files are
   `0660`. Directories are `2770`, and inherit the setgid bit and group `adsb-operator`.
   - Rejected: `UMask=0027`. Its `2750` directories block deletion inside them.
@@ -1161,7 +1524,39 @@ and reports it loudly, in `status.json` and the login banner, rather than stoppi
 
 - On start, before it opens its first `.part`, the writer expires the oldest closed files, `.torn`
   included. It reports each one, and stops when free space is at or above `archive.min_free_gb`.
-- The only refusal on space is the writer's: still below the threshold with nothing left to expire.
+  - *Update 2026-10-04. **(Chris), 2026-10-04:** expiry also runs at every rotation, after the
+    closed file is renamed, by the same routine, and each expired file is an `expired` event. A 🏠
+    stationary writer never restarts. See ruling (e) in "The archive writer" above.*
+  - *Update 2026-10-04: at start and at rotation, the routine now checks first and deletes nothing
+    when the threshold cannot be reached, and at rotation it spares the file just closed; see the
+    correction below.*
+- ~~The only refusal on space is the writer's: still below the threshold with nothing left to expire.~~
+  - **Corrected 2026-10-04. (Chris), 2026-10-04: check first, delete nothing.** ⚠️ **As ruled above,
+    an unreachable threshold wiped the drive.** If `archive.min_free_gb` cannot be reached even by
+    expiring every closed file (the threshold set wrong, the drive too small, or the drive filled by
+    something other than the archive), the rule deleted every closed file on the drive, oldest
+    first, and then refused. That lost un-pulled data for nothing, because the writer could not
+    record anyway. Worse, after a refusal at rotation, the unit's `Restart=` brings the writer back
+    30 s later, and the start-time expiry deleted even the file the rotation had kept. ➡️ That is
+    loss that repeats, which the field-loss rule above does not accept. Found on 2026-10-04 by code
+    review and the implementer, by reasoning; not seen on the Pi.
+    - **The ruling:** before deleting anything, at start and at every rotation, the writer computes
+      whether expiry can succeed: free space plus the total size of every file it may expire is at
+      or above `archive.min_free_gb`. The files it may expire are the closed files, `.torn`
+      included; at rotation, not the file just closed; never a `.part`.
+      - If not, it deletes nothing and refuses loudly: state `refused` in its status, and the
+        journal.
+      - If so, it expires oldest-first as before, stopping at the threshold, and at rotation it
+        spares the file just closed. ℹ️ That spare at rotation is new with this change.
+    - ➡️ **A misconfigured threshold or a small drive costs recording, never data.**
+    - 📋 **Decided; ~~not yet run on the Pi~~** *built, and the writer runs on the Pi*. ~~The change is being made in~~ *The change is in* `bin/adsb-writer`.
+      *Corrected 2026-10-04, later: the writer ran on the 🎒 portable Pi; see the end of this
+      section. ⚠️ No expiry and no refusal on space has happened there, so this rule is not seen on
+      the Pi.*
+    - Rejected:
+      - **Always sparing the newest closed file at start too.** It stops the restart from deleting
+        that file, but still deletes every older file before refusing.
+      - **Keeping the rule as ruled.** An unreachable threshold wipes the drive's un-pulled data.
 - The reason is the ruling above: today's session outranks an unpulled old one. [BUILD.md §9](BUILD.md#9--the-archive-and-feeding)
   item 1 puts retention in the writer, so the writer is the one component that deletes.
 - Rejected: refusing at the threshold, which inverts the ruling above.
@@ -1206,12 +1601,21 @@ recording session ([§9c](#9c-every-step-ends-in-a-check-of-the-observable-effec
     from applying until it is replaced ([§9c](#9c-every-step-ends-in-a-check-of-the-observable-effect)).
   - A changed mount unit never restarts the mount. It sets `reboot_required` (§9f).
 - **The writer's step** installs the writer's unit: the recording lock, the preflights, the restart
-  policy, `UMask=` and `RequiresMountsFor=` above.
+  policy, `UMask=` and ~~`RequiresMountsFor=`~~ *`Wants=` and `After=` on the archive's mount unit
+  (corrected 2026-10-04)* above.
   - `--verify` (install tier, [§9c](#9c-every-step-ends-in-a-check-of-the-observable-effect)): the
     unit file loads (`systemd-analyze verify`), and is enabled and not failed; both preflights exit
     `0` or `2`, never `1`; `lslocks` shows `/run/adsb-receiver/recording.lock` held by exactly one
     process whenever the writer or `update.sh` runs. Under `update.sh`, the holder is `update.sh`
     itself. ⛔ Never `is-active` of the writer (§9f).
+  - *Update 2026-10-04.* ~~*📋 Its planned name is*~~ *It is `setup/steps/40-archive-writer.sh`,* portable-only
+    for now, because its ~~`RequiresMountsFor=` target~~ *wanted mount unit (corrected 2026-10-04)*
+    is built only by step 30, which is
+    portable-only. *Under "The archive writer" above it also copies `bin/adsb-writer` to
+    `/usr/local/bin/adsb-writer` (R3), renders the unit from `station.yml` (a), and creates
+    `/var/lib/adsb-receiver/writer/` (f). Port 30005 is a readiness fact for it, never an install
+    check (R5).* *Corrected 2026-10-04, later: the step is written, and its first run on the 🎒
+    portable Pi exited `0`; see the end of this section.*
 - **`NN-portable-pull.sh`, a new role-specific step** with `require_role portable`. Its number is
   assigned after both the writer's step and `update.sh`'s step. It installs the pull window, the
   sudoers drop-in, validated with `visudo -cf` first, and the pull wrapper.
@@ -1247,7 +1651,8 @@ portable template's new `archive:` block carries the same BEAST ⛔, as a commen
 
 **The port.** The drive goes in a black USB 2 port. It needs about 10 MB an hour. ⚠️ That is an
 estimate derived from [BUILD.md §9](BUILD.md#9--the-archive-and-feeding)'s ~200 MB/day busy-metro
-figure, not a measurement. USB 2 draws less from the Pi 4's ~1.2 A USB budget, and it avoids the
+figure, not a measurement. *Update 2026-10-04: ✅ measured at about 9 MB an hour, on the writer's
+first closed file on the 🎒 portable Pi; see the end of this section.* USB 2 draws less from the Pi 4's ~1.2 A USB budget, and it avoids the
 interference between USB 3 and nearby SDRs that is widely reported but ⚠️ not measured here. The
 powered-hub rule ([BUILD.md §3d](BUILD.md#3d--the-second-radio--either-rig) part 14) is unchanged.
 
@@ -1257,6 +1662,13 @@ powered-hub rule ([BUILD.md §3d](BUILD.md#3d--the-second-radio--either-rig) par
   what it repaired; exactly one `.part` became `.torn`; every earlier closed file reads back.
 - [ ] One boot with the drive pulled. The banner says refused within ~20 s, and nothing appears
   under the bare mount point.
+- [ ] *Added 2026-10-04.* Pull the drive while recording. Expect a `fatal:` in the writer's
+  journal, then the retry loop, refused; then see what a replug does. See the OPEN item in the
+  writer's unit above.
+- [ ] *Added 2026-10-04.* Boot with the drive absent, then plug it in. Expect the writer to record
+  within about 40 s with no hands: the preflight's *"no device is labeled"* refusal, then a mount on
+  a later retry, then a growing `.part`. This is the main claim of the A1 ruling in the writer's
+  unit above. It is decided, and not yet seen on the Pi.
 - [ ] A full pull from the workstation. The window starts; the writer reads inactive, and no `.part`
   remains; rsync moves everything; the wrapper stops the window; the writer is active again within
   seconds, and a new `.part` appears. The drive then holds only that `.part` and `lost+found`.
@@ -1339,6 +1751,52 @@ OS Lite (trixie), from the pasted output:
   `data=ordered` and `nodiscard`.
 - **No auto-mount.** Pi OS Lite boots to `multi-user.target`, and udisks2 is installed, but nothing
   auto-mounted the drive. Step 30's `findmnt --source` listed only the archive path.
+
+**✅ Verified on hardware, 2026-10-04: steps 20 and 40, and the first recording.** On the 🎒
+portable rig. Seen by Claude on 2026-10-04, over read-only SSH on the Pi or in output Chris pasted:
+
+- **`20-portable-clock`, at about 22:00 UTC.** It exited `0` (Chris ran `echo $?`). The files on
+  the Pi matched the repo by sha256; `setup/steps/20-portable-clock.sh` was
+  `deb0a39e22442cea4eef14f6df985a22b7b97d46a01710554c360b90299bcdf8`. It installed
+  `util-linux-extra`, rendered `/etc/default/gpsd` and `/etc/chrony/conf.d/gps.conf`, and installed
+  `/usr/local/bin/clock-preflight`. Every install-tier check passed: `gpsd` has the puck by its
+  `/dev/serial/by-id/` path, and NMEA arrives; `chrony` lists the GPS refclock; the RTC reads
+  (`rtc-ds1307`, `hctosys` 1); `systemd-timesyncd` is not installed.
+  - `clock-preflight` said NOT READY and exited `2`, because the step had just restarted `chrony`.
+    Exit `2` passes the install tier ([§9c](#9c-every-step-ends-in-a-check-of-the-observable-effect)).
+    A minute later `chrony` was disciplined (leap status Normal), and the GPS refclock had reach 1.
+- **`40-archive-writer`, at 22:41 UTC.** It exited `0`. The hashes matched the repo:
+  `setup/steps/40-archive-writer.sh` `105fabb4792224dd…` and `bin/adsb-writer`
+  `9a2bf5024e9d3082…` (prefixes).
+  - ⚠️ After the runs, the header comments of `setup/steps/20-portable-clock.sh` and
+    `setup/steps/40-archive-writer.sh` were updated to record them, so those two files' committed
+    hashes differ from the ones above. ✅ Verified by Claude on 2026-10-04 by diffing the copies on
+    the Pi against the tree: the only lines that differ are comments. `bin/adsb-writer`,
+    `bin/clock-preflight` and `setup/lib.sh` are byte-identical to what ran.
+  - It created `/var/lib/adsb-receiver/writer` as `adsb-receiver:adsb-operator 2770`, installed
+    `/usr/local/bin/adsb-writer`, and rendered and enabled `adsb-writer.service`.
+  - `systemd-analyze verify` printed nothing on the Pi's systemd 257. Both `ExecStartPre=+`
+    preflights ran as root and printed READY: the clock offset 0.040 ms, with GPS reach 377; the
+    archive mounted read-write, and the probe write as `adsb-receiver` ok. ➡️ That closes the ⚠️ on
+    the Pi's systemd 257 in the writer's unit above, for the `+` prefix.
+  - The unit came up active (running), with `NRestarts=0`, and one holder of the recording lock,
+    `flock`.
+- **The first recording.** `20261004T224114Z.beast.pcap` was opened at the writer's start, and named
+  by the time it was opened (ruling (d)), mode `0660`, `adsb-receiver:adsb-operator`. It rotated
+  exactly at 22:50:00 UTC into `20261004T225000Z.beast.pcap.part`, with no restart.
+  - The closed file: 37,988 records (37,984 frames, and 4 events: `start`, `connected`, `clock` and
+    `position`), 1,317,614 bytes over 8 min 46 s. ➡️ About 9 MB an hour, measured, beside the ~10
+    and ~12 MB an hour estimated in this section.
+  - `tools/adsb-extract --check` on it: complete; 5 all-zero keepalives, not fitted; one segment of
+    37,979 frames over 525.5 s; the counter at +0.1 ppm against 12 MHz; residual max 59.81 ms, std
+    8.06 ms. ➡️ That is R2's per-file check, and it is well inside ±1 s. ⚠️ The +0.1 ppm disagrees
+    with the −25 ppm in [§9i](#9i-what-is-not-chosen-yet-the-writer-the-extractor-the-uploader);
+    see the correction there.
+  - The writer's CPU: 1.1% of a core, averaged over its first 30 s, start-up included (`ps`). A
+    first measurement, beside R3's and [§3](#3--cpu-is-the-binding-constraint-not-power)'s estimates.
+- 📋 **Not yet seen on the Pi:** the late-plug test, the drive-pull test, any expiry, any refusal on
+  space, a `readsb` restart in the middle of a file, and a pull window. `10-decoder` has not run on
+  the Pi; it waits for a new radio (R5).
 
 ### 📋 Consequences for the other docs (not yet made)
 

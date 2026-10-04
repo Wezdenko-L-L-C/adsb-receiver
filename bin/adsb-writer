@@ -1,0 +1,839 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+#
+# adsb-writer: archive readsb's BEAST stream to disk, in 10-minute pcap files.
+# PLAN §9m ("The archive writer", the storage contract, the writer's unit).
+# Installed by setup/steps/40-archive-writer.sh to /usr/local/bin/adsb-writer
+# (copied, so it runs outside the clone). Runs as adsb-receiver, under
+#   flock /run/adsb-receiver/recording.lock adsb-writer --min-free-gb N ...
+# from adsb-writer.service. Python 3, standard library only.
+#
+# WHAT IS IN A FILE
+#   Classic pcap, nanosecond magic 0xa1b23c4d, version 2.4, snaplen 65535,
+#   linktype 147 (DLT_USER0). One record per BEAST frame. The record's time is
+#   the wall clock (CLOCK_REALTIME) when the frame's recv() returned: frames
+#   that arrived in one recv() share a stamp, and the frame's own 12 MHz
+#   counter keeps their spacing. The payload is the frame EXACTLY as received:
+#   0x1a, the type byte, then the 6-byte counter, the signal byte and the data,
+#   with every 0x1a inside doubled. Nothing is unescaped or rewritten.
+#   ℹ️ Verified on the Pi, 2026-10-04 (PLAN §9i): the counter runs at 12 MHz
+#   from readsb's start, resets when readsb restarts, and is not UTC.
+#   ✅ Verified on the Pi, 2026-10-04 (a read-only 30 s capture of port 30005):
+#   5 type-0x31 frames in 30 s, about one every 6 s, every one all zero:
+#   counter 000000000000, signal 0, data 0000. They are readsb's keepalive (an
+#   all-zero Mode A/C frame), not Mode A/C replies. The earlier belief, "every
+#   --net-heartbeat, default 60 s", was wrong about the interval. They are kept
+#   like any other frame.
+#
+# EVENT RECORDS
+#   A record whose payload does not start with 0x1a is an event: one UTF-8
+#   line, no newline. Readers ignore an event word they do not know.
+#     start <program> <version> key=value ...   first record of the first file
+#     stop reason=<SIGTERM|SIGINT|refused|error>  last record before a clean stop
+#         ⚠️ Only if a file is open. Every refusal on space happens with none
+#         open (before the first, or after a rotation's close), so today
+#         reason=refused never reaches the archive: the status file and the
+#         journal carry it.
+#     connected <host:port>
+#     disconnected reason=<eof|refused|reset|timeout|...> [discarded=N]
+#     clock ref=<id> name=<name> stratum=<n> system_time_s=<s> leap=<status>
+#         chronyc -n -c tracking, at start and at each rotation. system_time_s
+#         is chrony's signed estimate: negative means the system clock is fast.
+#     clock unavailable reason=<...>
+#     position <lat> <lon> <alt|-> <fix mode> <gps time>
+#         the first gpsd TPV with mode >= 2, at start and at each rotation.
+#     position unavailable reason=<...>
+#     expired <path relative to --archive> <bytes>
+#     resync <bytes skipped> <type=0xNN|truncated|garbage>
+#   ⛔ The position goes into the archive file and nowhere else: never to
+#      stderr (the journal), never to the status file.
+#
+# FILES (the storage contract, PLAN §9m)
+#   <archive>/YYYY-MM-DD/YYYYMMDDTHHMMSSZ.beast.pcap, named by the UTC second
+#   the file was OPENED, with .part appended while it is open. A name already
+#   taken gets .1, .2, ... before .beast.pcap (YYYYMMDDTHHMMSSZ.1.beast.pcap);
+#   nothing is overwritten. Rotated at each 10-minute UTC boundary, between
+#   frames. A file is written for every interval the writer is up, with or
+#   without frames. Exactly one .part is held open for the writer's whole life:
+#   bin/archive-preflight relies on that to tell a live .part from a torn one.
+#   fsync at least every 10 s; close is flush, fsync, rename, fsync of the
+#   directory. Modes come from the unit's UMask=0007 and the setgid
+#   directories; this program sets none.
+#
+# SPACE (the min_free_gb backstop, PLAN §9m)
+#   At start, before the first .part, and after each rotation, if free space is
+#   below --min-free-gb (GiB). Check first, delete nothing (Chris, 2026-10-04):
+#   the files expiry may delete are the closed ones, *.beast.pcap and *.torn
+#   with their .N variants; never a .part, and at a rotation never the file it
+#   just closed. If free space plus what deleting all of them would return
+#   (st_blocks * 512 each, not st_size) is still below the threshold, nothing
+#   is deleted: exit 1, status "refused", and a REFUSING TO RECORD line in the
+#   journal naming free space, the expirable total and the threshold. That is
+#   the one refusal on space. Otherwise delete the oldest, by the UTC second in
+#   the name, then by name, until free space reaches the threshold.
+#   ➡️ An unreachable threshold costs recording, never data. The restart after a
+#   refusal at rotation spares nothing, so the file that rotation kept is then
+#   expirable like any other: it survives only while the threshold stays out of
+#   reach with it counted.
+#
+# Never exits on a lost connection to readsb: it writes `disconnected`, keeps
+# its file, retries, and keeps rotating. SIGTERM or SIGINT closes the file
+# cleanly and exits 0.
+
+import argparse
+import errno
+import json
+import os
+import queue
+import re
+import select
+import signal
+import socket
+import struct
+import subprocess
+import sys
+import threading
+import time
+
+VERSION = "0.1.0"
+
+PCAP_MAGIC_NS = 0xA1B23C4D
+PCAP_SNAPLEN = 65535
+LINKTYPE_USER0 = 147
+
+ESC = 0x1A
+# Data bytes after the 6-byte counter and the signal byte, by type byte.
+# 0x31-0x33 are the Mode-S Beast format's Mode A/C, Mode S short and long.
+# On 30005, readsb's 0x31 frames are its all-zero keepalive, about every 6 s
+# (verified on the Pi, 2026-10-04; see the header).
+# ⚠️ 0x34 at 14 bytes is a belief, not checked against readsb's source: it is
+#    the Radarcape status frame, which readsb is not known to send on 30005.
+BEAST_DATA_LEN = {0x31: 2, 0x32: 7, 0x33: 14, 0x34: 14}
+
+ROTATE_NS = 600 * 1_000_000_000
+FSYNC_S = 10.0
+STATUS_MIN_S = 1.0
+RETRY_S = 1.5
+CONNECT_TIMEOUT_S = 2.0
+TICK_S = 1.0
+GPSD_ADDR = ("127.0.0.1", 2947)
+GPSD_TIMEOUT_S = 3.0
+GIB = 1 << 30
+
+SUFFIX = ".beast.pcap"
+PART = ".part"
+DATE_DIR_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+# A closed file: STEM[.N].beast.pcap, or a torn one as bin/archive-preflight
+# names it: STEM[.N].beast.pcap.torn or STEM[.N].beast.pcap.M.torn.
+CLOSED_RE = re.compile(r"^(\d{8}T\d{6}Z)(?:\.\d+)?\.beast\.pcap(?:(?:\.\d+)?\.torn)?$")
+
+
+def log(msg):
+    print(f"adsb-writer: {msg}", file=sys.stderr, flush=True)
+
+
+class OutOfSpace(Exception):
+    pass
+
+
+# --- BEAST ---------------------------------------------------------------------
+
+
+class BeastParser:
+    """Splits a BEAST byte stream into frames, each kept exactly as received.
+
+    feed() returns items in stream order: ("frame", raw_bytes) or
+    ("resync", bytes_skipped, reason). A run of skipped bytes is reported
+    once, when the next good frame starts, or by flush().
+    """
+
+    def __init__(self):
+        self.buf = bytearray()
+        self.skipped = 0
+        self.skip_reason = None
+
+    def _skip(self, n, reason):
+        if self.skipped == 0:
+            self.skip_reason = reason
+        self.skipped += n
+
+    def _take_resync(self, out):
+        if self.skipped:
+            out.append(("resync", self.skipped, self.skip_reason))
+            self.skipped = 0
+            self.skip_reason = None
+
+    def feed(self, data):
+        self.buf += data
+        buf = self.buf
+        n = len(buf)
+        out = []
+        i = 0
+        while i < n:
+            if buf[i] != ESC:
+                j = buf.find(ESC, i)
+                if j < 0:
+                    j = n
+                self._skip(j - i, "garbage")
+                i = j
+                continue
+            if i + 1 >= n:
+                break  # a lone 0x1a: wait for the type byte
+            t = buf[i + 1]
+            if t == ESC:
+                # An escaped data byte outside any frame: not a frame start.
+                self._skip(2, "garbage")
+                i += 2
+                continue
+            dlen = BEAST_DATA_LEN.get(t)
+            if dlen is None:
+                self._skip(2, f"type=0x{t:02x}")
+                i += 2
+                continue
+            need = 6 + 1 + dlen
+            j = i + 2
+            got = 0
+            state = "ok"
+            while got < need:
+                if j >= n:
+                    state = "short"
+                    break
+                if buf[j] == ESC:
+                    if j + 1 >= n:
+                        state = "short"
+                        break
+                    if buf[j + 1] != ESC:
+                        state = "cut"  # a new frame starts inside this one
+                        break
+                    j += 2
+                else:
+                    j += 1
+                got += 1
+            if state == "short":
+                break
+            if state == "cut":
+                self._skip(j - i, "truncated")
+                i = j
+                continue
+            self._take_resync(out)
+            out.append(("frame", bytes(buf[i:j])))
+            i = j
+        del buf[:i]
+        return out
+
+    def flush(self):
+        """Drop a partial frame (on disconnect or stop). Returns its byte count
+        and any resync still pending."""
+        out = []
+        self._take_resync(out)
+        partial = len(self.buf)
+        self.buf.clear()
+        return partial, out
+
+
+# --- Probes: chrony and gpsd ------------------------------------------------------
+
+
+def probe_clock():
+    """One `clock` event line from chronyc. Never raises."""
+    try:
+        r = subprocess.run(["chronyc", "-n", "-c", "tracking"], capture_output=True,
+                           text=True, timeout=5)
+    except FileNotFoundError:
+        return "clock unavailable reason=no-chronyc"
+    except subprocess.TimeoutExpired:
+        return "clock unavailable reason=timeout"
+    except OSError as e:
+        return f"clock unavailable reason={errno.errorcode.get(e.errno, 'oserror')}"
+    if r.returncode != 0:
+        return f"clock unavailable reason=chronyc-exit-{r.returncode}"
+    # CSV, as chronyc 4.x prints it (seen 2026-10-04): ref id, ref name,
+    # stratum, ref time, system time, last offset, ..., leap status last.
+    f = r.stdout.strip().split(",")
+    if len(f) < 14:
+        return "clock unavailable reason=unparsed"
+    return f"clock ref={f[0]} name={f[1]} stratum={f[2]} system_time_s={f[4]} leap={f[-1].replace(' ', '_')}"
+
+
+def probe_position(addr=GPSD_ADDR, timeout=GPSD_TIMEOUT_S):
+    """One `position` event line from gpsd. Never raises.
+    ⛔ The line holds the position; it is for the archive file only."""
+    deadline = time.monotonic() + timeout
+    try:
+        with socket.create_connection(addr, timeout=timeout) as s:
+            s.sendall(b'?WATCH={"enable":true,"json":true}\n')
+            buf = b""
+            best_mode = None
+            while True:
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    break
+                s.settimeout(left)
+                try:
+                    chunk = s.recv(4096)
+                except socket.timeout:
+                    break
+                if not chunk:
+                    return "position unavailable reason=eof"
+                buf += chunk
+                while b"\n" in buf:
+                    line, buf = buf.split(b"\n", 1)
+                    try:
+                        obj = json.loads(line)
+                    except ValueError:
+                        continue
+                    if not isinstance(obj, dict) or obj.get("class") != "TPV":
+                        continue
+                    mode = obj.get("mode", 0)
+                    best_mode = mode if best_mode is None else max(best_mode, mode)
+                    if mode >= 2 and "lat" in obj and "lon" in obj:
+                        alt = obj.get("altMSL", obj.get("alt", obj.get("altHAE")))
+                        return "position {} {} {} {} {}".format(
+                            obj["lat"], obj["lon"], "-" if alt is None else alt,
+                            mode, obj.get("time", "-"))
+            if best_mode is not None:
+                return f"position unavailable reason=no-fix mode={best_mode}"
+            return "position unavailable reason=timeout"
+    except ConnectionRefusedError:
+        return "position unavailable reason=refused"
+    except socket.timeout:
+        return "position unavailable reason=timeout"
+    except OSError as e:
+        return f"position unavailable reason={errno.errorcode.get(e.errno, 'oserror')}"
+
+
+# --- Files ------------------------------------------------------------------------
+
+
+def fsync_dir(path):
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def variant(directory, stem, n):
+    """STEM.beast.pcap for n == 0, else STEM.n.beast.pcap."""
+    return os.path.join(directory, stem + (f".{n}" if n else "") + SUFFIX)
+
+
+def link_noclobber(src, directory, stem, n):
+    """Give src its final name without ever replacing a file: os.link fails
+    with EEXIST if the name is taken, atomically, and the next .N is tried;
+    then the .part name is unlinked. Chosen over an exists-check and rename
+    because the refusal is the kernel's, not a race we win.
+    ⚠️ A power cut between link and unlink leaves both names: the preflight
+    then renames the .part to .torn, a duplicate of a closed file. Data is
+    duplicated, never lost. Returns the final path."""
+    while True:
+        dst = variant(directory, stem, n)
+        try:
+            os.link(src, dst)
+        except FileExistsError:
+            n += 1
+            continue
+        except OSError as e:
+            if e.errno not in (errno.EPERM, errno.EOPNOTSUPP, errno.EXDEV):
+                raise
+            # A filesystem without hard links (not the archive's ext4).
+            if os.path.lexists(dst):
+                n += 1
+                continue
+            os.rename(src, dst)
+            return dst
+        os.unlink(src)
+        return dst
+
+
+def utc_stamp(ns):
+    return time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(ns // 1_000_000_000))
+
+
+def iso(ns):
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ns // 1_000_000_000))
+
+
+class Writer:
+    """The archive: one open .part at a time, rotation, expiry, events, status.
+    The socket loop (run) feeds it; tests drive it directly with a fake clock."""
+
+    def __init__(self, archive, min_free_bytes, status_path=None, clock_ns=time.time_ns,
+                 statvfs=os.statvfs, probe=None, source=""):
+        self.archive = archive
+        self.min_free = min_free_bytes
+        self.status_path = status_path
+        self.clock_ns = clock_ns
+        self.statvfs = statvfs
+        self.probe = probe
+        self.fh = None
+        self.part = None
+        self.dir = None
+        self.stem = None
+        self.n = 0
+        self.interval = None
+        self.frames = 0
+        self.pending = []
+        self.probe_q = queue.SimpleQueue()
+        self.last_fsync = time.monotonic()
+        self.last_status = 0.0
+        self.status_dirty = False
+        self.status_warned = False
+        self.status = {
+            "program": "adsb-writer", "version": VERSION, "pid": os.getpid(),
+            "state": "starting", "connected": False, "source": source,
+            "started_at": iso(clock_ns()), "updated_at": None,
+            "current_file": None, "frames_in_file": 0,
+            "last_clock": None, "last_expired": [],
+        }
+
+    # Records
+
+    def _record(self, ts_ns, payload):
+        sec, nsec = divmod(ts_ns, 1_000_000_000)
+        self.fh.write(struct.pack("<IIII", sec, nsec, len(payload), len(payload)))
+        self.fh.write(payload)
+
+    def event(self, text, ts_ns=None):
+        ts = self.clock_ns() if ts_ns is None else ts_ns
+        payload = text.encode("utf-8")
+        if self.fh is None:
+            self.pending.append((ts, payload))  # written first into the next file
+        else:
+            self._record(ts, payload)
+        self.status_dirty = True
+
+    def frame(self, ts_ns, raw):
+        self._record(ts_ns, raw)
+        self.frames += 1
+
+    # Opening, closing, rotating
+
+    def open_file(self):
+        now = self.clock_ns()
+        self.stem = utc_stamp(now)
+        self.dir = os.path.join(self.archive, time.strftime("%Y-%m-%d", time.gmtime(now // 1_000_000_000)))
+        made = not os.path.isdir(self.dir)
+        os.makedirs(self.dir, exist_ok=True)  # 2770 by UMask and setgid inheritance
+        n = 0
+        while True:
+            part = variant(self.dir, self.stem, n) + PART
+            try:
+                fd = os.open(part, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
+                break
+            except FileExistsError:
+                n += 1
+        self.n = n
+        self.part = part
+        self.fh = os.fdopen(fd, "wb", buffering=64 * 1024)
+        self.fh.write(struct.pack("<IHHiIII", PCAP_MAGIC_NS, 2, 4, 0, 0, PCAP_SNAPLEN, LINKTYPE_USER0))
+        self.interval = now // ROTATE_NS
+        self.frames = 0
+        for ts, payload in self.pending:
+            self._record(ts, payload)
+        self.pending = []
+        self.fh.flush()
+        os.fsync(self.fh.fileno())
+        fsync_dir(self.dir)
+        if made:
+            fsync_dir(self.archive)
+        self.last_fsync = time.monotonic()
+        self.status["current_file"] = os.path.relpath(part, self.archive)
+        self.status["frames_in_file"] = 0
+        self.write_status(force=True)
+        log(f"opened {os.path.relpath(part, self.archive)}")
+
+    def close_file(self):
+        """Flush, fsync, rename to the final name (no clobber), fsync the directory."""
+        if self.fh is None:
+            return None
+        self.fh.flush()
+        os.fsync(self.fh.fileno())
+        self.fh.close()
+        self.fh = None
+        final = link_noclobber(self.part, self.dir, self.stem, self.n)
+        fsync_dir(self.dir)
+        rel = os.path.relpath(final, self.archive)
+        log(f"closed {rel}: {self.frames} frames, {os.path.getsize(final)} bytes")
+        self.part = None
+        self.status["current_file"] = None
+        return final
+
+    def due(self, now_ns):
+        return self.fh is not None and now_ns // ROTATE_NS != self.interval
+
+    def rotate(self):
+        closed = self.close_file()
+        # Never the file just closed: with --min-free-gb above the drive's real
+        # headroom, expiring it would lose every interval as it finished.
+        self.expire(keep=closed)
+        self.open_file()
+        self.start_probes()
+
+    def begin(self, start_line):
+        self.event(start_line)
+        self.expire()
+        self.open_file()
+        self.start_probes()
+
+    def finish(self, reason):
+        self.drain_probes()
+        self.event(f"stop reason={reason}")
+        self.close_file()
+        self.status["state"] = "stopped"
+        self.status["connected"] = False
+        self.write_status(force=True)
+        log(f"stopped: {reason}")
+
+    # Periodic work
+
+    def start_probes(self):
+        if self.probe is None:
+            return
+        q = self.probe_q
+        fn = self.probe
+
+        def work():
+            try:
+                lines = fn()
+            except Exception as e:  # the probes never raise; this is the backstop
+                # The type only: a message could quote a gpsd line, position and all.
+                lines = [f"clock unavailable reason=probe-{type(e).__name__}"]
+            for line in lines:
+                q.put(line)
+        threading.Thread(target=work, name="probe", daemon=True).start()
+
+    def drain_probes(self):
+        while True:
+            try:
+                line = self.probe_q.get_nowait()
+            except queue.Empty:
+                return
+            self.event(line)
+            if line.startswith("clock"):
+                self.status["last_clock"] = line
+                log(line)
+            elif line.startswith("position unavailable"):
+                log(line)
+            elif line.startswith("position"):
+                # ⛔ Never the position itself: only that one was recorded.
+                log("position recorded in the archive file")
+
+    def tick(self):
+        """fsync and status on their cadence. Called every loop pass."""
+        self.drain_probes()
+        mono = time.monotonic()
+        if self.fh is not None and mono - self.last_fsync >= FSYNC_S:
+            self.fh.flush()
+            os.fsync(self.fh.fileno())
+            self.last_fsync = mono
+            self.status["frames_in_file"] = self.frames
+            self.write_status(force=True)
+        elif self.status_dirty and mono - self.last_status >= STATUS_MIN_S:
+            self.write_status(force=True)
+
+    # Expiry
+
+    def free_bytes(self):
+        st = self.statvfs(self.archive)
+        return st.f_bavail * st.f_frsize
+
+    def closed_files(self):
+        """(stem, name, path) of every closed file, oldest first."""
+        found = []
+        try:
+            days = os.listdir(self.archive)
+        except FileNotFoundError:
+            return found
+        for day in days:
+            d = os.path.join(self.archive, day)
+            if not DATE_DIR_RE.match(day) or not os.path.isdir(d):
+                continue
+            for name in os.listdir(d):
+                m = CLOSED_RE.match(name)
+                if m:
+                    found.append((m.group(1), name, os.path.join(d, name)))
+        found.sort()
+        return found
+
+    def expirable(self, keep=None):
+        """The closed files expiry may delete, oldest first, and the bytes deleting
+        every one of them would return. Never keep, never a .part.
+        Sized by st_blocks * 512, not st_size: unlinking returns allocated blocks,
+        so a sparse file returns less than its size and a small one more.
+        An inode with a name outside the list returns nothing when the listed
+        names go, so it counts nothing: a hard link to a .part, which a power cut
+        inside link_noclobber leaves behind."""
+        kept = os.path.realpath(keep) if keep else None
+        files = []
+        inodes = {}  # (dev, ino) -> [names listed, st_nlink, bytes allocated]
+        for c in self.closed_files():
+            if os.path.realpath(c[2]) == kept:
+                continue
+            try:
+                st = os.lstat(c[2])
+            except FileNotFoundError:
+                continue
+            files.append(c)
+            inodes.setdefault((st.st_dev, st.st_ino), [0, st.st_nlink, st.st_blocks * 512])[0] += 1
+        total = sum(b for names, nlink, b in inodes.values() if names >= nlink)
+        return files, total
+
+    def expire(self, keep=None):
+        """Check first, delete nothing: if deleting every file it may (expirable)
+        cannot bring free space up to the threshold, raise OutOfSpace having
+        deleted nothing. Otherwise delete the oldest of them until free space
+        reaches the threshold. Never deletes keep (the file the current rotation
+        just closed) or a .part."""
+        free = self.free_bytes()
+        if free >= self.min_free:
+            return []
+        candidates, total = self.expirable(keep)
+        spared = (f", sparing the file just closed ({os.path.relpath(keep, self.archive)})"
+                  if keep else "")
+        if free + total < self.min_free:
+            raise OutOfSpace(
+                f"{free} bytes free in {self.archive} and {total} bytes expirable "
+                f"({len(candidates)} closed files{spared}): {free + total} bytes at most, "
+                f"below --min-free-gb ({self.min_free} bytes). Nothing was deleted")
+        expired = []
+        touched = set()
+        while free < self.min_free:
+            if not candidates:
+                # The check said the threshold was reachable; the drive disagreed
+                # (another writer, or reserved blocks under f_bavail).
+                self.status["last_expired"] = expired or self.status["last_expired"]
+                raise OutOfSpace(
+                    f"{free} bytes free in {self.archive}, below --min-free-gb "
+                    f"({self.min_free} bytes), after expiring every file it may{spared}: "
+                    f"the check counted {total} bytes expirable")
+            _, _, path = candidates.pop(0)
+            try:
+                size = os.path.getsize(path)
+                os.unlink(path)
+            except FileNotFoundError:
+                continue
+            rel = os.path.relpath(path, self.archive)
+            touched.add(os.path.dirname(path))
+            expired.append({"path": rel, "bytes": size, "at": iso(self.clock_ns())})
+            self.event(f"expired {rel} {size}")
+            log(f"expired {rel} ({size} bytes): free space below the backstop")
+            free = self.free_bytes()
+        for d in touched:
+            try:
+                os.rmdir(d)  # only if left empty
+            except OSError:
+                pass
+        if touched:
+            fsync_dir(self.archive)
+        self.status["last_expired"] = expired
+        return expired
+
+    # Status
+
+    def write_status(self, force=False):
+        """writer.json, tmp + rename. ⛔ No position in it, ever."""
+        self.status_dirty = False
+        self.last_status = time.monotonic()
+        if not self.status_path:
+            return
+        self.status["updated_at"] = iso(self.clock_ns())
+        self.status["frames_in_file"] = self.frames if self.fh is not None else 0
+        tmp = self.status_path + ".tmp"
+        try:
+            with open(tmp, "w") as f:
+                json.dump(self.status, f, indent=1, sort_keys=True)
+                f.write("\n")
+            os.replace(tmp, self.status_path)
+        except OSError as e:
+            if not self.status_warned:
+                log(f"cannot write status {self.status_path}: {e}; carrying on without it")
+                self.status_warned = True
+
+
+# --- The loop -------------------------------------------------------------------
+
+
+class Stop:
+    def __init__(self):
+        self.reason = None
+
+    def handler(self, signum, _frame):
+        if self.reason is None:
+            self.reason = signal.Signals(signum).name
+
+
+def disconnect_reason(exc):
+    if exc is None:
+        return "eof"
+    if isinstance(exc, ConnectionRefusedError):
+        return "refused"
+    if isinstance(exc, ConnectionResetError):
+        return "reset"
+    if isinstance(exc, socket.timeout):
+        return "timeout"
+    if isinstance(exc, OSError) and exc.errno in errno.errorcode:
+        return errno.errorcode[exc.errno].lower()
+    return type(exc).__name__
+
+
+def run(writer, host, port, stop):
+    """Read the BEAST stream into the writer until stop.reason is set."""
+    parser = BeastParser()
+    sock = None
+    up = None  # None: no attempt yet; then True or False
+    next_try = 0.0
+    while stop.reason is None:
+        now = writer.clock_ns()
+        if writer.due(now):
+            writer.rotate()
+        wait = min(TICK_S, max(0.05, ((writer.interval + 1) * ROTATE_NS - now) / 1e9))
+        if sock is None:
+            mono = time.monotonic()
+            if mono < next_try:
+                time.sleep(min(wait, next_try - mono))
+                writer.tick()
+                continue
+            try:
+                sock = socket.create_connection((host, port), timeout=CONNECT_TIMEOUT_S)
+                sock.setblocking(False)
+                writer.event(f"connected {host}:{port}")
+                writer.status["connected"] = True
+                writer.status["state"] = "recording"
+                writer.write_status(force=True)
+                log(f"connected to {host}:{port}")
+                up = True
+            except OSError as e:
+                if up is not False:
+                    reason = disconnect_reason(e)
+                    writer.event(f"disconnected reason={reason}")
+                    writer.status["connected"] = False
+                    writer.status["state"] = "waiting"
+                    writer.write_status(force=True)
+                    log(f"cannot reach {host}:{port} ({reason}); retrying every {RETRY_S} s")
+                up = False
+                next_try = time.monotonic() + RETRY_S
+            writer.tick()
+            continue
+        try:
+            ready, _, _ = select.select([sock], [], [], wait)
+        except InterruptedError:
+            ready = []
+        if ready:
+            exc = None
+            try:
+                data = sock.recv(65536)
+            except (BlockingIOError, InterruptedError):
+                data = None
+            except OSError as e:
+                data, exc = b"", e
+            ts = writer.clock_ns()
+            if data == b"":
+                partial, items = parser.flush()
+                for item in items:
+                    writer.event(f"resync {item[1]} {item[2]}", ts)
+                reason = disconnect_reason(exc)
+                writer.event(f"disconnected reason={reason}" + (f" discarded={partial}" if partial else ""), ts)
+                writer.status["connected"] = False
+                writer.status["state"] = "waiting"
+                writer.write_status(force=True)
+                log(f"disconnected from {host}:{port} ({reason}); retrying every {RETRY_S} s")
+                sock.close()
+                sock = None
+                up = False
+                next_try = time.monotonic() + RETRY_S
+            elif data:
+                if writer.due(ts):
+                    writer.rotate()
+                for item in parser.feed(data):
+                    if item[0] == "frame":
+                        writer.frame(ts, item[1])
+                    else:
+                        writer.event(f"resync {item[1]} {item[2]}", ts)
+        writer.tick()
+    if sock is not None:
+        sock.close()
+    partial, items = parser.flush()
+    for item in items:
+        writer.event(f"resync {item[1]} {item[2]}")
+    return partial
+
+
+def parse_hostport(s):
+    host, sep, port = s.rpartition(":")
+    if not sep or not host or not port.isdigit():
+        raise argparse.ArgumentTypeError(f"expected HOST:PORT, got {s!r}")
+    return host, int(port)
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(
+        prog="adsb-writer",
+        description="Archive readsb's BEAST stream into 10-minute pcap files (PLAN §9m).")
+    ap.add_argument("--version", action="version", version=f"adsb-writer {VERSION}")
+    ap.add_argument("--source", type=parse_hostport, default=("127.0.0.1", 30005),
+                    metavar="HOST:PORT", help="readsb's BEAST output (default 127.0.0.1:30005)")
+    ap.add_argument("--archive", default="/var/lib/adsb-receiver/archive/beast",
+                    help="directory the date directories go in (default %(default)s)")
+    ap.add_argument("--min-free-gb", type=float, required=True,
+                    help="expire the oldest closed files while free space is below this many GiB")
+    ap.add_argument("--status", default="/var/lib/adsb-receiver/writer/writer.json",
+                    help="status file, rewritten whole (default %(default)s)")
+    ap.add_argument("--no-position", action="store_true",
+                    help="do not ask gpsd for a position at start and at each rotation")
+    a = ap.parse_args(argv)
+    if a.min_free_gb < 0:
+        ap.error("--min-free-gb must not be negative")
+    if not os.path.isdir(a.archive):
+        log(f"{a.archive} is not a directory. Is the archive drive mounted? (archive-preflight creates beast/)")
+        return 1
+
+    def probes():
+        lines = [probe_clock()]
+        if not a.no_position:
+            lines.append(probe_position())
+        return lines
+
+    host, port = a.source
+    stop = Stop()
+    signal.signal(signal.SIGTERM, stop.handler)
+    signal.signal(signal.SIGINT, stop.handler)
+    w = Writer(a.archive, int(a.min_free_gb * GIB), status_path=a.status, probe=probes,
+               source=f"{host}:{port}")
+    start = (f"start adsb-writer {VERSION} source={host}:{port} archive={a.archive} "
+             f"min_free_gb={a.min_free_gb:g} position={'off' if a.no_position else 'on'} "
+             f"python={sys.version.split()[0]}")
+    log(f"start {VERSION}: source {host}:{port}, archive {a.archive}, min free {a.min_free_gb:g} GiB")
+    try:
+        w.begin(start)
+        partial = run(w, host, port, stop)
+        if partial:
+            w.event(f"resync {partial} truncated")
+        w.finish(stop.reason or "unknown")
+        return 0
+    except OutOfSpace as e:
+        log(f"REFUSING TO RECORD: {e}")
+        w.status["state"] = "refused"
+        w.status["refused_reason"] = str(e)
+        try:
+            if w.fh is not None:
+                w.event("stop reason=refused")
+                w.close_file()
+        finally:
+            w.write_status(force=True)
+        return 1
+    except Exception as e:
+        log(f"fatal: {type(e).__name__}: {e}")
+        w.status["state"] = "failed"
+        try:
+            if w.fh is not None:
+                w.event("stop reason=error")
+                w.close_file()
+        except Exception as e2:
+            log(f"could not close the file cleanly ({e2}); the preflight will mark it torn")
+        w.write_status(force=True)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
