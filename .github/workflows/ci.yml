@@ -1,0 +1,67 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# CI for the setup scripts. Design: docs/PLAN.md §9g and §9h.
+#
+# TODO(PLAN §9k, item 3): a dry run of every step in an arm64 trixie container
+#   against sample-filled templates, including the role-refusal paths.
+# TODO(PLAN §9k, item 3): the job that fast-forwards `stable` when CI is green.
+#   Neither is built yet; they come with update.sh.
+
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  scripts:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: bash -n
+        run: |
+          set -euo pipefail
+          find setup -name '*.sh' -print0 | xargs -0 -n1 bash -n
+
+      - name: shellcheck
+        run: |
+          set -euo pipefail
+          shellcheck --version
+          find setup -name '*.sh' -print0 | xargs -0 shellcheck -x
+
+      - name: steps never reference the foundation denylist
+        # The list itself is read from setup/lib.sh, so it is written down once.
+        run: |
+          set -euo pipefail
+          source setup/lib.sh
+          # Comment lines are skipped: a step may explain why it does not touch these.
+          code=$(grep -nvE '^[[:space:]]*#' setup/steps/*.sh || true)
+          bad=0
+          for p in "${ADSB_DENY_PATHS[@]}"; do
+            if hits=$(grep -F -- "${p%\*}" <<<"$code"); then
+              echo "::error::a step references denylisted path $p"; echo "$hits"; bad=1
+            fi
+          done
+          # Units: only on lines that call systemctl or lib's `unit` helper, and
+          # only as a whole argument (optionally .service), so `ssh-keygen` passes.
+          for u in "${ADSB_DENY_UNITS[@]}"; do
+            re="(^|[[:space:]:;&|(])(systemctl|unit)[[:space:]]([^#]*[[:space:]])?[\"']?${u}(\\.service)?[\"']?([[:space:];&|)]|\$)"
+            if hits=$(grep -E -- "$re" <<<"$code"); then
+              echo "::error::a step references denylisted unit $u"; echo "$hits"; bad=1
+            fi
+          done
+          exit "$bad"
+
+      - name: every step supports --verify
+        run: |
+          set -euo pipefail
+          bad=0
+          for f in setup/steps/*.sh; do
+            grep -q 'parse_args "\$@"' "$f" || { echo "::error file=$f::does not call parse_args \"\$@\""; bad=1; }
+            grep -qE '^verify\(\)' "$f"    || { echo "::error file=$f::has no verify() function"; bad=1; }
+          done
+          exit "$bad"
