@@ -503,7 +503,7 @@ there, with `sudo`** (it is `root:root 0600`).
     "changes only update.sh and leaves 05-config's by-hand behavior alone". The build's own
     choice; Chris approved the fix landing, not this comparison.
   - Run on the workstation, not on a Pi: the sandbox smoke test `tests/smoke_update.sh`, which
-    CI's `smoke` job runs, passes 121 checks in about 30 s. As reported by the implementers, not
+    CI's `smoke` job runs, passes 122 checks in about 35 s. As reported by the implementers, not
     seen by Claude: 9 checks in the suite's T cases fail without `drop_seeds`, and 3 checks
     in case X2 fail without the `on_exit` call.
 
