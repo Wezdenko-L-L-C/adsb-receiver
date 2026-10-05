@@ -1,0 +1,157 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#
+# tools/pull-archive: move the portable rig's archive to this workstation. PLAN §9m ("The pull").
+# Runs on the workstation, never on the Pi.
+#
+#   tools/pull-archive <ssh-target> <destination-dir>
+#     e.g. tools/pull-archive pi@portable.lan ~/adsb-archive
+#
+# 1. Opens the pull window over ssh (sudo systemctl start adsb-pull-window.service, allowed with
+#    no password by setup/steps/60-portable-pull.sh). That ends the recording session: the writer
+#    stops and closes its file. Starting the window also starts the update oneshot (Wants=); it is
+#    not guaranteed to finish before the pull does.
+# 2. Moves everything on the drive's beast/ and spool/ here with rsync --remove-source-files,
+#    which deletes each source file only after it transferred: a move, not a copy (Chris). *.part
+#    and lost+found are excluded; .torn files are included. Owner, group and mode are not copied
+#    (the Pi's group means nothing here); --fsync, where this rsync has it, puts each file on disk
+#    here before its source is deleted.
+# 3. Prunes the emptied date directories on the drive, only while the writer is stopped.
+# 4. Closes the window, in a trap, so it closes even when rsync fails; the trap is set before the
+#    window is opened. Closing waits on the rig while the update is activating (the unit's
+#    ExecStop=), printing the update's state meanwhile; the window's end starts the writer. Then
+#    it waits up to 60 s for the writer to be active and a .part written since the close began
+#    (the preflight's own probe files do not count), and warns loudly if not: the pull is the one
+#    moment a human is there to see a writer that did not come back. If the window had already
+#    ended before the close (its 2 h cap), the writer has been recording since then, so any .part
+#    it holds counts.
+# Before the window opens: rsync is on this workstation's PATH and the destination is writable, so
+# a pull that cannot move anything never ends a recording session. ssh sends keepalives
+# (ServerAliveInterval=15, ServerAliveCountMax=4), so a link that died silently ends the ssh in
+# about a minute instead of leaving it waiting.
+# It prints rsync's statistics for what moved, the count of files left on the drive, and the total
+# now in the destination (everything there, not only this pull).
+# ⚠️ Once moved, this workstation holds the only copy until it is uploaded onward (PLAN §9m).
+
+set -euo pipefail
+
+usage() { echo "usage: $0 <ssh-target> <destination-dir>" >&2; exit 64; }
+(($# == 2)) || usage
+host=$1 dest=$2
+archive=/var/lib/adsb-receiver/archive
+window=adsb-pull-window.service
+writer=adsb-writer.service
+update=adsb-update.service
+ssh_opts=(-o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+
+# What the pull needs on this end, checked before the window ends a recording session.
+command -v rsync >/dev/null || { echo "xx  rsync is not installed on this workstation; nothing was started on the rig" >&2; exit 1; }
+mkdir -p -- "$dest" || { echo "xx  could not create $dest; nothing was started on the rig" >&2; exit 1; }
+probe=$dest/.pull-archive-probe.$$
+if ! : >"$probe" 2>/dev/null; then
+  echo "xx  $dest is not writable; nothing was started on the rig" >&2
+  exit 1
+fi
+rm -f -- "$probe"
+# shellcheck disable=SC2029  # the remote commands are built here, on purpose
+ssh_pi() { ssh "${ssh_opts[@]}" "$host" "$@"; }
+
+# rsync options: a move that neither hangs on a dead link nor fails on the Pi's group.
+rsync_opts=(-a --no-g --no-o --no-p --remove-source-files --stats --human-readable --timeout=60
+            -e "ssh ${ssh_opts[*]}" --exclude '*.part' --exclude 'lost+found')
+# The help text is captured first: under pipefail, `rsync --help | grep -q` can fail when grep
+# exits at its first match while rsync is still writing.
+rsync_help=$(rsync --help 2>&1) || true
+if grep -q -- '--fsync' <<<"$rsync_help"; then
+  rsync_opts+=(--fsync)
+else
+  echo "!!  this rsync has no --fsync (3.2.4 or later has it): a crash here soon after the pull could lose files whose only copy was this one" >&2
+fi
+
+# shellcheck disable=SC2317,SC2329  # invoked by trap (0.9 says SC2317, 0.11 SC2329)
+close_window() {
+  trap - EXIT
+  local t0 stop_pid stop_rc=0 st part win_before newer=() can_check=1
+  t0=$(ssh_pi date +%s 2>/dev/null) || t0=''
+  win_before=$(ssh_pi systemctl is-active "$window" 2>/dev/null) || true
+  if [[ $win_before == active || $win_before == activating || $win_before == deactivating ]]; then
+    # A .part written after t0: the writer started by the window's end.
+    if [[ -n $t0 ]]; then newer=(-newermt "@$t0"); else can_check=0; fi
+  else
+    # The window had already ended (its 2 h cap, or a stop on the rig): the writer may have been
+    # recording since before t0, and a quiet sky writes nothing, so its .part need not be newer.
+    echo "==> the pull window was already '${win_before:-unknown}' before the close (its 2 h cap, PLAN §9m?); the writer may have been recording since"
+  fi
+  echo "==> closing the pull window; it waits on the rig while the update is running"
+  # The stop is the exact command sudoers allows; it blocks until the window has stopped.
+  ssh_pi sudo -n systemctl stop "$window" &
+  stop_pid=$!
+  while kill -0 "$stop_pid" 2>/dev/null; do
+    st=$(ssh_pi systemctl is-active "$update" 2>/dev/null) || true
+    echo "    the update is ${st:-unknown}; the window is $(ssh_pi systemctl is-active "$window" 2>/dev/null || true)"
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+      kill -0 "$stop_pid" 2>/dev/null || break
+      sleep 1
+    done
+  done
+  wait "$stop_pid" || stop_rc=$?
+  if ((stop_rc == 255)); then
+    echo "!!  the ssh connection to the rig failed or dropped (exit 255) while closing $window: the stop may still be running on the rig, or may never have been sent." >&2
+    echo "!!  On the rig: systemctl is-active $window; if it is still active: sudo systemctl stop $window" >&2
+    return 0
+  elif ((stop_rc != 0)); then
+    echo "!!  could not stop $window (exit $stop_rc): run 'sudo systemctl stop $window' on the rig" >&2
+    return 0
+  fi
+  echo "==> the window is closed; waiting up to 60 s for the writer to record again"
+  st='' part=''
+  for _ in $(seq 1 12); do
+    st=$(ssh_pi systemctl is-active "$writer" 2>/dev/null) || true
+    if [[ $st == active ]] && ((can_check)); then
+      # The preflight's probe files are named .part too; they are not the writer's.
+      part=$(ssh_pi find "$archive/beast" -name "'*.part'" ! -name "'.archive-preflight-probe.*'" "${newer[@]}" -print -quit 2>/dev/null) || part=''
+    fi
+    [[ $st == active && -n $part ]] && break
+    sleep 5
+  done
+  if [[ $st == active && -n $part ]]; then
+    echo "==> the writer is recording again: ${part##*/}"
+  else
+    echo "!!  ################################################################" >&2
+    echo "!!  THE WRITER IS NOT RECORDING AGAIN: it is '${st:-unknown}', and no .part was written in 60 s." >&2
+    ((can_check)) || echo "!!  (The rig's clock could not be read before the close, so a new .part could not be told from an old one.)" >&2
+    echo "!!  It may be waiting for readsb's first frame, refusing a preflight, or blocked." >&2
+    echo "!!  On the rig: systemctl status $writer; journalctl -u $writer -n 50" >&2
+    echo "!!  ################################################################" >&2
+  fi
+}
+
+trap close_window EXIT
+echo "==> opening the pull window on $host"
+ssh_pi sudo -n systemctl start "$window"
+
+# The writer closes its file on SIGTERM; wait until it is no longer active before reading.
+state=''
+for _ in $(seq 1 30); do
+  state=$(ssh_pi systemctl is-active "$writer" 2>/dev/null) || true
+  [[ $state == active || $state == deactivating ]] || break
+  sleep 1
+done
+echo "==> the writer is ${state:-unknown}"
+
+status=0
+for d in beast spool; do
+  if ! ssh_pi test -d "$archive/$d"; then
+    echo "==> $archive/$d is not on the rig; skipped"
+    continue
+  fi
+  echo "==> moving $host:$archive/$d/ to $dest/$d/"
+  rsync "${rsync_opts[@]}" "$host:$archive/$d/" "$dest/$d/" || status=$?
+done
+
+# Only with the writer stopped: a prune between the writer's mkdir and its open would kill it.
+echo "==> pruning emptied directories on the rig"
+ssh_pi "st=\$(systemctl is-active $writer); case \$st in inactive|failed) find '$archive/beast' '$archive/spool' -mindepth 1 -type d -empty -delete 2>/dev/null ;; *) echo \"!!  the writer is \$st: not pruning\" >&2 ;; esac; echo 'files left on the drive:' \$(find '$archive/beast' '$archive/spool' -type f 2>/dev/null | wc -l)" || true
+echo "==> the destination now holds $(find "$dest" -type f | wc -l) files, $(du -sh -- "$dest" | cut -f1), in $dest (everything there, not only this pull)"
+close_window
+exit "$status"

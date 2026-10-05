@@ -16,9 +16,21 @@ ADSB_ETC=/etc/adsb-receiver
 
 # The exit code of a step run with --skip-other-role on the other role's rig
 # (PLAN §9b). Any unused value below 126 would do. ⛔ Not 3: station_get exits 3
-# for an absent key. update.sh is to record it as "skipped (role)" (PLAN §9f);
-# update.sh is not written yet.
+# for an absent key. setup/update.sh records it as "skipped (role)" (PLAN §9f),
+# reading this value from the candidate's own lib.sh.
 ADSB_RC_OTHER_ROLE=100
+
+# The run directory's two paths, written down here once. Steps and bootstrap.sh
+# read them from here; update.sh and the login banner, which source nothing,
+# carry copies, and CI compares those copies with these values.
+# The reboot flag (PLAN §9f: update.sh never reboots; it records that a reboot is
+# needed). On tmpfs, so a reboot clears it, which is exactly its meaning.
+ADSB_RUN_DIR=/run/adsb-receiver
+ADSB_REBOOT_FLAG=$ADSB_RUN_DIR/reboot-required
+# The recording lock (PLAN §9f, §9m): held by the writer while it runs, and by
+# update.sh while it runs.
+# shellcheck disable=SC2034  # read by the steps and bootstrap.sh
+ADSB_RECORDING_LOCK=$ADSB_RUN_DIR/recording.lock
 
 # --- Logging -----------------------------------------------------------------
 
@@ -29,6 +41,35 @@ pass() { printf 'ok  PASS: %s\n' "$*"; }
 
 # Print a command, then run it, so the output reads as the guide being followed.
 run() { printf '+ %s\n' "$*"; "$@"; }
+
+# need_reboot <reason>: record that a change takes effect only after a reboot.
+# Appends the reason to ADSB_REBOOT_FLAG once, as one line (newlines become
+# spaces, so it matches itself next time); update.sh copies the reasons into
+# status.json, the login banner shows them, and setup/bootstrap.sh reads this
+# path from here. Nothing here reboots.
+# ADSB_REBOOT_MARK, when setup/bootstrap.sh sets it, names a file of its own:
+# every reason is also appended there, even one the flag already holds, so the
+# bootstrap knows what THIS run asked for (a re-run in the same boot adds no
+# line to the flag).
+need_reboot() {
+  local reason="$*"
+  reason=${reason//$'\r'/ }
+  reason=${reason//$'\n'/ }
+  [[ -n ${reason// /} ]] || die "need_reboot needs a reason"
+  if [[ ! -d ${ADSB_REBOOT_FLAG%/*} ]]; then
+    # Before 05-config's tmpfiles.d entry exists (a first build); that entry
+    # sets the directory's owner and mode when it runs.
+    install -d -m 0755 "${ADSB_REBOOT_FLAG%/*}"
+  fi
+  if ! grep -qxF -- "$reason" "$ADSB_REBOOT_FLAG" 2>/dev/null; then
+    printf '%s\n' "$reason" >>"$ADSB_REBOOT_FLAG"
+  fi
+  if [[ -n ${ADSB_REBOOT_MARK:-} ]]; then
+    printf '%s\n' "$reason" >>"$ADSB_REBOOT_MARK" \
+      || warn "could not record the reason in $ADSB_REBOOT_MARK (the bootstrap's per-run list)"
+  fi
+  warn "REBOOT REQUIRED: $reason (recorded in $ADSB_REBOOT_FLAG)"
+}
 
 # --- Arguments -----------------------------------------------------------------
 
@@ -48,7 +89,7 @@ parse_args() {
         echo "usage: $0 [--verify] [--skip-other-role]"
         echo "  --verify           run only this step's check of the observable effect"
         echo "  --skip-other-role  if this step is for the other rig, say so and exit $ADSB_RC_OTHER_ROLE"
-        echo "                     instead of failing (how update.sh is to run every step, PLAN §9b)"
+        echo "                     instead of failing (how update.sh runs every step, PLAN §9b)"
         exit 0 ;;
       *) die "unknown argument: $1 (usage: $0 [--verify] [--skip-other-role])" ;;
     esac
@@ -136,8 +177,11 @@ require_absent() {
 # --- The foundation denylist (PLAN §9h) --------------------------------------
 #
 # ⛔ Steps never touch what keeps the rig reachable. Those live in
-#    setup/foundation/ and are run by hand. CI reads these arrays to grep
-#    setup/steps/, so this is the one place the list is written down.
+#    setup/foundation/, run by hand, or by update.sh --bootstrap on a first
+#    build (never by the timer). CI reads these arrays to grep setup/steps/,
+#    setup/update.sh, setup/bootstrap.sh, setup/foundation/, setup/files/,
+#    bin/ and tools/ (only setup/foundation/rtc-overlay.sh may name
+#    /boot/firmware), so this is the one place the list is written down.
 
 # Written as in the PLAN §9h table; a trailing * is a glob.
 ADSB_DENY_PATHS=(

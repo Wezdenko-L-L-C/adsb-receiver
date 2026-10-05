@@ -52,21 +52,33 @@ dongles:
   vhf: null
 
 archive:
-  # 🎒 The archive drive: a USB flash drive, formatted ext4 BY HAND, once, and
-  #    found by this label. No script formats it: setup/steps/30-archive-drive.sh
-  #    prints the commands when no ext4 filesystem carries the label. A spare
-  #    drive formatted with the same label works with no edit here. PLAN §9m.
+  # 🎒 The archive drive: a USB flash drive, formatted ext4 once, and found by
+  #    this label. No step formats it: setup/steps/30-archive-drive.sh prints
+  #    the commands when no ext4 filesystem carries the label. Only the first
+  #    build's bootstrap may format it (setup/foundation/format-archive.sh),
+  #    and only when exactly one removable USB drive of at least 8 GB
+  #    qualifies: one with no filesystem, or whose single partition holds only
+  #    an empty FAT, exFAT, NTFS or ext filesystem, as a new stick does (that
+  #    filesystem is erased). A drive already carrying this label is never
+  #    formatted automatically: step 30 mounts it if it is ext4; if it is not,
+  #    the bootstrap refuses and step 30 stops, naming the fix (format that
+  #    device as ext4 by hand if it may be erased; otherwise unplug it or
+  #    remove its label). The bootstrap's --no-format turns formatting off.
+  #    Otherwise it is formatted by hand. A spare drive formatted ext4 with the
+  #    same label works with no edit here. PLAN §9m.
   # ⚠️ ext4 caps a label at 16 bytes. Letters, digits, - and _ only.
   label: adsb-archive
 
-  # ⛔ BEAST, not a bespoke format — BUILD.md §9. There is no `format:` key here
-  #    yet: the archive writer is not designed (PLAN §9i), and the key comes
-  #    with it.
+  # ⛔ BEAST, not a bespoke format — BUILD.md §9. There is no `format:` key:
+  #    the archive writer (bin/adsb-writer, PLAN §9m) writes BEAST and nothing
+  #    else.
 
-  # A backstop, not a budget. ~10 MB an hour is an estimate (PLAN §9m), not a
-  # measurement. Below this much free space the archive writer, once it exists,
-  # expires the oldest closed files and says so, rather than stopping; the
-  # preflight warns.
+  # A backstop, not a budget, in GiB (2^30 bytes; the writer counts it so).
+  # ~10 MB an hour is an estimate (PLAN §9m), not a measurement. Below this
+  # much free space the archive writer expires the oldest closed files, but
+  # only if deleting every closed file would bring it back above this;
+  # otherwise it deletes nothing and refuses to record (bin/adsb-writer,
+  # "SPACE"). The preflight warns.
   min_free_gb: 4
 
   # ℹ️ There is deliberately no `retention_days` on this rig. The pull moves the

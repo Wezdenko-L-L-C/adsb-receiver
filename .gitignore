@@ -22,3 +22,6 @@ Thumbs.db
 *.swp
 .vscode/
 .idea/
+
+# Python bytecode (the unit tests import modules from tests/)
+__pycache__/

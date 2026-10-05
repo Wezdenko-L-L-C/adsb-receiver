@@ -14,11 +14,15 @@
 #
 # What it installs:
 #   - bin/adsb-writer -> /usr/local/bin/adsb-writer, root:root 0755. Copied, not
-#     symlinked: update.sh is to flip between two worktrees (PLAN §9f).
+#     symlinked: update.sh flips between two worktrees (PLAN §9f).
 #   - /var/lib/adsb-receiver/writer, adsb-receiver:adsb-operator 2770, on the SD
 #     card: the writer's status file, writer.json, goes there.
 #   - /etc/systemd/system/adsb-writer.service, rendered from station.yml
-#     (archive.min_free_gb), enabled.
+#     (archive.min_free_gb), enabled, with NoNewPrivileges=yes: the writer parses
+#     data from the sky, and its user is in adsb-operator (step 05), whose sudoers
+#     rule it must never use (step 60 excludes it by name too). ⚠️ Belief, not seen
+#     on the Pi: the two ExecStartPre=+ preflights still pass under it (they run
+#     as root and only drop privileges, which NoNewPrivileges allows).
 #
 # Starting and restarting (§9f: a service restarts only if its rendered config
 # or its binary changed):
@@ -33,19 +37,19 @@
 #     writer would stop the window, PLAN §9m) or the recording lock is held.
 #     If the lock is held, this step leaves the writer stopped, warns, and
 #     names the command that starts it: sudo systemctl start adsb-writer.
-#     📋 Planned, not built: update.sh is to hold the lock while it runs and
-#     start the writer after (PLAN §9f), and the pull window is to start it
-#     when the window ends (PLAN §9m). Neither exists yet.
+#     update.sh holds the lock while it runs, and at its end starts the writer
+#     if it is enabled and inactive and the pull window is not active,
+#     activating or deactivating (setup/update.sh, PLAN §9f). The pull window
+#     starts it when the window ends (setup/steps/60-portable-pull.sh, PLAN
+#     §9m).
 #   Both with --no-block: whether the preflights pass is readiness, not install.
 #
 # ⛔ Port 30005, readsb and a sky are readiness, never checked here: this step
 #    does not depend on 10-decoder. It does need step 20's clock-preflight and
 #    step 30's archive-preflight, which the unit runs before each start.
 #
-# What has run on hardware: this step and bin/adsb-writer, on the portable Pi on
-# 2026-10-04: exit 0, and the writer recording and rotating (PLAN §9m, "Verified
-# on hardware, 2026-10-04"). Not yet seen there: a late-plugged or pulled drive,
-# expiry, a refusal on space, a pull window.
+# What has run on hardware is recorded in PLAN §9m, not here (PLAN §9c: no
+# script carries a "tested on" header).
 
 set -euo pipefail
 # shellcheck source=setup/lib.sh
@@ -67,7 +71,7 @@ FLOCK=/usr/bin/flock
 MIN_FREE_GB=$(station_get archive.min_free_gb) \
   || die "station.yml has no archive.min_free_gb: add the archive: block from config/station.portable.example.yml"
 [[ $MIN_FREE_GB =~ ^[0-9]+([.][0-9]+)?$ ]] \
-  || die "archive.min_free_gb '${MIN_FREE_GB}' must be a number of gigabytes"
+  || die "archive.min_free_gb '${MIN_FREE_GB}' must be a number of GiB (2^30 bytes, as the writer counts it)"
 
 USER_NAME=adsb-receiver
 GROUP_NAME=adsb-operator
@@ -86,7 +90,7 @@ MP=/var/lib/adsb-receiver/archive
 # the name and must reach the rendered unit as it is.
 MOUNT_UNIT=$(systemd-escape --path --suffix=mount "$MP")
 BEAST_DIR=$MP/beast
-LOCK=/run/adsb-receiver/recording.lock
+LOCK=$ADSB_RECORDING_LOCK   # from lib.sh
 CLOCK_PREFLIGHT=/usr/local/bin/clock-preflight
 ARCHIVE_PREFLIGHT=/usr/local/bin/archive-preflight
 
@@ -160,6 +164,9 @@ StartLimitIntervalSec=0
 [Service]
 User=$USER_NAME
 Group=$GROUP_NAME
+# The kernel refuses this process tree any privilege gain (setuid, so sudo), whatever a sudoers
+# file says (PLAN §9m's evening update).
+NoNewPrivileges=yes
 # Files 0660, directories 2770 by inheritance (PLAN §9m).
 UMask=0007
 # '+' runs the preflights as root: both read the root-only station.yml, and
@@ -280,9 +287,9 @@ install_step() {
       window=$(systemctl show -p ActiveState --value "$WINDOW_UNIT" 2>/dev/null) || true
       holders=$(lock_holders)
       if [[ $window == active ]]; then
-        log "$WINDOW_UNIT is active: not starting $UNIT, which would end the pull window. The window's unit is to start it when it ends (PLAN §9m)"
+        log "$WINDOW_UNIT is active: not starting $UNIT, which would end the pull window. The window's unit starts it when it ends (PLAN §9m)"
       elif [[ -n $holders ]]; then
-        warn "$LOCK is held (PID $(tr '\n' ' ' <<<"$holders")): $UNIT is ${state:-unknown} and this step LEAVES IT STOPPED. Nothing else will start it: update.sh, planned to do that, is not built yet. Once the holder has finished (ps -p <PID>), start it with: sudo systemctl start $UNIT"
+        warn "$LOCK is held (PID $(tr '\n' ' ' <<<"$holders")): $UNIT is ${state:-unknown} and this step LEAVES IT STOPPED. If the holder is update.sh, it starts the writer itself when it finishes (unless the pull window is active, whose end starts it). Otherwise, once the holder has finished (ps -p <PID>), start it with: sudo systemctl start $UNIT"
       else
         log "$UNIT is ${state:-unknown}: starting it. The preflights decide whether it records; see journalctl -u $UNIT"
         guard_unit "$UNIT"
@@ -296,9 +303,9 @@ install_step() {
 
 # The install tier (PLAN §9c, §9m): the writer and its unit are installed,
 # loadable, enabled and not failed, and both preflights can run. ⛔ Never
-# is-active of the writer (PLAN §9f): update.sh (📋 planned, not built) is to
-# hold the recording lock while it runs this, so the writer cannot be recording
-# then. Its state is printed and warned on, never asserted.
+# is-active of the writer (PLAN §9f): update.sh holds the recording lock while
+# it runs this, so the writer cannot be recording then. Its state is printed
+# and warned on, never asserted.
 verify() {
   need_preflights
   pass "both preflights are installed"
@@ -331,6 +338,29 @@ verify() {
   # ExecStartPre= the two runs of the preflights would race each other.
   local settled=1
   settle 15 any || settled=0
+
+  # NoNewPrivileges: the observable effect where a writer process runs (its NoNewPrivs in
+  # /proc/<MainPID>/status, the flag the kernel enforces, inherited by the writer from flock);
+  # otherwise the loaded unit's setting, which is what the next start gets. Read after settling:
+  # right after a --no-block restart the old process, started under the old unit, may still run.
+  local mpid nnp
+  mpid=$(systemctl show -p MainPID --value "$UNIT" 2>/dev/null) || mpid=''
+  if [[ $mpid =~ ^[0-9]+$ ]] && ((mpid > 0)) && [[ -r /proc/$mpid/status ]]; then
+    nnp=$(awk '$1 == "NoNewPrivs:" { print $2 }' "/proc/$mpid/status" 2>/dev/null) || nnp=''
+    log "/proc/$mpid/status ($UNIT's main process): NoNewPrivs ${nnp:-?}"
+    if [[ $nnp == 1 ]]; then
+      pass "$UNIT's running process (PID $mpid) has NoNewPrivs 1"
+    elif ((settled)); then
+      die "$UNIT's running process (PID $mpid) has NoNewPrivs ${nnp:-unreadable}, not 1: it was started before the unit had NoNewPrivileges=yes. Restart it (sudo systemctl restart $UNIT), then re-run this step"
+    else
+      warn "$UNIT's running process (PID $mpid) has NoNewPrivs ${nnp:-unreadable}, not 1, and the unit had not settled: it may be the old writer still stopping. Re-run: setup/steps/40-archive-writer.sh --verify"
+    fi
+  else
+    nnp=$(systemctl show -p NoNewPrivileges --value "$UNIT" 2>&1) || true
+    log "no $UNIT process runs; systemctl show -p NoNewPrivileges $UNIT: $nnp"
+    [[ $nnp == yes ]] || die "$UNIT has NoNewPrivileges=${nnp:-?}, not yes (daemon-reload not run?); run this step without --verify"
+    pass "$UNIT will run with NoNewPrivileges=yes (the loaded unit's setting; no process runs now)"
+  fi
 
   local show load active sub result nrestarts status en
   log "systemctl show $UNIT (raw output follows)"

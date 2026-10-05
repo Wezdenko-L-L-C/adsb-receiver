@@ -3,9 +3,8 @@
 # CI for the setup scripts. Design: docs/PLAN.md §9g and §9h.
 #
 # TODO(PLAN §9k, item 3): a dry run of every step in an arm64 trixie container
-#   against sample-filled templates, including the role-refusal paths.
-# TODO(PLAN §9k, item 3): the job that fast-forwards `stable` when CI is green.
-#   Neither is built yet; they come with update.sh.
+#   against sample-filled templates, including the role-refusal paths. Not built.
+# The job that fast-forwards `stable` when CI is green is `advance-stable`, below.
 
 name: ci
 
@@ -22,34 +21,44 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      # The shell scripts are setup/**/*.sh and the files under bin/ whose shebang names sh or
-      # bash. bin/ also holds Python (adsb-writer): the Python step below checks those, and fails
-      # on a bin/ or tools/ file that is neither, so nothing there goes unchecked.
+      # The shell scripts are setup/**/*.sh, tests/**/*.sh and the files under bin/ and tools/
+      # whose shebang names sh or bash. bin/ and tools/ also hold Python: the Python step below checks those,
+      # and fails on a bin/ or tools/ file that is neither, so nothing there goes unchecked.
       - name: bash -n
         run: |
           set -euo pipefail
           {
-            find setup -name '*.sh' -print0
-            for f in bin/*; do
+            find setup tests -name '*.sh' -print0
+            for f in bin/* tools/*; do
               if [[ -f $f && $(head -n1 "$f") =~ ^#!.*[/[:space:]](ba)?sh([[:space:]]|$) ]]; then printf '%s\0' "$f"; fi
             done
           } | xargs -0 -n1 bash -n
 
+      # The runner's shellcheck is not pinned, and the author's is 0.11. The one difference this
+      # tree meets: a function called only from a trap is SC2317 ("unreachable") to 0.9 and SC2329
+      # ("never invoked") to 0.11, so those directives disable both codes, which works on either.
       - name: shellcheck
         run: |
           set -euo pipefail
           shellcheck --version
           {
-            find setup -name '*.sh' -print0
-            for f in bin/*; do
+            find setup tests -name '*.sh' -print0
+            for f in bin/* tools/*; do
               if [[ -f $f && $(head -n1 "$f") =~ ^#!.*[/[:space:]](ba)?sh([[:space:]]|$) ]]; then printf '%s\0' "$f"; fi
             done
           } | xargs -0 shellcheck -x
 
       - name: Python programs compile, and the unit tests pass
         # bin/adsb-writer and tools/adsb-extract are standard-library Python (PLAN §9i). The tests
-        # synthesize their BEAST streams: no capture is committed. Bytecode goes to the runner's
-        # temp directory, not beside the sources.
+        # synthesize their BEAST streams: no capture is committed. Also discovered in tests/:
+        #   - test_archive_candidates.py: the rule that decides which drive the first build may
+        #     format (setup/foundation/archive_candidates.py), on lsblk-shaped fixtures, no disk;
+        #   - test_format_archive_shell.py: setup/foundation/format-archive.sh itself, --dry-run,
+        #     on stubbed lsblk, findmnt, blkid and mount (needs bash and python3-yaml);
+        #   - test_rtc_config.py: the config.txt reading that decides whether
+        #     setup/foundation/rtc-overlay.sh writes the boot partition;
+        #   - test_disk_command_check.py: the disk-command check two steps below.
+        # Bytecode goes to the runner's temp directory, not beside the sources.
         run: |
           set -euo pipefail
           python3 --version
@@ -70,28 +79,87 @@ jobs:
           echo "compiled: ${py[*]}"
           python3 -m unittest discover -s tests -v
 
-      - name: steps never reference the foundation denylist
-        # The list itself is read from setup/lib.sh, so it is written down once.
+      - name: the denylist is referenced only by rtc-overlay.sh (/boot/firmware), and only setup/foundation/ formats a disk
+        # The list itself is read from setup/lib.sh, so it is written down once. Every script that
+        # runs on a rig is grepped for it, setup/foundation/ included: the steps, update.sh,
+        # bootstrap.sh, setup/foundation/, setup/files/, bin/ and tools/. The one exemption:
+        # setup/foundation/rtc-overlay.sh may reference /boot/firmware (the RTC overlay, PLAN
+        # §9h). Disk formatting commands may appear only in setup/foundation/ (the archive format,
+        # PLAN §9m); that check is .github/scripts/check-disk-commands.py, which fails on any
+        # error of its own.
         run: |
           set -euo pipefail
           source setup/lib.sh
-          # Comment lines are skipped: a step may explain why it does not touch these.
-          code=$(grep -nvE '^[[:space:]]*#' setup/steps/*.sh || true)
-          bad=0
-          for p in "${ADSB_DENY_PATHS[@]}"; do
-            if hits=$(grep -F -- "${p%\*}" <<<"$code"); then
-              echo "::error::a step references denylisted path $p"; echo "$hits"; bad=1
-            fi
+          files=()
+          for f in setup/steps/*.sh setup/update.sh setup/bootstrap.sh setup/foundation/* \
+                   setup/files/* bin/* tools/*; do
+            [[ -f $f ]] && files+=("$f")
           done
-          # Units: only on lines that call systemctl or lib's `unit` helper, and
-          # only as a whole argument (optionally .service), so `ssh-keygen` passes.
-          for u in "${ADSB_DENY_UNITS[@]}"; do
-            re="(^|[[:space:]:;&|(])(systemctl|unit)[[:space:]]([^#]*[[:space:]])?[\"']?${u}(\\.service)?[\"']?([[:space:];&|)]|\$)"
-            if hits=$(grep -E -- "$re" <<<"$code"); then
-              echo "::error::a step references denylisted unit $u"; echo "$hits"; bad=1
+          bad=0
+          for f in "${files[@]}"; do
+            # Comment lines are skipped: a script may explain why it does not touch these.
+            body=$(grep -nvE '^[[:space:]]*#' "$f" || true)
+            for p in "${ADSB_DENY_PATHS[@]}"; do
+              [[ $f == setup/foundation/rtc-overlay.sh && $p == /boot/firmware ]] && continue
+              if hits=$(grep -F -- "${p%\*}" <<<"$body"); then
+                echo "::error file=$f::denylisted path $p referenced"; echo "$hits"; bad=1
+              fi
+            done
+            # Units: only on lines that call systemctl or lib's `unit` helper, and
+            # only as a whole argument (optionally .service), so `ssh-keygen` passes.
+            for u in "${ADSB_DENY_UNITS[@]}"; do
+              re="(^|[[:space:]:;&|(])(systemctl|unit)[[:space:]]([^#]*[[:space:]])?[\"']?${u}(\\.service)?[\"']?([[:space:];&|)]|\$)"
+              if hits=$(grep -E -- "$re" <<<"$body"); then
+                echo "::error file=$f::denylisted unit $u referenced"; echo "$hits"; bad=1
+              fi
+            done
+          done
+          # Disk formatting commands, outside setup/foundation/. Its exit status is read on its
+          # own: 1 with hits printed, anything else (a Python error) is a failure too.
+          rc=0
+          hits=$(python3 .github/scripts/check-disk-commands.py setup/steps/*.sh setup/update.sh \
+                   setup/bootstrap.sh setup/lib.sh setup/files/* bin/* tools/*) || rc=$?
+          if ((rc != 0)); then
+            echo "::error::a disk formatting command outside setup/foundation/ (PLAN §9m: no step runs mkfs), or the check itself failed (exit $rc)"
+            echo "$hits"; bad=1
+          fi
+          exit "$bad"
+
+      - name: the reboot flag's and the recording lock's paths are the same everywhere
+        # setup/lib.sh's ADSB_REBOOT_FLAG and ADSB_RECORDING_LOCK are the source; the steps and
+        # bootstrap.sh read them from there. update.sh (self-contained, it sources nothing) and the
+        # login banner carry copies, compared here. No other script that runs on a rig may write
+        # the run directory's path at all (comment lines aside), so a sixth copy cannot drift.
+        run: |
+          set -euo pipefail
+          source setup/lib.sh
+          upd=$(bash -c 'eval "$(grep -E "^readonly (RUN_DIR|LOCK|REBOOT_FLAG)=" setup/update.sh)"; printf "%s %s" "$REBOOT_FLAG" "$LOCK"')
+          motd="$(sed -n 's/^FLAG=//p' setup/files/motd-banner.sh) $(sed -n 's/^LOCK=//p' setup/files/motd-banner.sh)"
+          want="$ADSB_REBOOT_FLAG $ADSB_RECORDING_LOCK"
+          if [[ $upd != "$want" || $motd != "$want" ]]; then
+            echo "::error::flag and lock: lib.sh '$want', update.sh '$upd', banner '$motd'"; exit 1
+          fi
+          bad=0
+          for f in setup/steps/*.sh setup/bootstrap.sh setup/foundation/* bin/* tools/*; do
+            [[ -f $f ]] || continue
+            if hits=$(grep -nvE '^[[:space:]]*#' "$f" | grep -F -- "$ADSB_RUN_DIR"); then
+              echo "::error file=$f::writes $ADSB_RUN_DIR itself; read it from setup/lib.sh"; echo "$hits"; bad=1
             fi
           done
           exit "$bad"
+
+      - name: no step or lib.sh reads a role flag or ADSB_ROLE (update.sh is exempt)
+        # PLAN §9b: the role comes from station.yml. --role exists only on the bootstrap, which
+        # writes that station.yml before any step runs; steps and lib.sh never see a role flag.
+        # update.sh is not grepped: its --role belongs to --bootstrap, and its update path reads
+        # the role from station.yml.
+        run: |
+          set -euo pipefail
+          hits=$(grep -nvE '^[[:space:]]*#' setup/steps/*.sh setup/lib.sh /dev/null \
+            | grep -E 'ADSB_ROLE|(^|[^-[:alnum:]])--role([^-[:alnum:]]|$)' || true)
+          if [[ -n $hits ]]; then
+            echo "::error::a step or lib.sh reads a role flag or ADSB_ROLE"; echo "$hits"; exit 1
+          fi
 
       - name: every step supports --verify
         run: |
@@ -134,3 +202,62 @@ jobs:
         # Emoji and em-dashes in headings make GitHub's anchors double-hyphened, and a broken
         # anchor fails silently. Why, in the script's header.
         run: python3 .github/scripts/check-anchors.py
+
+  # tests/smoke_update.sh: setup/update.sh and setup/bootstrap.sh run end to end in a sandbox
+  # (paths remapped by sed, fake steps, a stub systemctl, no root), how it works in the script's
+  # header. Its own job so its idle waits (the signal and lock cases) run beside the checks above;
+  # bash -n and shellcheck cover it there. About 30 s on the author's machine. git needs no
+  # identity here: the script passes its own to every commit it makes.
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: python3-yaml (update.sh reads station.yml with it)
+        run: |
+          set -euo pipefail
+          if ! python3 -c 'import yaml' 2>/dev/null; then
+            sudo apt-get update -q && sudo apt-get install -y -q python3-yaml
+          fi
+          python3 -c 'import yaml; print("PyYAML", yaml.__version__)'
+
+      - name: update.sh and bootstrap.sh, sandbox smoke test
+        run: bash tests/smoke_update.sh
+
+  # PLAN §9g: the stationary rig tracks `stable`, which only this job advances, and only to a
+  # commit on main that passed every check above. GITHUB_TOKEN is the only write credential, and
+  # it lives in GitHub, not on a rig. A push made with it starts no new workflow run. A plain push
+  # is a fast-forward or nothing.
+  # The brake is a revert commit on main (PLAN §9g's evening update): it reaches `stable`
+  # through this job like any commit, and because the rig applies stable's tip only once that tip
+  # is update.soak_days old, the revert resets the rig's clock. A force-push of `stable` to an
+  # older commit holds only until the next green push to main, which this job fast-forwards.
+  # ⚠️ Unknown until the first run: whether GitHub refuses a GITHUB_TOKEN push of commits that
+  # touch .github/workflows/ ("refusing to allow a GitHub App to create or update workflow ...
+  # without `workflows` permission"); `permissions:` cannot grant that. If it does, the fallback is
+  # a fine-grained personal access token (Contents: write, Workflows: write) stored as a
+  # repository secret, which keeps the credential in GitHub. Not added now.
+  advance-stable:
+    needs: [scripts, smoke]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    concurrency:
+      group: advance-stable
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: fast-forward stable to this commit
+        run: |
+          set -euo pipefail
+          if git rev-parse --verify --quiet origin/stable >/dev/null \
+             && git merge-base --is-ancestor HEAD origin/stable; then
+            echo "stable already contains $(git rev-parse --short HEAD); nothing to do"
+            exit 0
+          fi
+          git push origin "HEAD:refs/heads/stable"

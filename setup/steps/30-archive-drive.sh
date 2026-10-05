@@ -10,9 +10,12 @@
 #   setup/steps/30-archive-drive.sh            install, then verify
 #   setup/steps/30-archive-drive.sh --verify   verify only
 #
-# ⛔ It never formats anything. Formatting is a human gate (PLAN §9m): with no
-#    ext4 filesystem carrying archive.label, it prints the commands and exits
-#    non-zero. It runs no mkfs, and tune2fs only to read (-l).
+# ⛔ It never formats anything (PLAN §9m: no step runs mkfs). With no ext4
+#    filesystem carrying archive.label, it prints the commands and exits
+#    non-zero. It runs no mkfs, and tune2fs only to read (-l). The one other
+#    thing that may format the drive is the bootstrap's foundation tier,
+#    setup/foundation/format-archive.sh, which update.sh --bootstrap runs on a
+#    portable's first build only, and only when exactly one drive qualifies.
 # ⛔ It creates no users or groups. 05-config does (PLAN §9m rejects this step
 #    doing it).
 #
@@ -57,7 +60,7 @@ MIN_FREE_GB=$(station_get archive.min_free_gb) \
 [[ $LABEL =~ ^[A-Za-z0-9_-]{1,16}$ ]] \
   || die "archive.label '${LABEL}' must be 1-16 letters, digits, '-' or '_' (ext4's 16-byte limit)"
 [[ $MIN_FREE_GB =~ ^[0-9]+([.][0-9]+)?$ ]] \
-  || die "archive.min_free_gb '${MIN_FREE_GB}' must be a number of gigabytes"
+  || die "archive.min_free_gb '${MIN_FREE_GB}' must be a number of GiB (2^30 bytes, as the writer counts it)"
 
 USER_NAME=adsb-receiver
 GROUP_NAME=adsb-operator
@@ -71,8 +74,8 @@ MOUNT_UNIT=$(systemd-escape -p --suffix=mount "$MP")
 FSCK_UNIT="systemd-fsck@$(systemd-escape -p "$BY_LABEL").service"
 DEVICE_UNIT=$(systemd-escape -p --suffix=device "$BY_LABEL")
 DROPIN=$UNIT_DIR/$DEVICE_UNIT.d/timeout.conf
-# Copied, not symlinked: update.sh is to flip between two worktrees (PLAN §9f),
-# and a symlink into one would follow the flip.
+# Copied, not symlinked: update.sh flips between two worktrees (PLAN §9f), and
+# a symlink into one would follow the flip.
 PREFLIGHT=/usr/local/bin/archive-preflight
 
 WORK=$(mktemp -d)
@@ -103,7 +106,16 @@ format_help() {
   echo "----"
   warn "$1"
   cat >&2 <<EOF
-    Formatting the archive drive is done by hand, once (PLAN §9m). No script runs mkfs.
+    Formatting the archive drive is done once (PLAN §9m). No step runs mkfs. On a
+    first build the bootstrap formats it (setup/foundation/format-archive.sh)
+    only when exactly one removable USB drive of at least 8 GB qualifies: one
+    with no filesystem, or whose single partition holds only an empty FAT,
+    exFAT, NTFS or ext filesystem, as a new stick does. That filesystem is
+    erased. A drive already labeled $LABEL is never formatted automatically:
+    this step mounts it if it is ext4, and stops here if it is not (format
+    that device by hand, below, if it may be erased; otherwise unplug it or
+    remove its label). The bootstrap's --no-format turns formatting off.
+    Otherwise, by hand:
     Format partition 1, not the whole device: the stick ships with an MBR
     partition table, and formatting partition 1 keeps that table.
     1. Find the drive in the listing above by its SIZE and MODEL. Check it twice:
@@ -131,7 +143,7 @@ find_device() {
   ((n == 1)) || format_help "no filesystem is labeled $LABEL"
   DEV=$devs
   fstype=$(blkid -c /dev/null -o value -s TYPE "$DEV" 2>/dev/null) || true
-  [[ $fstype == ext4 ]] || format_help "$DEV is labeled $LABEL but is ${fstype:-not formatted}, not ext4"
+  [[ $fstype == ext4 ]] || format_help "$DEV is labeled $LABEL but is ${fstype:-not formatted}, not ext4. It is never formatted automatically. If it may be erased, format it by hand as below, naming $DEV in place of /dev/sdX1; otherwise unplug it or remove its label"
   log "the archive drive: $DEV, ext4, label $LABEL"
 }
 
@@ -230,13 +242,12 @@ install_units() {
       || die "the mount did not start; check: systemctl status '$MOUNT_UNIT' and journalctl -b -u '$FSCK_UNIT'"
   elif ((mount_changed && !first)); then
     # ⛔ A changed mount unit never restarts the mount (PLAN §9m): unmounting
-    #    under a recording would end it. 📋 PLAN §9f has update.sh set
-    #    reboot_required in status.json; neither exists yet, so this warning is
-    #    the only record.
+    #    under a recording would end it. need_reboot records it; update.sh
+    #    copies it into status.json as reboot_required, and the banner shows it.
     warn "################################################################"
     warn "$MOUNT_UNIT changed while mounted. It was NOT restarted."
-    warn "REBOOT REQUIRED for the new mount unit to take effect."
     warn "################################################################"
+    need_reboot "the archive mount unit $MOUNT_UNIT changed while mounted"
   fi
   if ((dropin_changed && !first)); then
     log "the device timeout changed; it applies from the next boot"

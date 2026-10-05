@@ -13,6 +13,15 @@
 #
 # What it installs:
 #   - config/station.yml -> /etc/adsb-receiver/station.yml, root:root 0600.
+#     After the first build the /etc copy is the one that is edited; config/station.yml only
+#     seeds it. Under update.sh a worktree holds that file only in a bootstrap run that wrote it
+#     (no /etc copy yet, or --config or --set given), and update.sh removes it once this step has
+#     run, so an older seed never replaces the /etc copy (update.sh: drop_seeds). With no
+#     config/station.yml the installed copy is kept as it is. ⚠️ An edit to the /etc copy takes
+#     effect only when the steps next run: a timer run that finds the channel unchanged runs no
+#     step, so the edit waits for the next candidate, a bootstrap re-run, or the steps that read
+#     it, run by hand. ⚠️ Run by hand from a checkout that has a config/station.yml, this step
+#     still installs that file over the /etc copy.
 #   - Group adsb-operator (system). Its members are meant to read and delete
 #     on the archive drive without root, once step 30's 2770 directories and
 #     the writer's UMask=0007 exist (PLAN §9m).
@@ -36,8 +45,9 @@ require_root "$@"
 SRC_YML=$ADSB_REPO/config/station.yml
 DST_YML=$ADSB_ETC/station.yml
 TMPFILES=/etc/tmpfiles.d/adsb-receiver.conf
-RUN_DIR=/run/adsb-receiver
-LOCK=$RUN_DIR/recording.lock
+# Both from lib.sh, where they are written down once.
+RUN_DIR=$ADSB_RUN_DIR
+LOCK=$ADSB_RECORDING_LOCK
 USER_NAME=adsb-receiver
 GROUP_NAME=adsb-operator
 
@@ -102,9 +112,9 @@ install_if_changed() {
 install_station_yml() {
   if [[ ! -f $SRC_YML ]]; then
     # Under update.sh the step runs from a fresh worktree, where the gitignored
-    # config/station.yml does not exist (PLAN §9f, §9d; update.sh is not
-    # written yet). The installed copy
-    # is then the config.
+    # config/station.yml does not exist (PLAN §9f, §9d). The installed copy is
+    # then the config. (On a first build, update.sh --bootstrap writes
+    # config/station.yml into the worktree before any step runs.)
     if [[ -f $DST_YML ]]; then
       log "no $SRC_YML in this checkout; keeping the installed $DST_YML"
       return 0

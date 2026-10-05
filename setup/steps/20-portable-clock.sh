@@ -12,8 +12,8 @@
 #   setup/steps/20-portable-clock.sh --verify   verify only
 #
 # What this encodes: the values set by hand on the portable rig on
-# 2026-10-03. This step ran on the portable Pi on 2026-10-04 and exited 0 (PLAN
-# §9m, "Verified on hardware, 2026-10-04").
+# 2026-10-03. What has run on hardware is recorded in PLAN §9m, not here (PLAN
+# §9c: no script carries a "tested on" header).
 #   - gpsd 3.25 and chrony 4.6.1 from trixie. /etc/default/gpsd with the puck's
 #     /dev/serial/by-id/ path, GPSD_OPTIONS="-n -b -s 4800", USBAUTO="true".
 #     gpsd.service and gpsd.socket are both enabled on the Pi (seen
@@ -36,8 +36,13 @@
 #     and gpssnmp. gpsd-clients is kept for gpspipe (Chris, 2026-10-04).
 #
 # ⛔ It never writes config.txt on the boot partition, which is on the PLAN
-#    §9h denylist. With no /dev/rtc0 it prints the two lines to add, and
-#    exits non-zero: a human gate, like formatting the archive drive.
+#    §9h denylist. With no /dev/rtc0 it fails. The overlay is written by the
+#    bootstrap's foundation tier (setup/foundation/rtc-overlay.sh, run only by
+#    update.sh --bootstrap on a portable's first build, never by the timer).
+#    The bootstrap then reboots once, and the update timer runs this step again
+#    after the boot. ⚠️ Belief, not seen through this path (PLAN §9e): that
+#    reboot makes rtc0 appear. The ZS-042's charge-path fix (BUILD.md §6b) is a
+#    hardware-assembly step, not software: nothing here checks it.
 # ⛔ The verify never judges the sky (fix quality, offset). That is
 #    clock-preflight's job (PLAN §9c, two tiers).
 
@@ -64,8 +69,8 @@ RTC=/dev/rtc0
 # at 2000-01-01. The real check compares the RTC to a disciplined system clock.
 RTC_YEAR_FLOOR=2025
 RTC_MAX_SKEW_S=5
-# Copied, not symlinked: update.sh is to flip between two worktrees (PLAN §9f),
-# and a symlink into one would follow the flip.
+# Copied, not symlinked: update.sh flips between two worktrees (PLAN §9f), and
+# a symlink into one would follow the flip.
 PREFLIGHT=/usr/local/bin/clock-preflight
 
 WORK=$(mktemp -d)
@@ -112,7 +117,7 @@ apt_ensure() {
   run env DEBIAN_FRONTEND=noninteractive apt-get install -y "${missing[@]}"
 }
 
-# rtc_gate: the human gate. The step never edits the boot partition.
+# rtc_gate: no /dev/rtc0 fails the step. The step never edits the boot partition.
 rtc_gate() {
   if [[ -e $RTC ]]; then
     log "$RTC exists"
@@ -120,16 +125,18 @@ rtc_gate() {
   fi
   warn "no $RTC: the DS3231 is not wired into boot"
   cat >&2 <<'EOF'
-    Wiring the RTC into boot is done by hand, once. No script edits the boot
-    partition (PLAN §9h). Add these two lines to config.txt on the boot
-    partition (on Raspberry Pi OS, the FAT partition mounted at boot; see
-    BUILD.md §6b):
-        dtparam=i2c_arm=on
-        dtoverlay=i2c-rtc,ds3231
-    Check the module's charging circuit first (BUILD.md §6b, the ZS-042).
-    Then reboot, and run this step again.
+    No step edits the boot partition (PLAN §9h). On a first build, the
+    bootstrap's setup/foundation/rtc-overlay.sh writes the RTC overlay into
+    config.txt and the bootstrap reboots once; /dev/rtc0 is expected after
+    that boot, and the update timer then runs this step again.
+    A rig built before the bootstrap existed never runs that script: add
+    dtparam=i2c_arm=on and dtoverlay=i2c-rtc,ds3231 to config.txt on the boot
+    partition, under [all], by hand (BUILD.md §6b), then reboot.
+    If the overlay is in config.txt, the rig has rebooted since, and there is
+    still no rtc0, check the board's wiring (BUILD.md §6b). The charge-path
+    fix in BUILD.md §6b is a hardware-assembly step, not software.
 EOF
-  die "no $RTC; add the two lines above and reboot"
+  die "no $RTC: the RTC is not wired into boot yet (see above)"
 }
 
 # find_puck: exactly one device under /dev/serial/by-id. Sets PUCK. The by-id
