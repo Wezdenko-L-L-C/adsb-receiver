@@ -85,7 +85,7 @@ Buy the shared core once per rig, then only the additions for the rig you are bu
 | 6 | **Magnetic-mount 1090 whip** | For a car roof. ⛔ A 26" collinear is the wrong antenna to carry and the wrong one to mount in a hurry. ⚠️ These are usually **MCX** — check the bundled MCX→SMA adapter presents **SMA male**, since the dongle's connector is SMA female |
 | 7 | **USB-C power bank, genuine 5 V 3 A** | See [§5](#5-power-portable-only). ⚠️ Undervoltage looks like bad reception |
 | 8 | **USB GNSS receiver** — ⭐ **GlobalSat BU-353N5** | ⛔ Portable only. ⭐ Magnetic mount on a ~1.5 m lead, so the antenna goes where the sky is — which a HAT cannot do. [§6c](#6c-which-gnss-puck) for why the N5 over the older S4 |
-| 9 | **DS3231 RTC module** (I²C breakout, ~$5) | ⛔ Portable only. ⭐ [§6b](#6b-gps-alone-does-not-close-it) — the half of the clock problem GPS does *not* solve. ⚠️ DS3231, **not** DS1307 |
+| 9 | **DS3231 RTC module** (I²C breakout, ~$5) | ⛔ Portable only. ⭐ [§6b](#6b-gps-alone-does-not-close-it) — the half of the clock problem GPS does *not* solve. ⚠️ DS3231, **not** DS1307. ⚠️ [§6b](#6b-gps-alone-does-not-close-it): fix the charge path before fitting |
 | 10 | **A bag that fits it all, and short USB extension leads** | Dongles need spacing ([RADIOS.md §5](RADIOS.md#5-what-a-second-dongle-does-to-the-pi)), and a rig you dread packing is a rig you leave at home |
 
 ### 3c. 🏠 Stationary additions
@@ -245,8 +245,10 @@ the Pi comes up already approximately right and GPS then refines it.
 | **GPS** | Position, and time disciplined to ±~100 ms | After lock |
 
 ⚠️ **DS3231, not DS1307.** The 3231 is temperature-compensated at ±2 ppm; the 1307 drifts enough to
-matter over a weekend. Four pins (3V3, GND, SDA, SCL) and `dtoverlay=i2c-rtc,ds3231` in
-`config.txt`, and it leaves the rest of the header free — which a HAT does not.
+matter over a weekend. Four pins (3V3, GND, SDA, SCL) and ~~`dtoverlay=i2c-rtc,ds3231` in
+`config.txt`~~ *two lines in `config.txt`, `dtparam=i2c_arm=on` and `dtoverlay=i2c-rtc,ds3231`
+(corrected 2026-10-04: this named only the second; the one-command build in [§8](#8-build-order)
+adds both)*, and it leaves the rest of the header free — which a HAT does not.
 
 #### ⛔ The ZS-042 board will try to charge a non-rechargeable cell
 
@@ -255,7 +257,11 @@ wired to trickle-charge a **LIR2032 rechargeable**. Fit an ordinary **CR2032** a
 force-charges a cell that was never designed to be charged — a leak and fire risk, and a
 well-documented one.
 
-➡️ **Pick one before it goes in a bag:**
+➡️ **Pick one ~~before it goes in a bag~~ before the board is wired to the Pi:**
+*Corrected 2026-10-04: the charging circuit is live from the moment the board is powered, not from
+the moment the overlay is enabled, so this is a hardware-assembly step, done with the board in
+hand. No script can check it, and the one-command build in [§8](#8-build-order) does not: it only
+prints a reminder when it adds the overlay.*
 - fit a **LIR2032** (rechargeable, what the board expects), **or**
 - **remove R5** (or the 1N4148), after which a CR2032 is safe.
 
@@ -353,11 +359,67 @@ specific to a rig with no network:
 ➡️ **Build the 🎒 portable rig first.** The stationary rig reuses everything you learn, and steps
 0–1 are identical for both.
 
-0. ⛔ **Install the drivers first** ([§4](#4-drivers-first)) and confirm `rtl_test -t` names an
-   **R828D**. Every step below would otherwise be debugging the wrong thing.
+**The software is one command.** *Added 2026-10-04.* ⚠️ Built, and not yet run on a Pi. Once
+Raspberry Pi OS is installed, run this on the Pi. Missing hardware does not stop it: the update
+timer it installs finishes the build once the hardware is there.
+
+```
+curl -fsSL https://raw.githubusercontent.com/Wezdenko-L-L-C/adsb-receiver/main/setup/bootstrap.sh \
+  | sudo bash -s -- --role portable
+```
+
+To read what runs before it runs, clone the repo and run the bootstrap from your checkout. It then
+builds the commit you read, not a newer one:
+
+```
+sudo apt install -y git
+git clone https://github.com/Wezdenko-L-L-C/adsb-receiver.git
+sudo bash adsb-receiver/setup/bootstrap.sh --role portable
+```
+
+`--role stationary` needs the rig's surveyed position, as `--set position.latitude=…` and the
+like, or a whole file with `--config FILE`. `--no-format` and `--no-reboot` turn off the two acts
+below. Why it is shaped this way is in [PLAN.md §9e](PLAN.md#9e-the-first-build-is-by-hand-after-that-updates-are-automatic).
+
+⚠️ **Starting it is your agreement. It does these without asking:**
+
+- **It formats the archive drive,** on the portable only, and only under a strict rule: if a drive
+  is already labeled for the archive, nothing is formatted; otherwise exactly one unmounted,
+  removable USB disk of at least 8 GB, with no filesystem on it, or one that a read-only mount
+  proves empty. Anything else, it refuses, carries on without the drive, and shows the command to
+  run by hand in the login banner. Only this first run formats: a drive plugged in later is
+  formatted by hand.
+- **It writes the RTC overlay** into `config.txt`, on the portable only, unless the RTC is already
+  wired into boot.
+- **It reboots once,** after a 5 s notice, on a first build, when those changes need it. After the
+  boot the update timer finishes anything still incomplete, such as a step waiting for hardware
+  that was plugged in late.
+
+ℹ️ `10-decoder`, the step that installs `readsb` and `tar1090`, is not in the repo yet
+([PLAN.md §9m](PLAN.md#9m--the-portable-rigs-archive-drive), R5), so until it is, the command does
+not give you step 1's map.
+
+✅ **After the build, these stay yours to check, under the sky.** The build does not wait for them,
+and no script can pass them for you:
+
+- [ ] `tar1090` shows aircraft (step 1).
+- [ ] `gpsd` has a fix, and `chronyc sources` shows GPS disciplining the clock (step 2).
+- [ ] The Pi still knows the time after a power cycle **with the network unplugged** (step 2).
+
+0. ⛔ **Install the drivers first** ([§4](#4-drivers-first)) and confirm `rtl_test -t` ~~names an
+   **R828D**~~ *opens the stick and names its tuner*. Every step below would otherwise be debugging the wrong thing.
+   *Corrected 2026-10-04: an R828D is only what a V4 reports. The step script `00-drivers` fails an
+   R828D without its V4 line, and passes any other tuner with a warning
+   ([PLAN.md §9c](PLAN.md#9c-every-step-ends-in-a-check-of-the-observable-effect)'s 2026-10-04
+   update). The stick first used here was a counterfeit V4 with an R820T2
+   ([PLAN.md §9j](PLAN.md#9j--verified-on-hardware-2026-10-03)), and the replacement radio is an
+   RTL-SDR Blog V3 (R820T2), not yet in hand on 2026-10-04.*
 1. Build it **on the bench**, on wall power and wifi. Confirm `tar1090` shows aircraft.
 2. Add GPS and the RTC. Confirm `gpsd` has a fix, `chronyc sources` shows GPS disciplining the
    clock, and the Pi still knows the time after a power cycle **with the network unplugged**.
+   ⛔ *Added 2026-10-04:* **fix the RTC board's charge path before you wire it to the Pi**
+   ([§6b](#6b-gps-alone-does-not-close-it)). It is an assembly check: the board charges its cell
+   from the moment it is powered, and no script can see it.
 3. Only then take it out on battery — that is where undervoltage and antenna placement problems
    appear, and you want everything else already known-good.
 4. Write the uploader last, against a receiver you already trust.
