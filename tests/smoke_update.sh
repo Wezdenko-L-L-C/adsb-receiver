@@ -21,8 +21,10 @@
 set -uo pipefail
 # The number of check cases a full run makes. Bump it when cases are added or removed: a run that
 # makes fewer (a section skipped by an early return, a wait loop that timed out) fails.
-readonly EXPECTED_CHECKS=121
+readonly EXPECTED_CHECKS=122
 ((EUID != 0)) || { echo "refusing to run as root: the sandbox remaps real system paths by sed"; exit 1; }
+# The sandbox is not under systemd; update.sh adds a <N> journal prefix to its marker line when it is.
+unset INVOCATION_ID
 REAL=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SB=$(mktemp -d) || { echo "mktemp failed"; exit 1; }
 [[ -n $SB && -d $SB ]] || { echo "mktemp gave no sandbox directory: '$SB'"; exit 1; }
@@ -156,7 +158,7 @@ commit() { git -C "$R" add -A; gc commit -qm "$1"; push "${2:-main}"; }
 S() { python3 -c 'import json,sys; s=json.load(open(sys.argv[1])); print(eval(sys.argv[2]))' "$SB/var/status.json" "$1"; }
 run() { RC=0; "$@" >"$SB/out.txt" 2>&1 || RC=$?; }
 mt() { stat -c %Y "$SB/var/status.json" 2>/dev/null || echo none; }
-sha() { git -C "$R" rev-parse "${1:-HEAD}"; }
+sha() { git -C "$R" rev-parse HEAD; }
 rmwt() { local t; t=$(readlink -f "$SB/opt/applied"); [[ $t == "$SB"/opt/worktrees/* ]] && rm -rf "${t:?}"; }
 lacks() { ! grep -q -- "$1" "$2"; }                      # <pattern> <file>: no line matches
 lacks_has() { lacks "$1" "$3" && grep -q -- "$2" "$3"; } # <absent> <present> <file>
@@ -284,10 +286,13 @@ done
 
 echo "== M. lock held by another process: exit 0, marker line, nothing written"
 echo "# m" >>"$R/setup/steps/00-a.sh"; commit "m"
-m=$(mt); flock "$SB/run/recording.lock" sleep 4 & sleep 0.5
+m=$(mt); flock "$SB/run/recording.lock" sleep 8 & sleep 0.5
 run bash "$U"
 check "M exit 0, untouched" [ "$RC/$(mt)" = "0/$m" ]
 check "M marker" grep -q "^ADSB-UPDATE-SKIPPED lock-held" "$SB/out.txt"
+# Under systemd the marker carries a journal priority: 5 (notice), as the stub's window is inactive.
+run env INVOCATION_ID=smoke bash "$U"
+check "M marker under systemd has the <5> prefix" grep -q "^<5>ADSB-UPDATE-SKIPPED lock-held" "$SB/out.txt"
 wait
 
 echo "== N. offline portable: exit 0, nothing written"
