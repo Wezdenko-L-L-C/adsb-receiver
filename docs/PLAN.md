@@ -862,7 +862,7 @@ finishes the build.
   same reason whoever holds the lock: *"a recording session is on, so no update (PLAN §9f)"*, or,
   with the pull window open, that the window's ordering did not hold. A recording session is the
   only lock holder its wording names. The holder itself, from `lslocks`, is printed beside it.
-- ⚠️ **Found 2026-10-05, and open: a pinned first build whose own step cannot pass is a trap the
+- ⚠️ **Found 2026-10-05~~, and open~~; ruled the same night (the block below): a pinned first build whose own step cannot pass is a trap the
   design did not name.** Every way out but a second bootstrap is closed:
   - `update.sh` refuses `--rev` while a first build is incomplete (`examine_applied`);
   - on a recording portable the timer always finds the lock held;
@@ -871,8 +871,124 @@ finishes the build.
   On 2026-10-05, step `60-portable-pull` failed at the pin on a broken-pipe bug in its own check,
   fixed on `main` in `e019b29`. The only way out was a second one-command bootstrap by hand: stop
   the writer, then run the `curl` line, which built `main`'s tip ("As built" above) and completed
-  the build. Chris chose that route by multiple-choice question. ➡️ Nothing is ruled about
-  preventing the trap.
+  the build. Chris chose that route by multiple-choice question. ➡️ ~~Nothing is ruled about
+  preventing the trap.~~ *Ruled 2026-10-05, (Chris): the trap is kept, with an exit; see the update
+  right below. 📋 Not built.*
+
+**Update 2026-10-05: the pinned first build keeps its daily retry, and gets a one-command exit.
+(Chris), 2026-10-05.** 📋 **Ruled, not built.** Nothing below exists in the tree: no `--check`, no
+reason line, no banner line, and no change to `bootstrap.sh`. Ruled by multiple-choice question,
+after a check against the rulings already written and then an architecture consultation, whose
+mechanism this is. Chris: *"I have no problem with (a) and (b)."* It answers the ⚠️ trap just above.
+
+- **What stays.** The pin, and the `--check` contract ruled at the end of
+  [§9f](#9f-what-updatesh-does), exactly as written. The pinned path is unchanged, and no backoff
+  applies to `incomplete`. ⭐ The daily retry at a failing pin is not the defect; the defect is the
+  exit.
+- 🔑 **Why the retry stays: the rig cannot tell a bug at the pin from a step waiting for hardware.**
+  Both fail the same step at the same candidate on every attempt (a puck plugged in later completes
+  the build by itself, above). So any rule that stops retrying on "the same step failed again" stops
+  exactly the build the retry exists to finish. Every other observable, a new boot, `main` moved,
+  time passed, is irrelevant to a pinned run or is already the opener's trigger.
+  - The daily retry is already ruled for a case with the same cost: §9f retries a `rolled_back` or
+    `failed` candidate once a day until the channel moves, because *"a day bounds the cost and still
+    heals a transient with no hands"*.
+  - On a recording 🎒 portable it runs only through a home window: one bounded gap per day at home,
+    not field loss ([§9m](#9m--the-portable-rigs-archive-drive)'s field-loss rule is about one day's
+    shooting). The opener accepts the same gap for every real update. Rejected option C's gap, in
+    §9f, was "for nothing"; a pinned retry is the designed completion path for a build the rig cannot
+    prove is stuck.
+- **What is broken is the exit.** The pin's reason is "a human started it on a known commit"; the
+  remedy for a failed candidate is "push a fix"; a push does not reach a pin. So the only exit is a
+  hand, and on 2026-10-05 it took two commands, stop the writer and then the `curl` line: the
+  "multiple commands" Chris refused. The first build is the attended phase by the design's own
+  reasoning, so a hand as the exit is consistent; a two-command hand is not.
+- **(a) `--check` and the banner name the trap, and the one command out of it.**
+  - `--check` exits `0` for every incomplete first build and prints one reason line, carried by the
+    opener's single `ADSB-HOME-UPDATE` journal line: *"pending: the first build is incomplete at
+    <sha12 of candidate_rev>; the last run failed <failed_steps> at <finished_at>; the window retries
+    this same commit, and a fix on main does not reach it"*. It takes no lock and writes nothing.
+  - When `status.json` says `incomplete`, the banner adds two lines after its existing "last
+    update: incomplete" and "failed steps" lines:
+    - *"first build: incomplete at <sha12>; every home window retries this same commit (the pin). A
+      step waiting for hardware completes once it is plugged in; a fix pushed to main does not reach
+      a pinned build."*
+    - *"if <failed_steps> cannot pass at this commit, run the bootstrap again, one command (BUILD.md
+      §8): curl -fsSL …/setup/bootstrap.sh | sudo bash -s -- --role <station.role>"*, the role read
+      from `/etc/adsb-receiver/station.yml` under the banner's 5 s timeout, or the generic sentence if
+      it cannot be read: *"run the bootstrap again, one command: BUILD.md §8 has the line for your
+      rig's role"*.
+    - The lines clear when `applied` exists.
+  - **State:** read from `status.json` only: `result`, `candidate_rev`, `failed_steps` and
+    `finished_at`, all of which exist. Nothing is written by `--check`, nothing under `/var/lib`; no
+    counter, no boot id.
+- **(b) A bootstrap run again on a recording rig ends the session itself.** On a first build (no
+  `applied`) whose recording lock is held by `adsb-writer.service`, `bootstrap.sh` ends the session
+  the one ruled way:
+  1. it starts `adsb-pull-window.service`;
+  2. it waits for the `adsb-update.service` the window starts through `Wants=` (the pinned run,
+     which will fail again) to finish;
+  3. it runs `update.sh --bootstrap` with the lock free;
+  4. it stops the window at its end, whose `ExecStopPost=` starts the writer, or the ruled reboot
+     ends everything.
+
+  `update.sh` still never stops the writer. §9f's paragraph on the 🎒 portable's first bootstrap is
+  narrowed to match: its "once" becomes "on any first build".
+
+  *The implementer's condition, not a new ruling:* if the rig has a writer but no
+  `adsb-pull-window.service` unit (a writer installed by hand before step 60 ever ran, the
+  2026-10-04 shape), the bootstrap keeps today's behavior and refuses with the
+  stop-the-writer-by-hand instruction; the window path applies only where the window unit is
+  loaded.
+- **Order:** both (a) and (b) are 📋 ruled, not built. (b) is built and reviewed before the opener.
+- Rejected:
+  - **P1: `--check` not pending when the pin already failed the same steps.** That is the
+    hardware-waiting build's exact signature, and it narrows a ruled contract on a heuristic the
+    resolver does not hold.
+  - **P2: a once-per-pin marker under `/var/lib`.** The same wrong stop, plus the "second truth"
+    rejected above (resuming from a checkpoint file), when `status.json` already holds
+    `candidate_rev` and `result`.
+  - **P3 and P6: the pin follows the channel after N failures, or when `main` moved.** They reverse
+    §9f's known-commit reason, which carries Chris's name, precisely when the rig is misbehaving; the
+    first unreviewed tip that also fails leaves the rig at a different unknown commit, with still no
+    exit. ℹ️ Noted, not ruled: for the 🏠 stationary the un-pinned timer path would still apply the
+    soak, so the hazard there is thinner; that is the stationary design's question.
+  - **P4: `--rev` during an incomplete build.** It runs by hand under the lock, so on a recording
+    portable the window must be open first: not fewer commands, and nothing for the opener. And
+    `--rev` is "a Pi test" that relies on rollback, which first-build mode lacks.
+  - **P5 as stated: accept, with a two-command exit.** The right outcome, the wrong exit.
+  - **The 24 h backoff extended to `incomplete`.** Keyed on `finished_at`, it suppresses the retry 4
+    minutes after the bootstrap's own reboot, the one retry the design most relies on, because
+    `/dev/rtc0` appears only then; keyed on a boot id, it changes nothing.
+  - **"Pending only when `main` moved".** A signal a pinned run cannot act on, and it misses a puck
+    plugged in while `main` is quiet.
+  - **A hardware-versus-bug exit-code contract for steps.** It is the only principled detector, but
+    it is a new contract across every step; a misclassification traps the rig the other way; and it
+    still gives no exit. ➡️ Recorded as the next design if the daily retry is ever shown to harm.
+- ➡️ **What would change it:**
+  - the retry itself does harm at home, such as a step at the pin that hangs the hub on every window
+    (the 2026-10-04 shape): then step-level first, the exit-code contract second, never a cadence
+    rule;
+  - Chris rules that an incomplete rig must heal from a push with no hand (the weeks-long
+    `incomplete` reopener above): then he reverses the pin ruling (P6, with the soak for the 🏠
+    stationary and CI green for the 🎒 portable);
+  - an incomplete 🏠 stationary at the remote site with no hand: the pin means a truck roll. That
+    case alone could justify an incomplete stationary following soaked `stable`; open for the
+    stationary design session;
+  - the one-command exit cannot be built inside the window ruling (the bootstrap cannot safely wait
+    out the window's pinned run, or the ordering is not what §9m reasons): then the exit is a written
+    two-command procedure in BUILD.md §8, and the banner prints both commands.
+- ⚠️ **Not verified:**
+  - nothing of the opener or `--check` exists;
+  - the banner has not run on the Pi;
+  - the length of a pinned retry at home is not measured (expected minutes, `readsb` already built
+    at its pin);
+  - that `bootstrap.sh` can start the window, wait for the window-started pinned update to finish,
+    then take the lock without a race, is reasoned from `flock -n` and §9m's `Wants=` and `After=`,
+    not seen;
+  - the window's `ExecStopPost=` writer start is reasoned, not seen;
+  - whether §9f's *"It is the one time a human stops the writer for an update"* is Chris's ruling or
+    the consultation's expectation is unmarked in this file.
 
 ### 9f. What `update.sh` does
 
@@ -1087,6 +1203,14 @@ the option rejected below as "`update.sh` stopping the writer".
   `update.sh` starts the writer at its end, by the writer-start rule above. It is the one time a human
   stops the writer for an update. ⚠️ The consultation expects no restarts on that run, because what is
   installed is byte-identical to what the steps render; not seen.
+  - *Narrowed 2026-10-05, (Chris), 📋 ruled, not built:* "once" becomes "on any first build". On a
+    first build (no `applied`) whose recording lock is held by `adsb-writer.service`, `bootstrap.sh`
+    itself ends the session through the pull window, runs `update.sh --bootstrap` with the lock free,
+    and stops the window at its end; `update.sh` still never stops the writer. The mechanism is at
+    the end of [§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic), as (b). Until
+    it is built, `update.sh --bootstrap` with the lock held still exits at its `flock -n`, so a
+    bootstrap run again on a recording portable needs the writer stopped by hand first, as on
+    2026-10-05.
 - Rejected:
   - **`update.sh` stopping the writer.** It collides with rulings already written: ⛔ never during a
     recording session (above); the lock is asymmetric and `update.sh` never waits, because a session
@@ -1332,7 +1456,10 @@ an architecture consultation, whose design this is.
     (the ⛔ on echoing a config value, under `status.json` above).
   - Then `adsb-update --check`, a new mode: no lock, the fetch and the real resolver, and no
     `status.json` written. Exit `0` means an update is pending: `main` is past `applied`, or the
-    build is incomplete.
+    build is incomplete. *Extended 2026-10-05, (Chris), 📋 ruled, not built: the contract stands as
+    written; for an incomplete first build `--check` also prints one reason line, which the
+    opener's `ADSB-HOME-UPDATE` line carries; the line and why are at the end of
+    [§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic).*
   - If one is pending, it drops a tmpfs marker, `/run/adsb-receiver/window-opened-by`; starts
     `adsb-pull-window.service`; waits for `adsb-update.service` to be dispatched and to finish; stops
     the window, whose `ExecStop=` wait applies as for any closer; and removes the marker.
