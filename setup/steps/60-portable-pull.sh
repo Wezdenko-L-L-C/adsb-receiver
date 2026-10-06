@@ -182,13 +182,15 @@ window_order() {
     warn "no pull window has run this boot, so the writer-stop-before-update order is not shown yet. It is in the pre-field checklist (PLAN §9m)"
     return 0
   fi
-  local tail_j stop upd
-  tail_j=$(tail -n "+$((last > 5 ? last - 5 : 1))" <<<"$j" | head -n 60)
+  local tail_j stop upd from
+  from=$((last > 5 ? last - 5 : 1))
+  # One process, no pipeline: under pipefail, head closing early gave tail EPIPE and ended the step (seen on the Pi 2026-10-05).
+  tail_j=$(sed -n "${from},$((from + 59))p" <<<"$j")
   log "journal around the last pull window this boot (raw output follows)"
   grep -E "(Stopp(ing|ed)|Start(ing|ed)) ($WINDOW|$WRITER|$UPDATE)" <<<"$tail_j" || true
   echo "----"
-  stop=$(grep -nE "Stopped $WRITER" <<<"$tail_j" | head -n1 | cut -d: -f1) || stop=''
-  upd=$(grep -nE "Starting $UPDATE" <<<"$tail_j" | head -n1 | cut -d: -f1) || upd=''
+  stop=$(grep -m1 -nE "Stopped $WRITER" <<<"$tail_j" | cut -d: -f1) || stop=''
+  upd=$(grep -m1 -nE "Starting $UPDATE" <<<"$tail_j" | cut -d: -f1) || upd=''
   if [[ -n $stop && -n $upd ]] && ((stop < upd)); then
     pass "the last window stopped the writer before the update started"
   elif [[ -z $stop ]]; then
