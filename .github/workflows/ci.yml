@@ -3,7 +3,9 @@
 # CI for the setup scripts. Design: docs/PLAN.md §9g and §9h.
 #
 # TODO(PLAN §9k, item 3): a dry run of every step in an arm64 trixie container
-#   against sample-filled templates, including the role-refusal paths. Not built.
+#   against sample-filled templates, including the role-refusal paths. Not built. Since both rigs
+#   follow `stable` (PLAN §9g's 2026-10-05 update), it is what both rigs' channel lacks, not the
+#   stationary's alone, which makes it more load-bearing.
 # The job that fast-forwards `stable` when CI is green is `advance-stable`, below.
 
 name: ci
@@ -225,19 +227,19 @@ jobs:
       - name: update.sh and bootstrap.sh, sandbox smoke test
         run: bash tests/smoke_update.sh
 
-  # PLAN §9g: the stationary rig tracks `stable`, which only this job advances, and only to a
+  # PLAN §9g: both rigs track `stable`, which only this job advances, and only to a
   # commit on main that passed every check above. GITHUB_TOKEN is the only write credential, and
   # it lives in GitHub, not on a rig. A push made with it starts no new workflow run. A plain push
   # is a fast-forward or nothing.
   # The brake is a revert commit on main (PLAN §9g's evening update): it reaches `stable`
-  # through this job like any commit, and because the rig applies stable's tip only once that tip
-  # is update.soak_days old, the revert resets the rig's clock. A force-push of `stable` to an
-  # older commit holds only until the next green push to main, which this job fast-forwards.
-  # ⚠️ Unknown until the first run: whether GitHub refuses a GITHUB_TOKEN push of commits that
-  # touch .github/workflows/ ("refusing to allow a GitHub App to create or update workflow ...
-  # without `workflows` permission"); `permissions:` cannot grant that. If it does, the fallback is
-  # a fine-grained personal access token (Contents: write, Workflows: write) stored as a
-  # repository secret, which keeps the credential in GitHub. Not added now.
+  # through this job like any commit, and because the stationary applies stable's tip only once
+  # that tip is update.soak_days old, the revert resets its clock (the portable, soak 0, takes the
+  # revert on its next pull). A force-push of `stable` to an older commit holds both rigs only
+  # until the next green push to main, which this job fast-forwards.
+  # ✅ No longer unknown (PLAN §9g, 2026-10-05): GitHub does not refuse a GITHUB_TOKEN push of
+  # commits that touch .github/workflows/. This job fast-forwarded `stable` with GITHUB_TOKEN alone
+  # on every push to main on 2026-10-04 and 2026-10-05, including 9fd4a4e, which touched ci.yml.
+  # The fallback once named here, a fine-grained personal access token, is not needed.
   advance-stable:
     needs: [scripts, smoke]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

@@ -20,8 +20,9 @@
 #
 # In order (PLAN §9f): take the recording lock (flock -n; held means a recording session, so exit
 # 0 having changed nothing) → check `applied` → heal an interrupted apt → fetch → resolve the
-# candidate (🎒 portable: main's tip; 🏠 stationary: stable's tip, only once its commit date is
-# update.soak_days old) → unchanged, or a candidate that failed in the last 24 h, means exit
+# candidate (both roles: stable's tip, only once its commit date is update.soak_days old: 0 on the
+# 🎒 portable, 7 on the 🏠 stationary, unless station.yml sets it; 0 is no age check at all, so it
+# never reads the clock) → unchanged, or a candidate that failed in the last 24 h, means exit
 # having written nothing to the rig's applied state (timer mode) → a detached worktree for the
 # candidate, under /opt/adsb-receiver/worktrees/<sha12> → every step with --skip-other-role, then
 # every step's --verify --skip-other-role → flip the `applied` symlink, write applied-rev, then
@@ -91,9 +92,11 @@
 # A timer run that finds the lock held prints one line holding ADSB-UPDATE-SKIPPED (under systemd
 # it starts with a <N> priority prefix, which the journal turns into the line's priority: warning
 # when the pull window is open, where the writer should have stopped first, PLAN §9m). A by-hand
-# run that finds the lock held prints the holder instead, and exits 1.
+# run that finds the lock held prints the holder and advice for it instead, and exits 1.
 #
-# What has run on hardware: nothing. ⚠️ Unverified on the Pi: all of it.
+# What has run on hardware: the portable, mobile-adsb: the first build through setup/bootstrap.sh
+# on 2026-10-04 (incomplete: steps failed on a hung stick) and on 2026-10-05 (applied), and a
+# --rev run of 42b5115. ⚠️ Unverified: all of it on the stationary.
 
 set -euo pipefail
 
@@ -114,7 +117,9 @@ readonly ETC_YML=/etc/adsb-receiver/station.yml
 readonly WRITER_UNIT=adsb-writer.service
 readonly WINDOW_UNIT=adsb-pull-window.service
 readonly FIRST_STEP=50-updater
-readonly DEFAULT_SOAK_DAYS=7
+# The soak's role default, the one difference between the roles' channel (PLAN §9g's 2026-10-05
+# update); update.soak_days in station.yml overrides it. The portable template never carries it.
+readonly SOAK_DAYS_PORTABLE=0 SOAK_DAYS_STATIONARY=7
 readonly FETCH_TIMEOUT=300
 readonly PREFLIGHT_TIMEOUT=120
 readonly BACKOFF_SECS=86400   # a failed candidate is skipped this long after its run
@@ -254,7 +259,7 @@ parse_args() {
       --config) [[ -n ${2:-} ]] || usage_error "--config needs a file"; CONFIG_ARG=$2; shift ;;
       --no-format) NO_FORMAT=1 ;;
       --retry) RETRY=1 ;;
-      -h|--help) sed -n '3,93p' "$0"; exit 0 ;;
+      -h|--help) sed -n '3,/^$/p' "$0"; exit 0 ;;   # the header: line 3 to the first blank line
       *) usage_error "unknown argument: $1" ;;
     esac
     shift
@@ -397,12 +402,49 @@ take_lock() {
       lock_held_timer
       exit 0
     fi
-    printf 'xx  the recording lock is held by %s.\n' "$(lock_holder)" >&2
-    printf '    A recording session is on. Start the pull window (sudo systemctl start %s),\n' "$WINDOW_UNIT" >&2
-    printf '    or, once, stop the writer by hand (sudo systemctl stop %s), then run this again.\n' "$WRITER_UNIT" >&2
+    lock_held_by_hand
     exit "$RC_FAILED"
   fi
   LOCKED=1
+}
+
+# lock_held_by_hand: the refusal of a run by hand, or by setup/bootstrap.sh, that finds the lock
+# held, with advice for the holder it names: the writer (a recording session), a pull window's
+# update, or anything else. ADSB_BOOTSTRAP_WINDOW is setup/bootstrap.sh's hint, read only under
+# --bootstrap: why the bootstrap did or did not end the session itself (opened, no-unit, built,
+# not-writer). It is passed because nothing else tells this script that its caller is the bootstrap
+# (update.sh --bootstrap is also run by hand, and by a bootstrap.sh older than the hint), and the
+# refusal must not tell the bootstrap's own user that the bootstrap ends the session when it just
+# did not. With no hint, the text claims nothing about what a bootstrap did.
+lock_held_by_hand() {
+  local holder win why='' again='run this again'
+  holder=$(lock_holder)
+  win=$(systemctl is-active "$WINDOW_UNIT" 2>/dev/null) || true
+  [[ $MODE == bootstrap ]] && again='run the bootstrap again'
+  printf 'xx  the recording lock is held by %s.\n' "$holder" >&2
+  if [[ $holder == "$WRITER_UNIT "* ]]; then
+    if [[ $MODE == bootstrap ]]; then
+      case ${ADSB_BOOTSTRAP_WINDOW:-} in
+        no-unit) why="$WINDOW_UNIT is not loaded on this rig" ;;
+        built) why="this rig already has a build, and the bootstrap ends a session only on a first build" ;;
+        opened) why="it ended one through the pull window, and the writer holds the lock again" ;;
+        not-writer) why="the writer did not hold the lock when the bootstrap looked" ;;
+      esac
+    fi
+    if [[ -n $why ]]; then
+      printf '    A recording session is on, and the bootstrap did not end it: %s.\n' "$why" >&2
+    else
+      printf '    A recording session is on: run the bootstrap (setup/bootstrap.sh), which ends it itself on\n' >&2
+      printf '    a first build; or end it by hand.\n' >&2
+    fi
+    printf '    By hand: start the pull window (sudo systemctl start %s), %s once the\n' "$WINDOW_UNIT" "$again" >&2
+    printf '    adsb-update.service it starts has finished, then stop the window (sudo systemctl stop %s);\n' "$WINDOW_UNIT" >&2
+    printf '    or, where no window unit exists, stop the writer by hand (sudo systemctl stop %s) and %s.\n' "$WRITER_UNIT" "$again" >&2
+  elif [[ $win == active || $win == activating || $win == deactivating ]]; then
+    printf '    A pull window is open and its update is running; wait for it to finish, then %s.\n' "$again" >&2
+  else
+    printf '    %s holds the lock; wait for it to finish, then %s.\n' "$holder" "$again" >&2
+  fi
 }
 
 # lock_held_timer: the timer's lock-held exit is 0 (ruled), so it is told apart by its line: it
@@ -458,17 +500,18 @@ fetch() {
   fi
 }
 
-# channel_of <role>: the branch a role tracks (PLAN §9g).
-channel_of() { if [[ $1 == portable ]]; then echo main; else echo stable; fi; }
+# channel_of <role>: the branch a role tracks: stable, for both (PLAN §9g's 2026-10-05 update; the
+# soak is the only role difference). The role argument stays so the callers need not change.
+channel_of() { echo stable; }
 
 # resolve_candidate: CAND for the mode and the rig's channel. Returns 1 when the channel has no
-# eligible commit (the stationary's soak), which a built rig treats as unchanged.
+# eligible commit (stable's tip is younger than the soak), which a built rig treats as unchanged.
 resolve_candidate() {
-  local tip days f tip_ct now age
+  local tip days def src f tip_ct now age
   CHANNEL=$(channel_of "$ROLE")
   if [[ $MODE == bootstrap ]]; then
-    # The commit setup/bootstrap.sh chose and runs this from. On a stationary first build that is
-    # stable's tip without the soak: the bench is attended; the soak protects the unattended rig.
+    # The commit setup/bootstrap.sh chose and runs this from. On a first build, either role, that
+    # is stable's tip without the soak: the bench is attended; the soak protects the unattended rig.
     CAND=$SELF_SHA
     if ((FETCH_OK)) && ! git -C "$REPO" merge-base --is-ancestor "$CAND" "origin/$CHANNEL" 2>/dev/null; then
       NOTE="built from $(sha12 "$CAND"), which is not on origin/$CHANNEL"
@@ -489,17 +532,32 @@ resolve_candidate() {
       || fail "--rev $REV_ARG is on no pushed branch; push it first (the Pi runs only what is on GitHub)"
     return 0
   fi
-  if [[ $ROLE == portable ]]; then
-    CAND=$(git -C "$REPO" rev-parse --verify --quiet "origin/main^{commit}") || fail "the clone has no origin/main"
-    return 0
-  fi
   tip=$(git -C "$REPO" rev-parse --verify --quiet "origin/stable^{commit}") \
     || fail "the clone has no origin/stable. CI creates it on the first green push to main (PLAN §9g)"
-  days=$DEFAULT_SOAK_DAYS
-  if f=$(station_file); then
-    days=$(yml_get "$f" update.soak_days 2>/dev/null) || days=$DEFAULT_SOAK_DAYS
+  local deflabel="the stationary's default"
+  def=$SOAK_DAYS_STATIONARY
+  [[ $ROLE == portable ]] && def=$SOAK_DAYS_PORTABLE deflabel="the portable's default"
+  days=$def src=$deflabel
+  if f=$(station_file) && days=$(yml_get "$f" update.soak_days 2>/dev/null); then
+    src="update.soak_days in $f"
+  else
+    days=$def
   fi
-  [[ $days =~ ^[0-9]+$ ]] || { warn "update.soak_days '$days' is not a whole number of days; using $DEFAULT_SOAK_DAYS"; days=$DEFAULT_SOAK_DAYS; }
+  if ! [[ $days =~ ^[0-9]+$ ]]; then
+    warn "update.soak_days '$days' in ${f:-station.yml} is not a whole number of days; rejected, using $def, $deflabel"
+    days=$def src="$deflabel; update.soak_days in ${f:-station.yml} was rejected"
+  fi
+  # Base 10 from here on: the regex accepts a leading zero (YAML hands "08" through as a string),
+  # which bash arithmetic would read as octal, and 08 or 09 as an error, failing the comparison
+  # below silently so the rig never updated.
+  days=$((10#$days))
+  # A soak of 0 is no age check at all, not "aged at least zero seconds": that would depend on the
+  # Pi's clock being past the commit date (PLAN §9g's 2026-10-05 update). Nothing below runs.
+  if ((days == 0)); then
+    log "soak 0: the channel's tip is the candidate ($src)"
+    CAND=$tip
+    return 0
+  fi
   # Soak (PLAN §9g's evening update): stable's TIP, and only once the tip's commit date is soak_days
   # old. Never "the newest commit older than soak_days": that would apply a bad commit the day it
   # turned old, whatever younger revert followed it. With the tip, a revert on main (the brake)
@@ -511,7 +569,7 @@ resolve_candidate() {
     CAND=$tip
     return 0
   fi
-  NOTE="stable's tip $(sha12 "$tip") is $((age / 86400)) days old, under update.soak_days ($days); it applies once it has been quiet that long"
+  NOTE="stable's tip $(sha12 "$tip") is $((age / 86400)) days old, under update.soak_days ($days, $src; the role default is 0 on the portable, 7 on the stationary, unless station.yml sets it); it applies once it has been quiet that long"
   return 1
 }
 
@@ -1065,7 +1123,7 @@ examine_applied() {
     [[ $MODE == timer ]] \
       || fail "the first build is incomplete (status.json) and stays pinned at the bootstrap's commit $(sha12 "$LAST_CAND") until it completes (the timer with the lock free, or a pull window on a recording portable); --rev waits until then. If the pinned commit itself cannot pass, run the one-command bootstrap again (BUILD.md §8)"
     git -C "$REPO" cat-file -e "$LAST_CAND^{commit}" 2>/dev/null \
-      || fail "the incomplete first build's commit $(sha12 "$LAST_CAND") is not in the clone; run the bootstrap again (on a stationary it builds stable's tip without the soak, PLAN §9g)"
+      || fail "the incomplete first build's commit $(sha12 "$LAST_CAND") is not in the clone; run the bootstrap again (it builds stable's tip without the soak, PLAN §9g)"
     FIRST_BUILD=1 PIN=$LAST_CAND
     return 0
   fi
@@ -1087,7 +1145,7 @@ recover_applied() {
     return 0
   fi
   RESULT=failed FAILED_STEP="applied is dangling and applied-rev is unusable"
-  warn "$FAILED_STEP: no step runs. Look at $APPLIED and $APPLIED_REV. To rebuild from nothing, remove $APPLIED and run the bootstrap (a first build: no gate, no rollback, and on a stationary stable's tip without the soak, PLAN §9g)"
+  warn "$FAILED_STEP: no step runs. Look at $APPLIED and $APPLIED_REV. To rebuild from nothing, remove $APPLIED and run the bootstrap (a first build: no gate, no rollback, and stable's tip without the soak, PLAN §9g)"
   write_status "$RC_FAILED"
   finish "$RC_FAILED"
 }
@@ -1265,7 +1323,7 @@ main() {
     # carry on as after an ordinary incomplete build; status.json still says incomplete.
     local code=$RC_INCOMPLETE
     ((TERMINATED)) && code=$(sig_exit)
-    warn "the build is INCOMPLETE: ${FAILED_STEPS[*]}. Each step's log is in $RUN_LOGS. Every update timer run (after each boot, and daily) runs the build again at this same commit while the recording lock is free (a rig with no writer running), so a step waiting for hardware completes once it is plugged in. On a recording portable the writer holds the lock from every boot, so the build completes in the next pull window instead (tools/pull-archive from the workstation, or sudo systemctl start adsb-pull-window.service, then stop, on the rig). If a failed step cannot pass at this commit, run the one-command bootstrap again (BUILD.md §8), which pins to main's tip. The archive drive is the exception: only the bootstrap formats it, so a drive plugged in later is formatted by hand (step 30 prints the command), or by running the bootstrap again"
+    warn "the build is INCOMPLETE: ${FAILED_STEPS[*]}. Each step's log is in $RUN_LOGS. Every update timer run (after each boot, and daily) runs the build again at this same commit while the recording lock is free (a rig with no writer running), so a step waiting for hardware completes once it is plugged in. On a recording portable the writer holds the lock from every boot, so the build completes in the next pull window instead (tools/pull-archive from the workstation, or sudo systemctl start adsb-pull-window.service, then stop, on the rig). If a failed step cannot pass at this commit, run the one-command bootstrap again (BUILD.md §8), which pins to stable's tip. The archive drive is the exception: only the bootstrap formats it, so a drive plugged in later is formatted by hand (step 30 prints the command), or by running the bootstrap again"
     readiness
     write_status "$code"
     STAGE=finished

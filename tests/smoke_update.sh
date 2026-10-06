@@ -4,24 +4,27 @@
 # tests/smoke_update.sh: a sandbox smoke test of setup/update.sh and setup/bootstrap.sh, run end to
 # end without root. The real scripts are copied into a temporary directory with sed, which remaps
 # their fixed paths (/opt, /var/lib, /var/log, /run and /etc's adsb-receiver directories, and the
-# clone URL) into that directory and neuters the root checks, the root ownership of what they
+# clone URL, and the lock holder's /proc/<PID>/cgroup, which becomes one file the window cases
+# write) into that directory and neuters the root checks, the root ownership of what they
 # install, dpkg and the 5-second reboot countdown. Every remap is asserted before anything runs:
 # the sandbox form must be in the copy and the original must not, so a reformatted line in either
 # script stops the suite by name instead of reaching the real paths. A throwaway git
 # repository stands in for the project, with fake steps and foundation scripts that print what
 # they were run with and fail, sleep or hold the recording lock on cue. systemctl is a stub on
-# PATH, so nothing is enabled and nothing reboots. Each case prints PASS or FAIL, and the exit
+# PATH, so nothing is enabled and nothing reboots; it logs every call, and plays the pull window
+# for the W cases. Each case prints PASS or FAIL, and the exit
 # status is the verdict: 0 only if every case passed and exactly EXPECTED_CHECKS cases ran.
 # It refuses to run as root: it is for the workstation and CI, never a rig.
 #
 # Run: bash tests/smoke_update.sh    (SMOKE_KEEP=1 keeps the sandbox and prints where it is)
 # Needs: bash, git, python3 with PyYAML, flock and setsid (util-linux), coreutils.
 # Wall-clock heavy for its size: the signal cases wait for a step to start sleeping and the lock
-# cases sleep, so a run mostly idles (about 30 s on the author's machine).
+# cases sleep, so a run mostly idles (about 30 s on the author's machine before the W cases, which
+# add one 5 s poll of bootstrap.sh's wait; not re-timed since).
 set -uo pipefail
 # The number of check cases a full run makes. Bump it when cases are added or removed: a run that
 # makes fewer (a section skipped by an early return, a wait loop that timed out) fails.
-readonly EXPECTED_CHECKS=122
+readonly EXPECTED_CHECKS=161
 ((EUID != 0)) || { echo "refusing to run as root: the sandbox remaps real system paths by sed"; exit 1; }
 # The sandbox is not under systemd; update.sh adds a <N> journal prefix to its marker line when it is.
 unset INVOCATION_ID
@@ -36,13 +39,18 @@ ok()   { echo "PASS: $*"; NPASS=$((NPASS+1)); }
 bad()  { echo "FAIL: $*"; NFAIL=$((NFAIL+1)); }
 check() { local d=$1; shift; if "$@"; then ok "$d"; else bad "$d"; fi; }
 
+# Both scripts name the recording lock's holder by its PID's cgroup. In the sandbox that is one file,
+# $SB/cgroup, which the window cases write (a process here has no adsb-writer.service cgroup); with
+# no file, no unit is named, as for a holder outside any unit.
 remap_update() {
   sed -e "s#/opt/adsb-receiver#$SB/opt#; s#^readonly STATE=/var/lib/adsb-receiver#readonly STATE=$SB/var#; s#/var/log/adsb-receiver#$SB/log#; s#^readonly RUN_DIR=/run/adsb-receiver#readonly RUN_DIR=$SB/run#; s#/etc/adsb-receiver/station.yml#$SB/etc/station.yml#" \
       -e 's#((EUID == 0)) || {#true || {#' -e 's#^  DEBIAN_FRONTEND=noninteractive dpkg --configure -a \\#  true \\#' \
-      -e 's#install -m 0600 -o root -g root #install -m 0600 #' "${UPD_SRC:-$REAL/setup/update.sh}"
+      -e 's#install -m 0600 -o root -g root #install -m 0600 #' \
+      -e "s#\"/proc/\\\$pid/cgroup\"#\"$SB/cgroup\"#" "${UPD_SRC:-$REAL/setup/update.sh}"
 }
 remap_bootstrap() {
   sed -e "s#local base=/opt/adsb-receiver#local base=$SB/opt#" \
+      -e "s#\"/proc/\\\$pid/cgroup\"#\"$SB/cgroup\"#" \
       -e "s#local url=https://github.com/[^ ]*#local url=$SB/src/origin.git#" \
       -e 's#if ((EUID != 0)); then#if false; then#' -e 's#^  sleep 5$#  sleep 0#' \
       -e 's#install -d -m 0755 -o root -g root #install -d -m 0755 #' \
@@ -61,6 +69,7 @@ assert_remaps() {
     shift 3
   done
 }
+# shellcheck disable=SC2016  # $pid is update.sh's text, matched literally
 assert_remaps "$U" \
   "BASE"          "readonly BASE=$SB/opt"              "readonly BASE=/opt/adsb-receiver" \
   "STATE"         "readonly STATE=$SB/var"             "readonly STATE=/var/lib/adsb-receiver" \
@@ -69,9 +78,11 @@ assert_remaps "$U" \
   "ETC_YML"       "readonly ETC_YML=$SB/etc/station.yml" "/etc/adsb-receiver/station.yml" \
   "root check"    "true || {"                          "((EUID == 0))" \
   "dpkg"          "  true \\"                          "DEBIAN_FRONTEND=noninteractive dpkg --configure -a" \
-  "root install"  "install -m 0600 \""                 "install -m 0600 -o root -g root"
-# shellcheck disable=SC2016  # $s is bootstrap.sh's text, matched literally
+  "root install"  "install -m 0600 \""                 "install -m 0600 -o root -g root" \
+  "cgroup"        "\"$SB/cgroup\""                     '"/proc/$pid/cgroup"'
+# shellcheck disable=SC2016  # $s and $pid are bootstrap.sh's text, matched literally
 assert_remaps "$B" \
+  "cgroup"        "\"$SB/cgroup\""                     '"/proc/$pid/cgroup"' \
   "base"          "local base=$SB/opt"                 "local base=/opt/adsb-receiver" \
   "clone url"     "local url=$SB/src/origin.git"       "local url=https://github.com/" \
   "root check"    "if false; then"                     "EUID != 0" \
@@ -79,13 +90,43 @@ assert_remaps "$B" \
   "root install"  "install -d -m 0755 \""              "install -d -m 0755 -o root -g root" \
   "dpkg-query"    "true || missing+="                  '[[ $s == "install ok installed" ]]'
 
+# Every call is appended to systemctl.log, so a case can read the order of them. The pull window
+# (the W cases): its LoadState is the file window-load's (not-found without it); adsb-update's
+# ActiveState is update-states' first line, one line per call, then inactive, and its queued jobs
+# (list-jobs) are update-jobs' first line, one per call, then none; starting the window fails if
+# window-start-fails exists, and otherwise makes it active (window-active, until a stop) and kills
+# the process group in writer.pid, as its Conflicts= stops the writer, and waits for the lock.
 cat >"$SB/bin/systemctl" <<EOF
 #!/usr/bin/env bash
+echo "\$*" >>"$SB/systemctl.log"
 case "\$1 \${2:-}" in
   "is-enabled adsb-update.timer") cat "$SB/timer-state" 2>/dev/null || echo disabled ;;
   "is-enabled "*) echo disabled; exit 1 ;;
+  "is-active adsb-pull-window.service")
+    if [[ -e "$SB/window-active" ]]; then echo active; else echo inactive; exit 3; fi ;;
   "is-active "*) echo inactive; exit 3 ;;
+  "list-jobs --no-legend")
+    if [[ -s "$SB/update-jobs" ]]; then head -n1 "$SB/update-jobs"; sed -i 1d "$SB/update-jobs"; fi ;;
+  "stop adsb-pull-window.service") rm -f "$SB/window-active" ;;
   "reboot "*) echo "FAKE REBOOT"; exit 0 ;;
+  "show -p")
+    case "\$3 \${5:-}" in
+      "LoadState adsb-pull-window.service") cat "$SB/window-load" 2>/dev/null || echo not-found ;;
+      "ActiveState adsb-update.service")
+        if [[ -s "$SB/update-states" ]]; then head -n1 "$SB/update-states"; sed -i 1d "$SB/update-states"; else echo inactive; fi ;;
+    esac ;;
+  "start adsb-pull-window.service")
+    [[ -e "$SB/window-start-fails" ]] && { echo "Job for adsb-pull-window.service failed (stub)." >&2; exit 1; }
+    touch "$SB/window-active"
+    # W7: the window's pinned run completes the build; window-applies holds the pin's full SHA.
+    if [[ -s "$SB/window-applies" ]]; then
+      p=\$(cat "$SB/window-applies")
+      ln -sfn "$SB/opt/worktrees/\${p:0:12}" "$SB/opt/applied"; echo "\$p" >"$SB/var/applied-rev"
+    fi
+    if [[ -f "$SB/writer.pid" ]]; then
+      kill -- "-\$(cat "$SB/writer.pid")" 2>/dev/null; rm -f "$SB/writer.pid"
+      for _ in \$(seq 1 50); do flock -n "$SB/run/recording.lock" true && break; sleep 0.1; done
+    fi ;;
   *) exit 0 ;;
 esac
 EOF
@@ -152,7 +193,9 @@ EOF
 gc() { git -C "$R" -c user.email=t@t -c user.name=t "$@"; }
 git -C "$R" init -q -b main && git -C "$R" add -A && gc commit -qm one
 git clone -q --bare "$R" "$SB/src/origin.git"
-push() { git -C "$R" push -q -f "$SB/src/origin.git" "${1:-main}"; }
+# Both rigs follow stable (PLAN §9g's 2026-10-05 update). A push also fast-forwards stable to it, as
+# CI's advance-stable job does on a green push; case R then moves stable itself.
+push() { git -C "$R" push -q -f "$SB/src/origin.git" "${1:-main}" "${1:-main}:stable"; }
 commit() { git -C "$R" add -A; gc commit -qm "$1"; push "${2:-main}"; }
 
 S() { python3 -c 'import json,sys; s=json.load(open(sys.argv[1])); print(eval(sys.argv[2]))' "$SB/var/status.json" "$1"; }
@@ -179,14 +222,14 @@ B1=$(sha)
 echo disabled >"$SB/timer-state"; echo 00-a >"$SB/reboot-step"
 run bash "$B" --role portable
 check "B exit 3" [ "$RC" = 3 ]
-check "B incomplete, candidate is main" [ "$(S 's["result"]+" "+s["candidate_rev"]')" = "incomplete $B1" ]
+check "B incomplete, candidate is stable's tip" [ "$(S 's["result"]+" "+s["candidate_rev"]')" = "incomplete $B1" ]
 check "B foundation saw the bootstrap marker" grep -q "format foundation marker=bootstrap" "$SB/out.txt"
 check "B step saw ADSB_UPDATE_RUN" grep -q "ADSB_UPDATE_RUN=2" "$SB/out.txt"
 check "B no reboot: timer not enabled" grep -q "adsb-update.timer is not enabled" "$SB/out.txt"
 check "B did not reboot" lacks "FAKE REBOOT" "$SB/out.txt"
 check "B no applied" [ ! -e "$SB/opt/applied" ]
 
-echo "== C. timer while incomplete: pinned to the bootstrap's commit, not main's new tip"
+echo "== C. timer while incomplete: pinned to the bootstrap's commit, not stable's new tip"
 rm -f "$R/setup/IFAIL-40-c"; echo "# three" >>"$R/setup/steps/00-a.sh"; commit "three: fixed"
 rm -f "$SB/reboot-step"
 run bash "$U"
@@ -194,11 +237,11 @@ check "C exit 3 (pinned B1 still fails)" [ "$RC" = 3 ]
 check "C candidate is still B1" [ "$(S 's["candidate_rev"]')" = "$B1" ]
 check "C log says pinned" grep -q "finishing the first build at the bootstrap's commit" "$SB/out.txt"
 
-echo "== C2. bootstrap again at main's tip: applied (0), reboots (first build, flag gained, timer enabled, lock free)"
+echo "== C2. bootstrap again at stable's tip: applied (0), reboots (first build, flag gained, timer enabled, lock free)"
 echo enabled >"$SB/timer-state"; echo 40-c >"$SB/reboot-step"; rm -f "$SB/run/reboot-required"
 run bash "$B" --role portable
 check "C2 exit 0" [ "$RC" = 0 ]
-check "C2 applied main" [ "$(S 's["result"]+" "+s["applied_rev"]')" = "applied $(sha)" ]
+check "C2 applied stable's tip" [ "$(S 's["result"]+" "+s["applied_rev"]')" = "applied $(sha)" ]
 check "C2 rebooted" grep -q "FAKE REBOOT" "$SB/out.txt"
 A1=$(sha)
 check "C2 05-config installed the seed, and it is gone from the worktrees" \
@@ -304,12 +347,12 @@ run bash "$U" --bootstrap --role portable --rev abc; check "O1 --bootstrap --rev
 run bash "$U" --role portable; check "O2 --role without --bootstrap: 64" [ "$RC" = 64 ]
 run bash "$B"; check "O3 bootstrap without --role: 64" [ "$RC" = 64 ]
 
-echo "== P. bootstrap from a checkout at a commit not on main: builds that commit, warns"
+echo "== P. bootstrap from a checkout at a commit not on stable: builds that commit, warns"
 git -C "$R" checkout -q -b side; echo "# side" >>"$R/setup/steps/00-a.sh"; gc commit -qam side
 run bash "$R/setup/bootstrap.sh" --role portable --no-reboot
 check "P exit 0" [ "$RC" = 0 ]
 check "P built the checkout's HEAD" [ "$(S 's["applied_rev"]')" = "$(sha)" ]
-check "P warned not on main" grep -q "is not on origin/main" "$SB/out.txt"
+check "P warned not on stable, and that CI may still be running" grep -q "is not on origin/stable, the rigs' channel (CI may still be running)" "$SB/out.txt"
 git -C "$R" checkout -q main
 
 echo "== Q. --set typing: 00000001 stays a string where the template holds a string"
@@ -359,7 +402,8 @@ PYX
 fresh_rig() {
   rm -rf "${SB:?}/opt" "${SB:?}/var" "${SB:?}/log" "${SB:?}/run" "${SB:?}/etc/station.yml"
   mkdir -p "$SB/opt" "$SB/var" "$SB/log" "$SB/run"
-  rm -f "$SB/reboot-step" "$SB/fixed-reason"
+  rm -f "$SB/reboot-step" "$SB/fixed-reason" "$SB/cgroup" "$SB/window-load" "$SB/update-states" \
+        "$SB/update-jobs" "$SB/window-active" "$SB/window-start-fails" "$SB/window-applies"
   rm -f "$R"/setup/IFAIL-* "$R"/setup/FAIL-* "$R"/setup/SLEEP-* "$R"/setup/HOLD-*
 }
 
@@ -486,7 +530,7 @@ check "T4 no seed left in any worktree" [ "$(seeds)" = 0 ]
 
 echo "-- T5. the timer applies a new candidate: /etc is untouched"
 run bash "$U"
-check "T5 timer applied main's tip (0)" [ "$RC $(S 's["applied_rev"]')" = "0 $(sha)" ]
+check "T5 timer applied stable's tip (0)" [ "$RC $(S 's["applied_rev"]')" = "0 $(sha)" ]
 check "T5 /etc kept the edits" [ "$(etc_get)" = "edited-t3 9" ]
 
 echo "-- X1. bootstrap re-run at the applied commit with --set, 00-a fails before 05: warned, /etc untouched"
@@ -510,6 +554,173 @@ check "X2 warned the input was discarded" grep -q "input was discarded" "$SB/out
 check "X2 the rollback ran" grep -q "ROLLING BACK" "$SB/out.txt"
 check "X2 /etc untouched by the rollback's 05" [ "$(etc_get)" = "edited-t3 9" ]
 check "X2 no seed left" [ "$(seeds)" = 0 ]
+
+echo "== Z. a portable with no update.soak_days (soak 0) takes stable's tip with the clock BEHIND its commit date"
+fresh_rig; echo "# z" >>"$R/setup/steps/00-a.sh"; commit "z: built"
+run bash "$B" --role portable --no-reboot
+check "Z bootstrap applied (0), and the portable's station.yml carries no update.soak_days" \
+  [ "$RC/$(grep -c soak_days "$SB/etc/station.yml")" = 0/0 ]
+# A commit dated two days ahead: its age is negative, so only the short-circuit applies it (an
+# "aged at least 0 days" test would wait two days).
+future=$(date -u -d '+2 days' +%Y-%m-%dT%H:%M:%SZ)
+echo "# z future" >>"$R/setup/steps/00-a.sh"; git -C "$R" add -A
+GIT_COMMITTER_DATE=$future GIT_AUTHOR_DATE=$future gc commit -qm "z: future"; push main
+run bash "$U"
+check "Z the timer applied stable's future-dated tip (0)" [ "$RC $(S 's["applied_rev"]')" = "0 $(sha)" ]
+check "Z said soak 0, from the portable's default" \
+  grep -q "soak 0: the channel's tip is the candidate (the portable's default)" "$SB/out.txt"
+check "Z status.json's channel is stable" [ "$(S 's["channel"]')" = stable ]
+
+echo "== Y. update.soak_days in station.yml overrides the role default, both ways"
+set_soak() { sed -i '/^update:/,$d' "$SB/etc/station.yml"; printf 'update:\n  soak_days: %s\n' "$1" >>"$SB/etc/station.yml"; }
+dated() { # <days ago> <message>: a commit dated that long ago, pushed to main and stable
+  local d; d=$(date -u -d "-$1 days" +%Y-%m-%dT%H:%M:%SZ)
+  echo "# $2" >>"$R/setup/steps/00-a.sh"; git -C "$R" add -A
+  GIT_COMMITTER_DATE=$d GIT_AUTHOR_DATE=$d gc commit -qm "$2"; push main
+}
+echo "-- Y1. a stationary with update.soak_days: 0 takes a young tip; the label names the file"
+fresh_rig; commit "y1: built"
+run bash "$B" --role stationary --no-reboot --set position.latitude=1.5 --set position.longitude=2.5 --set position.altitude_m=3
+check "Y1 stationary first build applied (0)" [ "$RC" = 0 ]
+set_soak 0; dated 0 "y1: young"
+run bash "$U"
+check "Y1 soak 0 from the file: the young tip is the candidate (the gate then holds: 4)" \
+  rc_has 4 "soak 0: the channel's tip is the candidate (update.soak_days in $SB/etc/station.yml)" "$SB/out.txt"
+echo "-- Y2. an invalid update.soak_days (7d) is rejected; the stationary's default, so labeled"
+set_soak 7d; dated 0 "y2: young"
+run bash "$U"
+check "Y2 warned: rejected, using 7, the stationary's default" \
+  grep -q "update.soak_days '7d' in $SB/etc/station.yml is not a whole number of days; rejected, using 7, the stationary's default" "$SB/out.txt"
+check "Y2 the young tip waits under the default, labeled as the fallback (exit 0)" \
+  rc_has 0 "under update.soak_days (7, the stationary's default; update.soak_days in $SB/etc/station.yml was rejected" "$SB/out.txt"
+echo "-- Y3. update.soak_days: 08 is 8 days (base 10, not a bad octal)"
+set_soak 08; dated 7 "y3: 7 days old"
+run bash "$U"
+check "Y3 a 7-day-old tip waits under 8 days (exit 0)" rc_has 0 "under update.soak_days (8, update.soak_days in" "$SB/out.txt"
+dated 9 "y3: 9 days old"
+run bash "$U"
+check "Y3 a 9-day-old tip is the candidate (the gate then holds: 4)" rc_has 4 "candidate: $(sha | cut -c1-12)" "$SB/out.txt"
+echo "-- Y4. a portable with update.soak_days: 2 waits for a young tip"
+fresh_rig; commit "y4: built"
+run bash "$B" --role portable --no-reboot
+Y4=$(sha)
+set_soak 2; dated 0 "y4: young"
+run bash "$U"
+check "Y4 the portable's young tip waits (exit 0), applied unchanged" [ "$RC $(S 's["applied_rev"]')" = "0 $Y4" ]
+check "Y4 the NOTE names the file's 2 days" grep -q "under update.soak_days (2, update.soak_days in" "$SB/out.txt"
+
+echo "== W. the bootstrap on a recording rig: the pull window ends the session on a first build (PLAN §9e's (b))"
+# hold_lock <cgroup path>: a flock process holds the recording lock (lslocks names its PID, which
+# must stay alive), in a session of its own whose ID is writer.pid, so killing that group frees
+# the lock; $SB/cgroup names its unit.
+hold_lock() {
+  mkdir -p "$SB/run"; : >>"$SB/run/recording.lock"; rm -f "$SB/writer.pid"
+  printf '0::/%s\n' "$1" >"$SB/cgroup"
+  # shellcheck disable=SC2016  # expanded by the child bash
+  setsid bash -c 'echo $$ >"$1"; exec flock "$2" sleep 60' _ "$SB/writer.pid" "$SB/run/recording.lock" </dev/null >/dev/null 2>&1 &
+  for _ in $(seq 1 50); do [[ -s $SB/writer.pid ]] && ! flock -n "$SB/run/recording.lock" true && break; sleep 0.1; done
+}
+drop_lock() { # ends hold_lock's process group, if the window's start did not
+  if [[ -f $SB/writer.pid ]]; then kill -- "-$(cat "$SB/writer.pid")" 2>/dev/null; rm -f "$SB/writer.pid"; fi
+  wait 2>/dev/null
+}
+at() { grep -nxF -- "$1" "$SB/systemctl.log" | sed -n "${2:-1}p" | cut -d: -f1; } # <call> [nth]: its line
+last() { grep -nxF -- "$1" "$SB/systemctl.log" | tail -n1 | cut -d: -f1; }       # <call>: its last line
+ascending() { local p=0 n; for n in "$@"; do [[ -n $n ]] && ((n > p)) || return 1; p=$n; done; }
+
+echo "-- W1. first build, the writer holds the lock, the window is loaded: window, wait, build, close, reboot"
+fresh_rig; echo "# w1" >>"$R/setup/steps/00-a.sh"; commit "w1"
+echo enabled >"$SB/timer-state"; echo 00-a >"$SB/reboot-step"; echo loaded >"$SB/window-load"
+printf 'activating\ninactive\n' >"$SB/update-states"
+hold_lock system.slice/adsb-writer.service; : >"$SB/systemctl.log"
+run bash "$B" --role portable
+drop_lock
+check "W1 applied (0) with the lock free, and rebooted" \
+  [ "$RC/$(S 's["result"]')/$(grep -c 'FAKE REBOOT' "$SB/out.txt")" = 0/applied/1 ]
+check "W1 said it ends the session through the window" grep -q "ending the session through the pull window, as ruled (PLAN §9e)" "$SB/out.txt"
+check "W1 the wait saw the update activating, then finished" \
+  grep -q "adsb-update.service is activating; waited" "$SB/out.txt"
+check "W1 order: window started, update waited out, update.sh ran, window stopped, reboot" \
+  ascending "$(at 'start adsb-pull-window.service')" "$(last 'show -p ActiveState --value adsb-update.service')" \
+            "$(at 'is-enabled adsb-writer.service')" "$(at 'stop adsb-pull-window.service')" "$(at reboot)"
+check "W1 the window was stopped once" [ "$(grep -cxF 'stop adsb-pull-window.service' "$SB/systemctl.log")" = 1 ]
+
+echo "-- W2. first build, the writer holds the lock, no window unit: update.sh's refusal, nothing started"
+fresh_rig; echo "# w2" >>"$R/setup/steps/00-a.sh"; commit "w2"
+hold_lock system.slice/adsb-writer.service; : >"$SB/systemctl.log"
+run bash "$B" --role portable
+drop_lock
+check "W2 refused (1), naming the writer" rc_has 1 "the recording lock is held by adsb-writer.service" "$SB/out.txt"
+check "W2 says to stop the writer by hand where no window unit exists" \
+  grep -qF "where no window unit exists, stop the writer by hand (sudo systemctl stop adsb-writer.service) and run the bootstrap again" "$SB/out.txt"
+check "W2 says why the bootstrap did not end it, and never that it would" \
+  lacks_has "which ends it itself" "the bootstrap did not end it: adsb-pull-window.service is not loaded" "$SB/out.txt"
+check "W2 no window was started" lacks "^start adsb-pull-window.service$" "$SB/systemctl.log"
+
+echo "-- W3. first build, a session scope holds the lock, the window is loaded: refusal naming it"
+fresh_rig; echo "# w3" >>"$R/setup/steps/00-a.sh"; commit "w3"
+echo loaded >"$SB/window-load"
+hold_lock user.slice/user-1000.slice/session-4.scope; : >"$SB/systemctl.log"
+run bash "$B" --role portable
+drop_lock
+check "W3 refused (1), naming session-4.scope" rc_has 1 "the recording lock is held by session-4.scope" "$SB/out.txt"
+check "W3 the advice is to wait for that holder, not about the writer" \
+  lacks_has "recording session is on" "session-4.scope (PID [0-9]*) holds the lock; wait for it to finish, then run the bootstrap again" "$SB/out.txt"
+check "W3 no window was started" lacks "^start adsb-pull-window.service$" "$SB/systemctl.log"
+
+echo "-- W4. a built rig, the writer holds the lock, the window is loaded: refusal as before"
+fresh_rig; echo "# w4" >>"$R/setup/steps/00-a.sh"; commit "w4"
+run bash "$B" --role portable --no-reboot
+check "W4 the first build applied (0)" [ "$RC" = 0 ]
+echo loaded >"$SB/window-load"
+hold_lock system.slice/adsb-writer.service; : >"$SB/systemctl.log"
+run bash "$B" --role portable
+drop_lock
+check "W4 refused (1), naming the writer" rc_has 1 "the recording lock is held by adsb-writer.service" "$SB/out.txt"
+check "W4 says the bootstrap ends a session only on a first build" \
+  grep -q "the bootstrap did not end it: this rig already has a build" "$SB/out.txt"
+check "W4 no window was started" lacks "^start adsb-pull-window.service$" "$SB/systemctl.log"
+
+echo "-- W5. the window cannot be started: the writer is started again, exit 1, update.sh never runs"
+fresh_rig; echo "# w5" >>"$R/setup/steps/00-a.sh"; commit "w5"
+echo loaded >"$SB/window-load"; touch "$SB/window-start-fails"
+hold_lock system.slice/adsb-writer.service; : >"$SB/systemctl.log"
+run bash "$B" --role portable
+drop_lock
+check "W5 exit 1" [ "$RC" = 1 ]
+check "W5 the writer was started again, --no-block" grep -qxF "start --no-block adsb-writer.service" "$SB/systemctl.log"
+check "W5 update.sh did not run" lacks "running .*/update.sh --bootstrap" "$SB/out.txt"
+check "W5 the window that failed to start was not stopped" lacks "^stop adsb-pull-window.service$" "$SB/systemctl.log"
+
+echo "-- W6. the window's update is only queued at first (inactive, with a start job): the wait goes on"
+fresh_rig; echo "# w6" >>"$R/setup/steps/00-a.sh"; commit "w6"
+echo loaded >"$SB/window-load"; printf 'inactive\ninactive\n' >"$SB/update-states"
+echo "7 adsb-update.service start waiting" >"$SB/update-jobs"
+hold_lock system.slice/adsb-writer.service; : >"$SB/systemctl.log"
+run bash "$B" --role portable
+drop_lock
+check "W6 applied (0)" [ "$RC/$(S 's["result"]')" = 0/applied ]
+check "W6 the wait reported the queued start job" \
+  grep -q "adsb-update.service is inactive (a start job queued); waited" "$SB/out.txt"
+check "W6 a second poll, with no job, came before update.sh ran" \
+  ascending "$(at 'list-jobs --no-legend adsb-update.service' 2)" "$(at 'is-enabled adsb-writer.service')"
+
+echo "-- W7. the window's pinned run completes the build: an ordinary update follows, and no reboot"
+fresh_rig; touch "$R/setup/IFAIL-40-c"; commit "w7: pin fails"; W7A=$(sha)
+run bash "$B" --role portable --no-reboot
+check "W7 the first build is incomplete at the pin (3)" [ "$RC/$(S 's["result"]')" = 3/incomplete ]
+rm -f "$R/setup/IFAIL-40-c"; commit "w7: fixed"; W7B=$(sha)
+echo enabled >"$SB/timer-state"; echo 00-a >"$SB/reboot-step"; echo loaded >"$SB/window-load"
+echo "$W7A" >"$SB/window-applies"
+hold_lock system.slice/adsb-writer.service; : >"$SB/systemctl.log"
+run bash "$B" --role portable
+drop_lock
+check "W7 the log line names both commits" \
+  grep -qF "the window's pinned run completed the build at ${W7A:0:12}; this bootstrap now applies ${W7B:0:12} as an ordinary update" "$SB/out.txt"
+check "W7 no reboot, and the reason names the window's build" \
+  lacks_has "FAKE REBOOT" "the pull window's pinned run completed the build at ${W7A:0:12} during this bootstrap, and a bootstrap never reboots once applied exists" "$SB/out.txt"
+check "W7 update.sh applied the bootstrap's commit as an ordinary update (no foundation)" \
+  [ "$(S 's["result"]+" "+s["applied_rev"]')/$(grep -c 'foundation marker' "$SB/out.txt")" = "applied $W7B/0" ]
 echo
 echo "smoke: $NPASS passed, $NFAIL failed"
 if ((NPASS + NFAIL != EXPECTED_CHECKS)); then
