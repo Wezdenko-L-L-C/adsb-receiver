@@ -273,9 +273,11 @@ change. ➡️ [§9k](#9k-the-first-deliverable-in-order) item 1 is done.
   `bin/` as well as `setup/`.* ⚠️ **The arm64 trixie dry run and ~~the job that fast-forwards
   `stable`, both~~ in [§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable), ~~are~~ not
   built.** The workflow marks ~~both~~ *it* as TODO for §9k item 3. *Corrected 2026-10-04 (evening):
-  the job that fast-forwards `stable`, `advance-stable`, is written, and has not run yet
+  the job that fast-forwards `stable`, `advance-stable`, is written, ~~and has not run yet~~
   ([§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable)). The arm64 dry run is still
-  not built, and is the workflow's one remaining TODO.*
+  not built, and is the workflow's one remaining TODO.* *Corrected 2026-10-05: ✅ `advance-stable`
+  has run, with `GITHUB_TOKEN` alone, on every push to `main` on 2026-10-04 and 2026-10-05; see
+  §9g's third bullet.*
 - Still not written: ~~`bin/`,~~ `setup/foundation/`, ~~`05-config`,~~ `10-decoder`, `update.sh`, the
   timers, `status.json`, and ~~the clock steps~~ *`20-stationary-clock`*. *Corrected 2026-10-04: commit `47ed4ed` wrote
   `05-config`, `30-archive-drive` and `bin/archive-preflight`
@@ -755,6 +757,11 @@ others are the build's own.
     however young it is.** It is an ordinary update then, with rollback and the
     [§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away) gate. The timer is
     what waits out the soak. `bootstrap.sh`'s header says so.
+  - *Superseded in part 2026-10-05, (Chris): `--role` no longer chooses a channel. Both roles build
+    `stable`'s tip, the first build without the soak on either
+    ([§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable), its 2026-10-05 update). The
+    checkout case stands; its "not on origin/$channel" warning is to add that CI may still be
+    running. 📋 Ruled, not built: `bootstrap.sh` still sets `channel=main` for `--role portable`.*
 - **The config, as built.** The base is `--config FILE`, else the installed
   `/etc/adsb-receiver/station.yml`, else the role's template. `--role` must match the base's
   `station.role`, and `--set station.role` is refused. A `--set` key must already exist. Its value
@@ -1005,6 +1012,8 @@ In order:
 2. Fetch.
 3. Resolve the candidate SHA for the rig's channel ([§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable)).
    **If it has not changed, exit having touched nothing.**
+   *Update 2026-10-05, (Chris): the channel is `stable` on both rigs; the soak, a role default, is
+   the only role difference (§9g's 2026-10-05 update). 📋 Ruled, not built.*
 4. Check the candidate out into a **second worktree** (blue/green, detached SHAs, ⛔ never a tracking
    branch).
 5. Run the candidate's steps.
@@ -1251,13 +1260,22 @@ the option rejected below as "`update.sh` stopping the writer".
     card wear on the portable.
 - 📋 **The step-2 success test.** Not run; it needs step 2 built and bootstrapped on the 🎒
   portable, with `status.json` at `result: applied` and the writer recording again.
-  1. **A push to `main` lands by itself.** Commit a harmless change that is *rendered*, such as a
+  1. **A push to `main` lands by itself.** *Note 2026-10-05: under the channel ruling of
+     2026-10-05 ([§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable)), the push lands
+     once `advance-stable` has run, not on "CI green" alone. 📋 Until that ruling is built, the 🎒
+     portable still pulls `main`.* Commit a harmless change that is *rendered*, such as a
      comment in the writer unit's rendered header, so that landing shows beyond a SHA. With CI green,
      start the pull window. Over SSH, with no sudo: `status.json` reads `result: applied` at the new
      SHA, every step `ok` or `skipped (role)`, `readiness` filled in; `readlink
      /opt/adsb-receiver/applied` names it; `systemctl cat adsb-writer` shows the new header; and the
-     closed file ends with `stop reason=SIGTERM` (`tools/adsb-extract --check`). Stop the window: the
+     closed file ends with `stop reason=SIGTERM` ~~(`tools/adsb-extract --check`)~~ *(corrected
+     2026-10-05: `tools/adsb-extract --check` prints the `stop` event only as a count among the
+     events, with the file's last wall time; the reason is in the window mode's CSV, or the writer's
+     journal, `stopped: SIGTERM`)*. Stop the window: the
      writer is active within seconds, with a new `.part`.
+     - *Update 2026-10-05, (Chris): the review of a pull is now two-level, the container
+       (`--check`) and the content (the frames decode as Mode S); see
+       [§9m](#9m--the-portable-rigs-archive-drive), after "The pull".*
   2. **The lock's backstop.** With the writer recording, start `adsb-update.service` by hand. It
      exits within a second, `status.json` is unchanged, and the journal says the lock is held by
      `adsb-writer.service`.
@@ -1381,7 +1399,9 @@ cgroup v2, which are what these mechanisms assume. Four choices below were ruled
   device and the like) outside `setup/foundation/` fails, through
   `.github/scripts/check-disk-commands.py`, which has tests of its own. The role-flag grep and the
   path comparison are above. The `advance-stable` job is built; whether its token can push a commit
-  that touches `.github/workflows/` is unknown until its first run
+  that touches `.github/workflows/` is ~~unknown until its first run~~ *answered 2026-10-05: ✅ it
+  can; the job fast-forwarded `stable` on every push to `main` on 2026-10-04 and 2026-10-05,
+  including `9fd4a4e`, which touched `ci.yml`*
   ([§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable)). The arm64 dry run is still a
   TODO.
 - **Open, for the stationary design:**
@@ -1455,7 +1475,8 @@ an architecture consultation, whose design this is.
     always off: the opener is opt-in.** It prints only "at home" or "not at home", ⛔ never the SSID
     (the ⛔ on echoing a config value, under `status.json` above).
   - Then `adsb-update --check`, a new mode: no lock, the fetch and the real resolver, and no
-    `status.json` written. Exit `0` means an update is pending: `main` is past `applied`, or the
+    `status.json` written. Exit `0` means an update is pending: ~~`main`~~ *`stable` (corrected
+    2026-10-05, (Chris): both rigs follow `stable`, §9g's 2026-10-05 update)* is past `applied`, or the
     build is incomplete. *Extended 2026-10-05, (Chris), 📋 ruled, not built: the contract stands as
     written; for an incomplete first build `--check` also prints one reason line, which the
     opener's `ADSB-HOME-UPDATE` line carries; the line and why are at the end of
@@ -1517,11 +1538,22 @@ an architecture consultation, whose design this is.
 
 ### 9g. Channels: portable tracks `main`, stationary tracks `stable`
 
-- 🎒 **The portable rig tracks `main`.**
+*Corrected 2026-10-05, (Chris): the heading's "portable tracks `main`" is superseded. Both rigs
+follow `stable`, and the soak is the only role difference; see the 2026-10-05 update below the
+emergency brake. 📋 Ruled, not built. The heading is kept as written because other sections link to
+its anchor.*
+
+- 🎒 ~~**The portable rig tracks `main`.**~~ *Superseded 2026-10-05, (Chris): the 🎒 portable
+  follows `stable` too, with no soak (the 2026-10-05 update below). This bullet carried no reason,
+  and none was found.*
 - 🏠 **The stationary rig tracks a `stable` branch** that GitHub Actions fast-forwards when CI is
   green. CI runs `shellcheck`, `bash -n`, a dry run of every step in an arm64 trixie container
   against sample-filled templates (including the role-refusal paths), and a grep for the denylist in
   [§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away).
+  - *Update 2026-10-05, (Chris): both rigs follow this `stable` branch now (the 2026-10-05 update
+    below). ⚠️ The arm64 dry run named here is still not built (`ci.yml`'s TODO,
+    [§9k](#9k-the-first-deliverable-in-order) item 3), so it is what both rigs' channel lacks, not
+    the stationary's alone, which makes it more load-bearing.*
 - ⭐ **The workflow's `GITHUB_TOKEN` is the only write credential, and it lives in GitHub, not on a
   device.** That keeps [§9a](#9a-the-repo-ships-its-own-software-and-the-pi-pulls-it)'s
   no-credential-on-the-Pi property intact.
@@ -1531,6 +1563,12 @@ an architecture consultation, whose design this is.
     existing commits, and the workflow's `permissions:` cannot grant it. If it is refused, the
     fallback is a fine-grained personal access token (Contents: write, Workflows: write) stored as a
     repository secret, which keeps the only write credential in GitHub. Not added now.*
+  - *Update 2026-10-05: ✅ no longer unknown; GitHub did not refuse. Checked by the coordinating
+    session on GitHub on 2026-10-05 (`gh run watch`, `git ls-remote`): `advance-stable` ran with
+    `GITHUB_TOKEN` alone on every push to `main` on 2026-10-04 (`d2c8f91` and the commits before
+    it, one of which, `9fd4a4e`, touched `ci.yml`) and on 2026-10-05 (`c35a29c`, `e019b29`,
+    `42b5115`, `1d5f631`, `d36fee6`), each time fast-forwarding `stable` within about three minutes.
+    The personal-access-token fallback is not needed.*
 - 🏠 The stationary rig also only takes commits older than `update.soak_days` (7 days).
   - ~~"Commits older than"~~ *Superseded 2026-10-04 (evening), (Chris): the stationary takes
     **`stable`'s tip, and only once the tip is at least `update.soak_days` old**; otherwise it waits.
@@ -1545,6 +1583,8 @@ an architecture consultation, whose design this is.
 🔑 **The gate is CI, the rig's own verify, and rollback.** ⚠️ **The portable rig is an opportunistic
 canary, not a gate.** It is often powered off for weeks, so a bad commit may reach `stable` before
 the portable has ever run it.
+*Restated 2026-10-05, (Chris): the 🎒 portable is an opportunistic canary for `stable`, running
+`stable`'s tip up to `update.soak_days` ahead of the 🏠 stationary. It is still not a gate.*
 
 ➡️ **Emergency brake:** ~~force-push a known-good SHA to `stable`.~~ *Superseded 2026-10-04
 (evening), (Chris): **a revert commit on `main`.** It is forward-only and CI-tested, reaches `stable`
@@ -1558,6 +1598,94 @@ fast-forwards: nothing on `main` says "held", so the job is right to follow the 
   permanent hold; and leaving the force-push as the brake with its limit documented. ➡️ What would
   change it: a need to hold `stable` without touching `main` for longer than `update.soak_days`;
   then a `stable-hold` ref, accepted as a second truth.*
+- *Restated 2026-10-05, (Chris), now that both rigs follow `stable` (the update below). 📋 Ruled, not
+  built.* A revert on `main` reaches `stable` through the job. The 🎒 portable takes it on its next
+  pull; the 🏠 stationary once the revert and the bad commit have aged together. ⚠️ **The force-push
+  last resort now holds both rigs** until the next green push to `main`; during a hold the portable
+  runs a fix by `--rev`. A hand fast-forward of `stable`, `git push origin main:stable`, is not a
+  brake, and is permitted: it is what the job does, for an Actions outage or an unparseable
+  `ci.yml`.
+
+**Update 2026-10-05: both rigs follow `stable`, and the soak is the only role difference. (Chris),
+2026-10-05, about 21:50.** 📋 **Ruled, not built.** Nothing below is in the tree yet: `update.sh`'s
+`channel_of` and `bootstrap.sh`'s `--role` case still give the 🎒 portable `main` (read 2026-10-05).
+Ruled by multiple-choice question, after a check against the rulings already written and then an
+architecture consultation, whose mechanism this is. Chris's question that opened it: *"should we be
+using stable build points instead of main to determine where to pull the latest code from?"*
+
+- **The ruling.** Both rigs follow `stable`. The soak is the only role difference, as a role default
+  inside `update.sh`: 🎒 portable 0 days, 🏠 stationary 7. `update.soak_days` overrides it where a
+  `station.yml` carries the key; the portable template still never carries it (the ⛔ in the
+  consequences table at the end of this file).
+- **A soak of 0 means no age check at all,** not "aged at least zero seconds". The guard exists
+  because an age of at least zero would depend on the Pi's clock being past the commit date. Today's
+  `resolve_candidate` tests `age >= days * 86400`, with `age` the Pi's `date +%s` less the tip's
+  commit date (read 2026-10-05).
+- **Why.**
+  - CI tests what hardware cannot change: `bash -n`, `shellcheck`, the Python unit tests, the
+    denylist and disk-command greps, path consistency, the `--verify` and `require_role` shape,
+    anchors, and the sandbox smoke of `update.sh` and `bootstrap.sh`. So a red commit on the Pi
+    yields no information the red check did not.
+  - Today a red commit on the 🎒 portable costs a `readsb` rebuild on a CPU-bound Pi, a rollback that
+    does not undo creation ([§9f](#9f-what-updatesh-does)), a 24 h backoff, and a banner asking for
+    a hand. Under the home-gated opener ([§9f](#9f-what-updatesh-does), its end) it would also cost a
+    recording gap at home: `--check` opens the window for a tip that then rolls back. Comparing
+    against `stable` makes that gap impossible.
+  - The pinned first build gets the same protection: a `curl | bash` run while CI is still running
+    builds the last green commit, not an unverified tip. On 2026-10-05 that held only because Chris
+    waited.
+  - **R5 ([§9m](#9m--the-portable-rigs-archive-drive)) does not bind the portable to `main`.** It
+    binds a commit to its Pi run, which `--rev` (any pushed branch) or a checkout bootstrap before
+    the push satisfies. The channel pull is the second run of the same commit, delayed by CI's
+    minutes.
+  - **This, variant B, over variant A (below):** the role becomes one number instead of two code
+    paths. Today `channel_of`, the portable branch and the stationary soak make the role matter in
+    three places in one function, `resolve_candidate`.
+- Rejected:
+  - **Staying on `main`.** The canary's extra runs are of commits that never reach `stable`, each
+    costing a rebuild and a partial rollback, and under the opener a recording gap. The §9g bullet
+    above carried no reason, and none is found.
+  - **Variant A: `stable`, with a separate no-soak branch for the portable.** A second resolver path
+    to drift; and [§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic)'s rejection
+    of "the channel from the role only" already refused a role special case.
+  - **`update.soak_days: 0` in the portable template.** It breaks the consequences table's ⛔.
+  - **A per-role channel flag in the bootstrap or `station.yml`.** A second truth; this section's
+    brake ruling refused a `stable-hold` for less.
+  - **Gating `stable` on the portable's run.** The portable is off for weeks; it would freeze the
+    stationary.
+- 📋 **What changes, named, not implemented:**
+  - `setup/update.sh`: `channel_of` returns `stable` for both roles, or goes; the portable branch in
+    `resolve_candidate` is deleted; `DEFAULT_SOAK_DAYS` becomes a role default (portable 0,
+    stationary 7); a soak of 0 short-circuits the age check; the header's and `NOTE`'s
+    wording; the "clone has no origin/stable" failure now applies to both roles; the two messages
+    that say "on a stationary it builds stable's tip without the soak" drop "on a stationary".
+  - `setup/bootstrap.sh`: `channel=stable` for both roles; the header says both roles build
+    `stable`'s tip, the first build without the soak on either; the checkout path's "not on
+    origin/$channel" warning adds that CI may still be running.
+  - `tests/smoke_update.sh`: case P expects "not on origin/stable"; a new case: a portable with a
+    soak of 0 takes `stable`'s tip when the clock is behind the commit date.
+  - `.github/workflows/ci.yml`, comments only: "both rigs"; the TODO's arm64 dry run is now what
+    both rigs' channel lacks; and the `GITHUB_TOKEN` push of commits touching `.github/workflows/`
+    is no longer unknown: it worked on 2026-10-04 and 2026-10-05.
+  - `status.json`'s `channel` field, seen as `main` on the 🎒 portable on 2026-10-05, reads `stable`
+    on both roles; the banner and `--check` read it.
+- **The costs, stated plainly:**
+  - a `curl | bash` within about three minutes of a push builds the previous green commit. The
+    bootstrap prints the SHA it builds; the checkout path builds a chosen `HEAD`;
+  - an Actions outage, or an unparseable `ci.yml`, freezes both rigs' channel. The escape is the
+    hand fast-forward above, or `--rev`;
+  - a red push is seen on GitHub only.
+- ➡️ **What would change it:**
+  - a second commit CI rejects but the Pi needs (a check wrong about hardware). Twice is evidence the
+    gate is in the wrong place, and the portable goes back to `main` until it is fixed;
+  - a need to hold `stable` while the portable keeps moving: then the `stable-hold` ref this section
+    already names;
+  - the previous-green trap biting more than once at the bench: then a `--channel main` escape on
+    the bootstrap, named as the unverified-tip case;
+  - Actions outages freezing both rigs more than once: then a wrapper for the hand fast-forward, in
+    `tools/`.
+- ⚠️ **Not verified (the consultation's):** whether the Pi's clock can in practice be behind a commit
+  date; the full list of smoke cases.
 
 **Update 2026-10-04: CI and the role skip. (Chris), 2026-10-04.**
 
@@ -2451,6 +2579,41 @@ verifies each transferred file before it deletes the source.
 - ℹ️ A check against §9l found that its rejection of config management pushed from a workstation is
   about code and config going to the Pi. Its recorded reasons do not reach a data pull.
 
+**Update 2026-10-05: the pulled archive is reviewed for decodability, not only for presence.
+(Chris), 2026-10-05:** *"If we do not already have this in the plan, we need to add it: review the
+recorded files and make sure we can decode them."* Every pulled file is reviewed at two levels, and
+both are required:
+
+- **(1) The container.** Every pulled file reads back complete under `tools/adsb-extract --check`,
+  with its record counts, its first and last wall time, its events, and a counter fit.
+- **(2) The content.** The frames decode as Mode S: the DF17 and DF18 frames pass the Mode S CRC,
+  and resolve to ICAO addresses whose count is consistent with what `readsb` tracked at the time.
+- ➡️ (1) does not show (2). `--check` reads the pcap records and fits the BEAST counter; it does not
+  parse the Mode S message inside a frame (`check()` in `tools/adsb-extract`, read 2026-10-05).
+- **(2) is not yet a tool.** On 2026-10-05 it was done by hand on the workstation: a 60 s window
+  extracted with `tools/adsb-extract DIR TIME --window 30 --beast`, then a Python parse of about 40
+  lines over that BEAST stream, which is not in the tree: the frame framing with its `0x1a` escapes,
+  a histogram of downlink formats, the Mode S CRC with polynomial `0xFFF409`, and the ICAO address
+  from bytes 1 to 3 of each DF17 or DF18 frame.
+- 📋 **The tool half is owed:** a `--decode` mode in `tools/adsb-extract`, or a check in
+  `tools/pull-archive` after the move, that reports the CRC-valid DF17 and DF18 frames and the
+  distinct ICAO addresses per file, so that every pull ends with a decode verdict. Not yet designed
+  in detail; which of the two homes is not ruled.
+
+✅ **Seen 2026-10-05, by the coordinating session on the workstation,** on the six files pulled from
+`mobile-adsb` at 20:21 Arizona time, recorded with the RTL-SDR Blog V3 stick: 2026-10-06 UTC, 02:36Z
+to 03:21Z. This is the pull whose journal lines are under the pull window below.
+
+- **(1)** All six read back `complete` under `--check`: 15,454, 55,242, 42,985, 25,694, 34,381 and
+  6,992 records, each with its `clock` and `position` events. The first file shows a `readsb` restart
+  as a second counter segment. The counter fits lie between −2.5 and +4.2 ppm, except one 23.6 s
+  segment at −34.1 ppm right after a restart; the residual std is about 8 ms, and its max under
+  60 ms. The last file ends with the `stop` event at 03:21:37.56Z, from the pull window's SIGTERM.
+- **(2)** A 60 s window around 03:15:00Z held 3,522 BEAST frames, 2,297 short and 1,225 long. By
+  downlink format: DF0 1,820; DF4 36; DF5 1; DF11 440; DF16 22; DF17 1,203. All 1,203 DF17 frames
+  passed the CRC, and none failed. They resolved to 12 distinct ICAO addresses, the busiest with 249
+  frames in the minute; `readsb` was tracking 13 to 17 aircraft in that period.
+
 **The pull window. (Chris), 2026-10-04: the pull ends the recording session.** *Narrowed
 2026-10-05, by the ruling of 2026-10-04 (night) at the end of [§9f](#9f-what-updatesh-does): a
 window ends the recording session; the pull and the home check open one. 📋 The home check is not
@@ -2805,8 +2968,12 @@ recording.
 - **`20-portable-clock`, `bin/clock-preflight`, and the writer with its step run on the Pi now,**
   because they do not touch the radio. Each is committed once it passes there. `10-decoder` waits for
   its Pi run on a new radio.
-- ➡️ The rule holds that nothing reaches `main` before its run on the Pi passes. The 🎒 portable
-  tracks `main` ([§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable)).
+- ➡️ The rule holds that nothing reaches `main` before its run on the Pi passes. ~~The 🎒 portable
+  tracks `main`~~ ([§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable)).
+  *Corrected 2026-10-05, (Chris): the 🎒 portable follows `stable` (§9g's 2026-10-05 update). This
+  rule binds a commit to its Pi run, not the portable to `main`: the portable's proving run is by
+  `--rev` or a checkout bootstrap before the push; its channel pull is the second run, of the same
+  commit once green. 📋 Ruled, not built.*
 
 **The writer's unit, and the recording lock.** 📋 ~~The writer itself is not designed
 ([§9i](#9i-what-is-not-chosen-yet-the-writer-the-extractor-the-uploader)); its unit is.~~ *Corrected
@@ -3124,10 +3291,15 @@ powered-hub rule ([BUILD.md §3d](BUILD.md#3d--the-second-radio--either-rig) par
 - [ ] A full pull from the workstation. The window starts; the writer reads inactive, and no `.part`
   remains; rsync moves everything; the wrapper stops the window; the writer is active again within
   seconds, and a new `.part` appears. The drive then holds only that `.part` and `lost+found`.
+  *Added 2026-10-05, (Chris): the pull ends with the two-level review of the pulled files, the
+  container and the content; see the 2026-10-05 update after "The pull" above.*
 - [ ] The cap. Start the window and walk away. After `RuntimeMaxSec` the writer is running again,
   with nothing having stopped the window.
 - [ ] An update inside the window. With a new commit on `main`, start the window: `applied-rev`
   advances, and the journal shows the writer's stop before `update.sh` began.
+  *Note 2026-10-05: once the channel ruling of 2026-10-05
+  ([§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable)) is built, read "a new commit
+  on `stable`". 📋 Ruled, not built.*
 
 ➡️ If the cuts leave garbage in closed, renamed files, the answer is a different drive or an SSD on
 the hub, not a different filesystem.
@@ -3249,9 +3421,11 @@ portable rig. Seen by Claude on 2026-10-04, over read-only SSH on the Pi or in o
   - The writer's CPU: 1.1% of a core, averaged over its first 30 s, start-up included (`ps`). A
     first measurement, beside R3's and [§3](#3--cpu-is-the-binding-constraint-not-power)'s estimates.
 - 📋 **Not yet seen on the Pi:** the late-plug test, the drive-pull test, any expiry, any refusal on
-  space, a `readsb` restart in the middle of a file~~, and a pull window~~. *Corrected 2026-10-05: a
+  space, ~~a `readsb` restart in the middle of a file~~ ~~, and a pull window~~. *Corrected 2026-10-05: a
   pull window ran on the Pi on 2026-10-05 at 20:21 Arizona time; the journal lines are in this
   section's pull window, under the ⚠️ on `Conflicts=` and `After=`, in its 2026-10-05 update.*
+  *Corrected 2026-10-05: a `readsb` restart in the middle of a file was seen, as the second counter
+  segment in the 02:36Z file of 2026-10-06 UTC; see the decodability review after "The pull".*
   ~~`10-decoder` has not run on
   the Pi; it waits for a new radio (R5).~~ *Corrected 2026-10-05: the new radio, an RTL-SDR Blog V3,
   arrived on 2026-10-05, and `10-decoder` ran on the Pi that day
