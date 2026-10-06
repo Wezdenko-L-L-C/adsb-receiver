@@ -52,16 +52,19 @@
 # every 30 s, bounded at 45 min: the window's TimeoutStopSec=, PLAN §9m, which is also what bounds
 # tools/pull-archive's close, since that waits on the window's stop with no timeout of its own;
 # above the update's own 40 min TimeoutStartSec=); runs update.sh --bootstrap with the lock
-# free; and closes the window once update.sh returns, before any reboot notice (the window's
-# ExecStop= wait applies, and its
-# ExecStopPost= starts the writer). An EXIT trap closes it on every other path; after a signal or
-# a timeout with the window's update still running, that close is --no-block, and the window ends
-# itself once its update finishes. If the window cannot be started, the writer is started again
-# here (systemctl start --no-block), since Conflicts= may already have stopped it and a window that
-# never ran reaches no ExecStopPost=, and the bootstrap exits 1. The window's RuntimeMaxSec=2h cap
-# covers the wait plus the whole build: if it ends the window first, its ExecStopPost= starts the
-# writer, which waits on the lock until update.sh releases it, and the close here then only says
-# so. update.sh itself still never stops the writer.
+# free; and closes the window once update.sh returns, before any reboot notice (the stop blocks
+# through the window's ExecStop= wait, and its ExecStopPost= starts the writer: ⚠️ belief, not
+# seen on a Pi). An EXIT trap closes it on every other path; after a signal or a timeout with the
+# window's update still running, that close is --no-block, and the window ends itself once its
+# update finishes (that a --no-block stop is carried through ExecStop= by systemd: ⚠️ belief, not
+# seen on a Pi). If the window cannot be started, the writer is started again here (systemctl
+# start --no-block), since Conflicts= may already have stopped it and a window that never ran
+# reaches no ExecStopPost= (⚠️ belief, not seen on a Pi), and the bootstrap exits 1. The window's
+# RuntimeMaxSec=2h cap covers the wait plus the whole build: if it ends the window first, its
+# ExecStopPost= starts the writer, which waits on the lock until update.sh releases it, and the
+# close here then only says so (a window ended by the cap reads failed, or perhaps inactive: ⚠️
+# belief, not seen on a Pi; the code accepts either). update.sh itself still never stops the
+# writer.
 #   Only where adsb-pull-window.service is loaded: a rig with a writer but no window unit (one
 # installed by hand before step 60 ran, the 2026-10-04 shape) gets update.sh's refusal, which says
 # to stop the writer by hand; so does a rig already built, and so does a lock held by anything
@@ -73,8 +76,8 @@
 # the foundation's work is done. update.sh --bootstrap then applies this bootstrap's commit as an
 # ordinary update, with rollback and without the foundation, and this run does not reboot.
 #   ⚠️ A gap remains between the wait's end and update.sh taking the lock: a timer run (OnBootSec=
-# or the daily one) starting in it takes the lock first. Unlikely; update.sh then refuses, naming
-# the holder, and the bootstrap is run again.
+# or the daily one) that starts in it takes the lock first, and update.sh then refuses, naming that
+# run as the holder. Unlikely; the bootstrap is then run again.
 #
 # The other thing done here: a reboot, once, after a printed 5 s notice, and only when all of these
 # hold (PLAN §9e's evening update):
@@ -168,7 +171,8 @@ open_window() {
   WINDOW_OPENED=1
   if ! systemctl start "$WINDOW"; then
     # A failed start is not closed: the window may never have run, so its ExecStopPost= would not
-    # start the writer, which Conflicts= may already have stopped. It is started here instead.
+    # start the writer (⚠️ belief, not seen on a Pi), which Conflicts= may already have stopped. It
+    # is started here instead.
     WINDOW_OPENED=0
     echo "xx  could not start $WINDOW (see above); starting $WRITER again (systemctl start --no-block)" >&2
     systemctl start --no-block "$WRITER" \
@@ -178,7 +182,8 @@ open_window() {
   echo "==> the window is open; waiting for the $UPDATE it started to finish (it may fail: it is the pinned run)"
   while :; do
     st=$(systemctl show -p ActiveState --value "$UPDATE" 2>/dev/null) || st=''
-    # A start job still queued reads inactive; it is waited for too.
+    # A start job still queued reads inactive; it is waited for too. That `list-jobs <unit>` lists
+    # a queued start job: ⚠️ belief, not seen on a Pi.
     job=$(systemctl list-jobs --no-legend "$UPDATE" 2>/dev/null | grep -F "$UPDATE") || job=''
     [[ ($st == inactive || $st == failed) && -z $job ]] && break
     if ((SECONDS >= deadline)); then
@@ -198,14 +203,18 @@ open_window() {
 }
 
 # close_window normal|trap: stops the pull window if this run opened it, once; the window's
-# ExecStopPost= then starts the writer (--no-block).
+# ExecStopPost= then starts the writer (--no-block) (⚠️ belief, not seen on a Pi).
 #   - normal (main, once update.sh returns): a blocking stop, through the window's
-#     ExecStop=, which waits while adsb-update.service is running (up to 45 min).
+#     ExecStop=, which waits while adsb-update.service is running (up to 45 min) (that the stop
+#     blocks through ExecStop=: ⚠️ belief, not seen on a Pi).
 #   - trap (main's EXIT trap: a signal, the wait's timeout, any other exit while open):
 #     the same, unless the window's update is still running; then --no-block, so a Ctrl-C is not
 #     held for up to 45 min, and systemd carries the stop through: the window ends once that
-#     update finishes (up to its own 45 min wait), and the writer then starts.
-# A window already ended (its 2 h cap, which skips ExecStop=) is not stopped again.
+#     update finishes (up to its own 45 min wait), and the writer then starts (that a --no-block
+#     stop is carried through ExecStop=: ⚠️ belief, not seen on a Pi).
+# A window already ended (its 2 h cap, which skips ExecStop=: ⚠️ belief, not seen on a Pi) is not
+# stopped again. Such a window reads failed, or perhaps inactive (⚠️ belief, not seen on a Pi);
+# the code accepts either.
 close_window() {
   local how=$1 win st
   ((WINDOW_OPENED)) || return 0

@@ -624,10 +624,12 @@ recommendation every time, and that choice is the decision.
       completes the build is the pull window, as ruled on 2026-10-04 and recorded at the end of this
       section. The timer still finishes a build that installed no writer, because then nothing holds
       the lock.
-    - ℹ️ `update.sh`'s and `bootstrap.sh`'s own closing messages make the same false claim, and so
+    - ℹ️ ~~`update.sh`'s and `bootstrap.sh`'s own closing messages make the same false claim, and so
       does `update.sh`'s refusal of `--rev` during an incomplete first build ("the timer finishes it
       at the bootstrap's commit"); their text is owed separately, through `implementer`, and is not
-      corrected here.
+      corrected here.~~ *Corrected 2026-10-05: fixed in `1d5f631`: `update.sh`'s incomplete-build
+      warning and its `--rev` refusal, and `bootstrap.sh`'s header and reboot notice, no longer
+      say the timer finishes the build.*
 - **The reboot, once.** `bootstrap.sh` reboots, not `update.sh`. ~~When `update.sh --bootstrap` has
   exited and the reboot flag is set (`need_reboot`, in §9f's evening update), `bootstrap.sh` prints a
   5 s notice and reboots.~~ *Corrected 2026-10-04, (Chris), after the code reviews: a set flag is not
@@ -761,7 +763,10 @@ others are the build's own.
     `stable`'s tip, the first build without the soak on either
     ([§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable), its 2026-10-05 update). The
     checkout case stands; its "not on origin/$channel" warning is to add that CI may still be
-    running. 📋 Ruled, not built: `bootstrap.sh` still sets `channel=main` for `--role portable`.*
+    running. ~~📋 Ruled, not built: `bootstrap.sh` still sets `channel=main` for `--role portable`.~~*
+    *Corrected 2026-10-05: built in `94e4f94`, ⚠️ not yet run on a Pi. `bootstrap.sh` sets
+    `channel=stable` for both roles, and the checkout case's warning reads "not on origin/stable,
+    the rigs' channel (CI may still be running)" (smoke case P).*
 - **The config, as built.** The base is `--config FILE`, else the installed
   `/etc/adsb-receiver/station.yml`, else the role's template. `--role` must match the base's
   `station.role`, and `--set station.role` is refused. A `--set` key must already exist. Its value
@@ -880,11 +885,14 @@ finishes the build.
   the writer, then run the `curl` line, which built `main`'s tip ("As built" above) and completed
   the build. Chris chose that route by multiple-choice question. ➡️ ~~Nothing is ruled about
   preventing the trap.~~ *Ruled 2026-10-05, (Chris): the trap is kept, with an exit; see the update
-  right below. 📋 Not built.*
+  right below. ~~📋 Not built.~~* *Corrected 2026-10-05: (b), the one-command exit, is built in
+  `94e4f94`, ⚠️ not yet run on a Pi; (a) is still 📋 not built.*
 
 **Update 2026-10-05: the pinned first build keeps its daily retry, and gets a one-command exit.
 (Chris), 2026-10-05.** 📋 **Ruled, not built.** Nothing below exists in the tree: no `--check`, no
-reason line, no banner line, and no change to `bootstrap.sh`. Ruled by multiple-choice question,
+reason line, no banner line, ~~and no change to `bootstrap.sh`~~. *Corrected 2026-10-05: (b) is
+✅ built, in `94e4f94`, ⚠️ not yet run on a Pi; how, in "(b), as built" below. (a) is still not
+built: no `--check`, no reason line, no banner line.* Ruled by multiple-choice question,
 after a check against the rulings already written and then an architecture consultation, whose
 mechanism this is. Chris: *"I have no problem with (a) and (b)."* It answers the ⚠️ trap just above.
 
@@ -947,7 +955,41 @@ mechanism this is. Chris: *"I have no problem with (a) and (b)."* It answers the
   2026-10-04 shape), the bootstrap keeps today's behavior and refuses with the
   stop-the-writer-by-hand instruction; the window path applies only where the window unit is
   loaded.
-- **Order:** both (a) and (b) are 📋 ruled, not built. (b) is built and reviewed before the opener.
+
+  *Added 2026-10-05:* ✅ **(b), as built, 2026-10-05, in `94e4f94`**
+  on `main`, pushed about 21:55 Arizona time; ~~CI pending when this was written~~ *corrected
+  2026-10-05: ✅ CI green (scripts, smoke and `advance-stable` all succeeded; `stable` is
+  `94e4f94`), seen on GitHub by the coordinating session at about 22:00 Arizona time*. ⚠️ **Not yet run
+  on a Pi.** Smoke cases W1 to W7 in `tests/smoke_update.sh` exercise the shapes below on stubs (a
+  stub `systemctl`, a `flock` process holding the lock). From `setup/bootstrap.sh`:
+  - **When.** A first build (no `applied`) whose recording lock is held by `adsb-writer.service`,
+    read with `lslocks` and the holder's cgroup, and only where `adsb-pull-window.service` is
+    loaded.
+  - **The wait.** It starts the window, then waits for the window's `adsb-update.service` to leave
+    `activating` with no start job queued for it: polled every 5 s, a line every 30 s, bounded at
+    45 min, the window's `TimeoutStopSec=`. Past the bound it names the lock's holder and exits 1.
+  - **The build and the close.** It runs `update.sh --bootstrap` with the lock free, and closes the
+    window once that returns, before the reboot decision.
+  - **Every other path.** The `EXIT` trap closes the window once; while the window's update is
+    still `activating`, with `--no-block`, so the window ends itself once that update finishes.
+  - **A failed window start** is not closed: the bootstrap starts the writer again itself
+    (`systemctl start --no-block`), and exits 1.
+  - **If the window's pinned run completed the build,** the run logs both commits, the pin's and
+    its own, and applies its own as an ordinary update; it never reboots then.
+  - **Where the window unit is absent, or the holder is not the writer,** `update.sh`'s refusal
+    names the holder and what frees the lock. The refusal is now holder-aware, and is told by
+    `ADSB_BOOTSTRAP_WINDOW` what the bootstrap tried (`opened`, `no-unit`, `built`, `not-writer`).
+  - ⚠️ **Beliefs about systemd it rests on, none seen on a Pi:**
+    - the window's update is `activating`, or has a queued start job, when `systemctl start` of the
+      window returns;
+    - `systemctl list-jobs <unit>` shows a start job still queued;
+    - `systemctl stop` blocks through `ExecStop=`, and `stop --no-block` carries through it;
+    - `ExecStopPost=` starts the writer, and a failed start runs none;
+    - a unit ended by `RuntimeMaxSec=` reads `failed`;
+    - the shutdown cancels a queued start.
+- **Order:** ~~both (a) and (b) are 📋 ruled, not built.~~ (b) is built and reviewed before the opener.
+  *Corrected 2026-10-05: (b) is built (`94e4f94`), ⚠️ not yet run on a Pi; (a) is still 📋 ruled,
+  not built.*
 - Rejected:
   - **P1: `--check` not pending when the pin already failed the same steps.** That is the
     hardware-waiting build's exact signature, and it narrows a ruled contract on a heuristic the
@@ -1013,7 +1055,8 @@ In order:
 3. Resolve the candidate SHA for the rig's channel ([§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable)).
    **If it has not changed, exit having touched nothing.**
    *Update 2026-10-05, (Chris): the channel is `stable` on both rigs; the soak, a role default, is
-   the only role difference (§9g's 2026-10-05 update). 📋 Ruled, not built.*
+   the only role difference (§9g's 2026-10-05 update). ~~📋 Ruled, not built.~~* *Corrected
+   2026-10-05: built in `94e4f94`, ⚠️ not yet run on a Pi.*
 4. Check the candidate out into a **second worktree** (blue/green, detached SHAs, ⛔ never a tracking
    branch).
 5. Run the candidate's steps.
@@ -1212,14 +1255,19 @@ the option rejected below as "`update.sh` stopping the writer".
   `update.sh` starts the writer at its end, by the writer-start rule above. It is the one time a human
   stops the writer for an update. ⚠️ The consultation expects no restarts on that run, because what is
   installed is byte-identical to what the steps render; not seen.
-  - *Narrowed 2026-10-05, (Chris), 📋 ruled, not built:* "once" becomes "on any first build". On a
+  - *Narrowed 2026-10-05, (Chris), ~~📋 ruled, not built~~ built 2026-10-05 in `94e4f94`, ⚠️ not
+    yet run on a Pi:* "once" becomes "on any first build". On a
     first build (no `applied`) whose recording lock is held by `adsb-writer.service`, `bootstrap.sh`
     itself ends the session through the pull window, runs `update.sh --bootstrap` with the lock free,
     and stops the window at its end; `update.sh` still never stops the writer. The mechanism is at
-    the end of [§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic), as (b). Until
+    the end of [§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic), as (b). ~~Until
     it is built, `update.sh --bootstrap` with the lock held still exits at its `flock -n`, so a
     bootstrap run again on a recording portable needs the writer stopped by hand first, as on
-    2026-10-05.
+    2026-10-05.~~ *Corrected 2026-10-05: built; how, in §9e's "(b), as built". A bootstrap run again
+    on a recording portable's first build ends the session itself where `adsb-pull-window.service`
+    is loaded. Where it is not, where the lock's holder is not the writer, or on a rig already
+    built, `update.sh --bootstrap` still exits at its `flock -n`, and its refusal names the holder
+    and what frees the lock; with no window unit, that is still the writer stopped by hand.*
 - Rejected:
   - **`update.sh` stopping the writer.** It collides with rulings already written: ⛔ never during a
     recording session (above); the lock is asymmetric and `update.sh` never waits, because a session
@@ -1540,8 +1588,8 @@ an architecture consultation, whose design this is.
 
 *Corrected 2026-10-05, (Chris): the heading's "portable tracks `main`" is superseded. Both rigs
 follow `stable`, and the soak is the only role difference; see the 2026-10-05 update below the
-emergency brake. 📋 Ruled, not built. The heading is kept as written because other sections link to
-its anchor.*
+emergency brake. ~~📋 Ruled, not built.~~ The heading is kept as written because other sections link to
+its anchor.* *Corrected 2026-10-05: built in `94e4f94`, ⚠️ not yet run on a Pi.*
 
 - 🎒 ~~**The portable rig tracks `main`.**~~ *Superseded 2026-10-05, (Chris): the 🎒 portable
   follows `stable` too, with no soak (the 2026-10-05 update below). This bullet carried no reason,
@@ -1598,8 +1646,9 @@ fast-forwards: nothing on `main` says "held", so the job is right to follow the 
   permanent hold; and leaving the force-push as the brake with its limit documented. ➡️ What would
   change it: a need to hold `stable` without touching `main` for longer than `update.soak_days`;
   then a `stable-hold` ref, accepted as a second truth.*
-- *Restated 2026-10-05, (Chris), now that both rigs follow `stable` (the update below). 📋 Ruled, not
-  built.* A revert on `main` reaches `stable` through the job. The 🎒 portable takes it on its next
+- *Restated 2026-10-05, (Chris), now that both rigs follow `stable` (the update below). ~~📋 Ruled, not
+  built.~~ Corrected 2026-10-05: both rigs follow `stable` as built in `94e4f94`, ⚠️ not yet run on
+  a Pi.* A revert on `main` reaches `stable` through the job. The 🎒 portable takes it on its next
   pull; the 🏠 stationary once the revert and the bad commit have aged together. ⚠️ **The force-push
   last resort now holds both rigs** until the next green push to `main`; during a hold the portable
   runs a fix by `--rev`. A hand fast-forward of `stable`, `git push origin main:stable`, is not a
@@ -1607,8 +1656,10 @@ fast-forwards: nothing on `main` says "held", so the job is right to follow the 
   `ci.yml`.
 
 **Update 2026-10-05: both rigs follow `stable`, and the soak is the only role difference. (Chris),
-2026-10-05, about 21:50.** 📋 **Ruled, not built.** Nothing below is in the tree yet: `update.sh`'s
-`channel_of` and `bootstrap.sh`'s `--role` case still give the 🎒 portable `main` (read 2026-10-05).
+2026-10-05, about 21:50.** ~~📋 **Ruled, not built.** Nothing below is in the tree yet: `update.sh`'s
+`channel_of` and `bootstrap.sh`'s `--role` case still give the 🎒 portable `main` (read 2026-10-05).~~
+*Corrected 2026-10-05: built in `94e4f94`, ⚠️ not yet run on a Pi; see "As built" at the end of this
+update.*
 Ruled by multiple-choice question, after a check against the rulings already written and then an
 architecture consultation, whose mechanism this is. Chris's question that opened it: *"should we be
 using stable build points instead of main to determine where to pull the latest code from?"*
@@ -1653,7 +1704,8 @@ using stable build points instead of main to determine where to pull the latest 
     brake ruling refused a `stable-hold` for less.
   - **Gating `stable` on the portable's run.** The portable is off for weeks; it would freeze the
     stationary.
-- 📋 **What changes, named, not implemented:**
+- 📋 **What changes, named, ~~not implemented~~:** *Corrected 2026-10-05: implemented in `94e4f94`;
+  see "As built" at the end of this update.*
   - `setup/update.sh`: `channel_of` returns `stable` for both roles, or goes; the portable branch in
     `resolve_candidate` is deleted; `DEFAULT_SOAK_DAYS` becomes a role default (portable 0,
     stationary 7); a soak of 0 short-circuits the age check; the header's and `NOTE`'s
@@ -1666,7 +1718,8 @@ using stable build points instead of main to determine where to pull the latest 
     soak of 0 takes `stable`'s tip when the clock is behind the commit date.
   - `.github/workflows/ci.yml`, comments only: "both rigs"; the TODO's arm64 dry run is now what
     both rigs' channel lacks; and the `GITHUB_TOKEN` push of commits touching `.github/workflows/`
-    is no longer unknown: it worked on 2026-10-04 and 2026-10-05.
+    is no longer unknown: it worked on 2026-10-04 and 2026-10-05. *Answered 2026-10-05, in
+    `94e4f94`: `ci.yml`'s comments now say all three.*
   - `status.json`'s `channel` field, seen as `main` on the 🎒 portable on 2026-10-05, reads `stable`
     on both roles; the banner and `--check` read it.
 - **The costs, stated plainly:**
@@ -1686,6 +1739,30 @@ using stable build points instead of main to determine where to pull the latest 
     `tools/`.
 - ⚠️ **Not verified (the consultation's):** whether the Pi's clock can in practice be behind a commit
   date; the full list of smoke cases.
+- **As built, 2026-10-05, in `94e4f94`** on `main`, pushed about 21:55 Arizona time; ~~CI pending when
+  this was written~~ *corrected 2026-10-05: ✅ CI green (scripts, smoke and `advance-stable` all
+  succeeded; `stable` is `94e4f94`), seen on GitHub by the coordinating session at about 22:00
+  Arizona time*. ⚠️ **Not yet run on a Pi.** From `setup/update.sh` and `setup/bootstrap.sh`:
+  - `channel_of` returns `stable` for both roles.
+  - The role default is `SOAK_DAYS_PORTABLE=0` and `SOAK_DAYS_STATIONARY=7`; `update.soak_days`
+    in `station.yml` overrides it.
+  - A rejected value falls back to the role default, and the log says the file's value was
+    rejected.
+  - The value is read in base 10. ⚠️ `08` and `09` were bad octal to bash arithmetic: the
+    comparison failed silently, and the rig never updated.
+  - A soak of 0 short-circuits before any date is read.
+  - The bootstrap builds `stable`'s tip for both roles.
+  - Smoke cases Z (a portable, soak 0, takes a tip dated two days ahead of the clock) and Y1 to Y4
+    (the override, both ways; a rejected value; `08`) exercise it on stubs.
+  - ⚠️ **A consequence the ruling did not name, made in the same commit.** The one command's `curl`
+    URL and the documented clone form now take `stable` (`bootstrap.sh` lines 6 and 12;
+    [BUILD.md §8](BUILD.md#8-build-order)).
+    - So the script and the commit it builds are close, not identical: `raw.githubusercontent.com`
+      may serve `stable` minutes stale, and `stable` may advance between the `curl` and the fetch.
+    - Before `stable` exists, the `curl` returns 404 and bash runs nothing. The same case already
+      failed at the `rev-parse` of `origin/stable`.
+    - A fix to `bootstrap.sh` is fetchable only once its CI is green.
+    - Made by the implementer on the review's finding, reported to Chris, not separately ruled.
 
 **Update 2026-10-04: CI and the role skip. (Chris), 2026-10-04.**
 

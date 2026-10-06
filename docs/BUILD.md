@@ -376,16 +376,22 @@ Raspberry Pi OS is installed, run this on the Pi. Missing hardware does not stop
 timer it installs finishes the build once the hardware is there.
 
 ```
-curl -fsSL https://raw.githubusercontent.com/Wezdenko-L-L-C/adsb-receiver/main/setup/bootstrap.sh \
+curl -fsSL https://raw.githubusercontent.com/Wezdenko-L-L-C/adsb-receiver/stable/setup/bootstrap.sh \
   | sudo bash -s -- --role portable
 ```
+
+*Changed 2026-10-05 (`94e4f94`): this line and the clone below took `main` until then. Both rigs
+now follow `stable`, the branch CI advances only when it is green
+([PLAN.md §9g](PLAN.md#9g-channels-portable-tracks-main-stationary-tracks-stable)), so the script
+comes from the branch it builds. ⚠️ Before `stable` exists, the `curl` returns 404 and nothing
+runs.*
 
 To read what runs before it runs, clone the repo and run the bootstrap from your checkout. It then
 builds the commit you read, not a newer one:
 
 ```
 sudo apt install -y git
-git clone https://github.com/Wezdenko-L-L-C/adsb-receiver.git
+git clone --branch stable https://github.com/Wezdenko-L-L-C/adsb-receiver.git
 sudo bash adsb-receiver/setup/bootstrap.sh --role portable
 ```
 
