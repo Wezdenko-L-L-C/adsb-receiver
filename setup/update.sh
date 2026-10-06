@@ -47,8 +47,10 @@
 #     status.json says incomplete and names the bootstrap's candidate_rev: every timer run then
 #     runs the first build again at that same commit, pinned (after each boot and daily; offline
 #     too, since the commit is already in the clone, so an offline rig spends one attempt per
-#     boot), and follows the channel only after the first build completes. The timer with no
-#     `applied` and no such status refuses: there is no build on this rig.
+#     boot) while the recording lock is free; on a recording portable the writer holds it from
+#     every boot, so the pull window's run is the one that completes it. It follows the channel
+#     only after the first build completes. The timer with no `applied` and no such status
+#     refuses: there is no build on this rig.
 #
 # First-build mode: step 50-updater first, then the rest in order; a failing step is recorded and
 # the next one runs; it never rolls back; `applied` flips only when every step passes, else
@@ -1061,7 +1063,7 @@ examine_applied() {
   fi
   if [[ $LAST_RESULT == incomplete && -n $LAST_CAND ]]; then
     [[ $MODE == timer ]] \
-      || fail "the first build is incomplete (status.json); the timer finishes it at the bootstrap's commit $(sha12 "$LAST_CAND"). --rev waits until it has completed"
+      || fail "the first build is incomplete (status.json) and stays pinned at the bootstrap's commit $(sha12 "$LAST_CAND") until it completes (the timer with the lock free, or a pull window on a recording portable); --rev waits until then. If the pinned commit itself cannot pass, run the one-command bootstrap again (BUILD.md §8)"
     git -C "$REPO" cat-file -e "$LAST_CAND^{commit}" 2>/dev/null \
       || fail "the incomplete first build's commit $(sha12 "$LAST_CAND") is not in the clone; run the bootstrap again (on a stationary it builds stable's tip without the soak, PLAN §9g)"
     FIRST_BUILD=1 PIN=$LAST_CAND
@@ -1263,7 +1265,7 @@ main() {
     # carry on as after an ordinary incomplete build; status.json still says incomplete.
     local code=$RC_INCOMPLETE
     ((TERMINATED)) && code=$(sig_exit)
-    warn "the build is INCOMPLETE: ${FAILED_STEPS[*]}. Each step's log is in $RUN_LOGS. Every update timer run (after each boot, and daily) runs the build again at this same commit, so a step waiting for hardware completes once it is plugged in. The archive drive is the exception: only the bootstrap formats it, so a drive plugged in later is formatted by hand (step 30 prints the command), or by running the bootstrap again"
+    warn "the build is INCOMPLETE: ${FAILED_STEPS[*]}. Each step's log is in $RUN_LOGS. Every update timer run (after each boot, and daily) runs the build again at this same commit while the recording lock is free (a rig with no writer running), so a step waiting for hardware completes once it is plugged in. On a recording portable the writer holds the lock from every boot, so the build completes in the next pull window instead (tools/pull-archive from the workstation, or sudo systemctl start adsb-pull-window.service, then stop, on the rig). If a failed step cannot pass at this commit, run the one-command bootstrap again (BUILD.md §8), which pins to main's tip. The archive drive is the exception: only the bootstrap formats it, so a drive plugged in later is formatted by hand (step 30 prints the command), or by running the bootstrap again"
     readiness
     write_status "$code"
     STAGE=finished

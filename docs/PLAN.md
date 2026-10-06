@@ -259,8 +259,13 @@ change. ➡️ [§9k](#9k-the-first-deliverable-in-order) item 1 is done.
   `systemctl` wrapper, `unit`, refuses denylisted units, and `00-drivers.sh` calls it. A write
   guard, `guard_path`, is defined~~, but no step calls it yet~~. *Corrected 2026-10-04: since commit
   `47ed4ed`, `05-config` and `30-archive-drive` call it on the paths they install.*
-- `00-drivers.sh` installs `rtl-sdr` from apt, and its verify reads the output of `rtl_test -t` and
-  `rtl_eeprom`.
+- `00-drivers.sh` installs `rtl-sdr` from apt~~, and its verify reads the output of `rtl_test -t` and
+  `rtl_eeprom`~~. *Corrected 2026-10-05: it also writes a modprobe blacklist for the kernel's
+  `dvb_usb_rtl28xxu`, and no verify opens the stick any more
+  ([§9j](#9j--verified-on-hardware-2026-10-03)'s 2026-10-05 ruling). The proof is split. `00-drivers`
+  proves the udev rule's effect, the stick's node in group `plugdev` mode `660`, and the blacklist's
+  state, from sysfs and `/dev`. `10-decoder` proves the tuner and the V4 line, from `readsb`'s own open
+  of the stick in its current invocation's journal.*
 - CI runs `bash -n`, `shellcheck`, the §9h denylist grep, and a check that every step has a
   `verify` and takes `--verify`. *Update 2026-10-04: it now also runs the check that a role-gated
   step calls `require_role` first (commit `47ed4ed`, [§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable))
@@ -282,13 +287,18 @@ change. ➡️ [§9k](#9k-the-first-deliverable-in-order) item 1 is done.
   (two scripts, for the 🎒 portable's first build), `update.sh`, the timers (rendered by
   `50-updater`) and `status.json` are written, ⚠️ not yet run on hardware
   ([§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic) and
-  [§9f](#9f-what-updatesh-does), "As built"). `10-decoder` is written but not committed; it waits for
-  its run on the Pi (§9m, R5). `20-stationary-clock` is still not written.*
+  [§9f](#9f-what-updatesh-does), "As built"). ~~`10-decoder` is written but not committed; it waits for
+  its run on the Pi (§9m, R5).~~ `20-stationary-clock` is still not written.* *Corrected 2026-10-05:
+  `10-decoder` is committed, as `42b5115` on `main`. It ran on the 🎒 portable Pi on 2026-10-05 by
+  `adsb-update --rev`, then merged, with CI green ([§9j](#9j--verified-on-hardware-2026-10-03)'s
+  "`10-decoder`, as built").*
 
-`00-drivers.sh` has been run once, on the 🎒 portable rig on 2026-10-03. Its verify failed when the
+`00-drivers.sh` has been run ~~once~~, on the 🎒 portable rig on 2026-10-03. Its verify failed when the
 stick dropped off the USB bus during the check. ⚠️ That run is not recorded in §9j: its output was
 not pasted here, and [§9c](#9c-every-step-ends-in-a-check-of-the-observable-effect) says a record of
-a run goes in the docs with the output pasted.
+a run goes in the docs with the output pasted. *Corrected 2026-10-05: no longer once. It ran again
+on 2026-10-05, in the bootstrap and in the `--rev` run, and passed both
+([§9j](#9j--verified-on-hardware-2026-10-03)'s 2026-10-05 ruling).*
 
 ### 9a. The repo ships its own software, and the Pi pulls it
 
@@ -367,7 +377,7 @@ Every step ends in a `verify` that checks **what the step was for, not the setti
 
 | Checks this | Not this |
 |---|---|
-| ~~`rtl_test -t` names the R828D and prints `RTL-SDR Blog V4 Detected`~~ *`rtl_test -t` opens a device and names its tuner. An R828D must come with `RTL-SDR Blog V4 Detected`, and a V4 line on any other tuner fails. Any other tuner passes, with a warning that is louder when `rtl_eeprom` claims Blog or V4. Interim; see the 2026-10-04 update below* | `dpkg -l` shows the package |
+| ~~`rtl_test -t` names the R828D and prints `RTL-SDR Blog V4 Detected`~~ ~~*`rtl_test -t` opens a device and names its tuner. An R828D must come with `RTL-SDR Blog V4 Detected`, and a V4 line on any other tuner fails. Any other tuner passes, with a warning that is louder when `rtl_eeprom` claims Blog or V4. Interim; see the 2026-10-04 update below*~~ *Corrected 2026-10-05: no verify opens the stick. `00-drivers`: the stick's node is group `plugdev`, mode `660`, and the blacklist names `dvb_usb_rtl28xxu`. `10-decoder`: the tuner and the V4 line from `readsb`'s own open, in its current invocation's journal; the odd combinations warn and never fail. See the 2026-10-05 supersession below, and [§9j](#9j--verified-on-hardware-2026-10-03)* | `dpkg -l` shows the package |
 | ~~`chronyc tracking` reports an offset inside `clock.max_offset_ms`~~ *The chain is wired and delivering: `gpsd` has the puck, and `chrony` lists the refclock. The offset check moves to the preflight. Corrected 2026-10-04; see the update on two tiers below* | `systemctl is-active chrony` |
 | `aircraft.json` is advancing | `systemctl is-active readsb` |
 
@@ -381,6 +391,24 @@ required the R828D would fail on the only stick in hand. ⚠️ **This holds onl
 in hand.** Whether the verify goes back to requiring the R828D and the V4 line once one is, is not
 yet ruled.
 
+*Superseded 2026-10-05, in two rulings by Chris (both in full in
+[§9j](#9j--verified-on-hardware-2026-10-03)):*
+
+- *No verify opens the stick, and `readsb` is the rig's only opener. So the tuner table moved out
+  of `00-drivers` and into `10-decoder`'s verify, which reads the tuner, the V4 line and the EEPROM
+  strings from `readsb`'s own open of the stick.*
+- ***The tuner table informs and never gates.** Chris: "I will not be using the counterfeit radios
+  anymore." Three odd combinations now warn, and the step passes on streaming: a V4 line with a
+  tuner other than the R828D; an R828D with no V4 line, the
+  [BUILD.md §4](BUILD.md#4-drivers-first) silent failure, which is now a warning; and Blog or V4 in
+  the EEPROM strings on a tuner other than the R828D, the counterfeit signature, kept for the
+  record. Until 2026-10-05 the first two failed the verify, in `00-drivers`. The reason, recorded by
+  the `10-decoder` review: under `update.sh`, a hardware or library verdict used as an update gate
+  would roll back a candidate that cannot fix it, on every timer pass.*
+- *The question left open above, whether a genuine V4 brings back the R828D requirement, is still
+  not ruled. ➡️ Since 2026-10-05 the table gates no stick, so the question has no effect unless
+  Chris reopens it.*
+
 The verify prints its raw evidence and exits non-zero on failure. `--verify` runs the check on its
 own.
 
@@ -392,7 +420,9 @@ verified run goes in the docs, with the output pasted.
 **Update 2026-10-04: what a verify may do to a running rig. (Chris), 2026-10-04:** ⛔ **a verify may
 interrupt the rig for seconds and must restore it. It may never end a recording session.**
 `00-drivers` stopping `readsb` briefly for its check, and starting it again on the way out, is within
-the rule. The reason: `update.sh` runs every step's verify ([§9f](#9f-what-updatesh-does)), and a
+the rule. *Update 2026-10-05: the rule and the permission stand, but `00-drivers` no longer uses it.
+Since the 2026-10-05 ruling that no verify opens the stick, its verify reads only sysfs and `/dev`,
+and stops nothing ([§9j](#9j--verified-on-hardware-2026-10-03)).* The reason: `update.sh` runs every step's verify ([§9f](#9f-what-updatesh-does)), and a
 verify for the pull step that started the pull window would end a session, and trigger an update
 from inside an update ([§9m](#9m--the-portable-rigs-archive-drive)).
 
@@ -585,6 +615,17 @@ recommendation every time, and that choice is the decision.
       And the archive drive is the exception to "completes the build by itself": only the bootstrap
       formats, so a drive plugged in later is formatted by hand, with the command step 30 prints, or
       by running the bootstrap again while the build is still incomplete.*
+    - *Corrected 2026-10-05: on a recording 🎒 portable the timer never finishes the build.* The
+      writer starts at boot, before the 3-minute timer, and holds the recording lock from then on, so
+      every timer run finds the lock held and exits (`ADSB-UPDATE-SKIPPED lock-held`, seen on the 🎒
+      portable after its first bootstrap's reboot, 2026-10-04 at 20:08). ➡️ There the path that
+      completes the build is the pull window, as ruled on 2026-10-04 and recorded at the end of this
+      section. The timer still finishes a build that installed no writer, because then nothing holds
+      the lock.
+    - ℹ️ `update.sh`'s and `bootstrap.sh`'s own closing messages make the same false claim, and so
+      does `update.sh`'s refusal of `--rev` during an incomplete first build ("the timer finishes it
+      at the bootstrap's commit"); their text is owed separately, through `implementer`, and is not
+      corrected here.
 - **The reboot, once.** `bootstrap.sh` reboots, not `update.sh`. ~~When `update.sh --bootstrap` has
   exited and the reboot flag is set (`need_reboot`, in §9f's evening update), `bootstrap.sh` prints a
   5 s notice and reboots.~~ *Corrected 2026-10-04, (Chris), after the code reviews: a set flag is not
@@ -671,6 +712,12 @@ recommendation every time, and that choice is the decision.
     bootstrap and disables itself. It duplicates the timer, it is a second updater path, and a unit
     that re-runs `curl | bash` at boot is a shape nobody should ship. The ruled 3-minute timer already
     is the resume, and it has nothing to remove.
+    - *Narrowed 2026-10-05, by the two rulings of 2026-10-04 (night), at the end of this section and
+      of [§9f](#9f-what-updatesh-does).* On a recording 🎒 portable the 3-minute timer is not the
+      resume, because it always finds the lock held; the pull window is. The rejection stands, and
+      was applied again to a boot-time first-build unit with a condition (option C at the end of
+      this section). The home-gated opener of the second ruling is not a second updater either: it
+      opens the window, and the window runs the one update oneshot.
   - **Deriving the role from hardware**, such as a puck present meaning portable. A stationary with a
     puck on the bench, or a portable bootstrapped with the puck still in the bag, gets the wrong
     role, and the role decides which irreversible acts run.
@@ -768,6 +815,65 @@ others are the build's own.
   either the old file or the new one is the usual outcome of a rename, not a guarantee; the backup
   is the remedy.
 
+**Update 2026-10-04 (night), written 2026-10-05: the pull window completes an incomplete 🎒 portable
+build; the writer never waits for an update at boot. (Chris), 2026-10-04, about 20:45.** Ruled by
+multiple-choice question, after a check against the rulings already written and then an
+architecture consultation. It answers the correction above: on a recording portable the timer never
+finishes the build.
+
+- **Chris's input, checked first:** *"writer waits → network available? → update → start writer"*.
+  As worded, it re-derives the refusal in [§9f](#9f-what-updatesh-does)'s evening update of "an
+  update at boot before the writer starts, with a bounded network wait". The consultation refused
+  the network predicate again, for two reasons:
+  - a phone hotspot at the airport is a network, so the rig would run a `readsb` rebuild before
+    recording at a shoot;
+  - the pinned first build needs no network, so the predicate gates the wrong thing.
+- ⭐ **The "incomplete" rig was already recording.** The writer's unit decides by its preflights,
+  never by `applied`: `40-archive-writer` renders the two `ExecStartPre=+` preflights, then the
+  `flock` in `ExecStart=`, and no condition on the build. An incomplete build withholds only the
+  update path.
+- **The window already completes it, with no code change.** The window wants `adsb-update.service`,
+  whose `ExecStart=` runs `adsb-update` with no arguments, which is timer mode. With no `applied` and
+  `status.json` at `incomplete`, `examine_applied` pins the run to the bootstrap's commit, and a
+  failed fetch does not end a first build, so it runs offline too. On the Pi, without the
+  workstation: `sudo systemctl start adsb-pull-window.service`, then `stop`, the two commands the
+  step-60 sudoers rule allows. The 3-minute timer still completes a build that installed no writer,
+  because then the lock is free.
+- ✅ **Seen on hardware, 2026-10-05,** on the 🎒 portable: the window stopped the writer, whose file
+  closed with 6989 frames, before the update started, at 20:21:37 Arizona time. The update ran with
+  the lock free, in timer mode, at the bootstrap's pinned commit `d2c8f91`, and six of its seven
+  steps passed. The seventh is the hazard below.
+- Rejected:
+  - **(C) A state-gated, bounded, boot-time first-build unit,** with `ConditionPathExists=!applied`
+    and `Before=` the writer. It is the "self-removing resume unit" rejected above, with a condition.
+    And it makes every failing step run ahead of recording at every field boot until the build
+    completes: the shape of the first bootstrap on 2026-10-04, where a failing step (`00-drivers`'
+    `rtl_test` hanging the stick) took down the Pi's whole USB hub.
+  - **(B) The writer conditioned on `applied`.** A rig able to record stays silent until it goes
+    home: the shape that [§9m](#9m--the-portable-rigs-archive-drive)'s option A1 removed.
+- ➡️ **What would reopen it:**
+  - the window does not take the pinned path, or its ordering fails (neither happened on
+    2026-10-05, above);
+  - Chris rules that a rig built away from home must reach `applied` by its next boot with no hand,
+    which is C's one real gain;
+  - a step whose *install* needs hardware that arrives after the bootstrap;
+  - Chris rules the weeks-long `incomplete` banner unacceptable in itself.
+- ℹ️ **The timer's skip line names one kind of holder.** `lock_held_timer` in `update.sh` gives the
+  same reason whoever holds the lock: *"a recording session is on, so no update (PLAN §9f)"*, or,
+  with the pull window open, that the window's ordering did not hold. A recording session is the
+  only lock holder its wording names. The holder itself, from `lslocks`, is printed beside it.
+- ⚠️ **Found 2026-10-05, and open: a pinned first build whose own step cannot pass is a trap the
+  design did not name.** Every way out but a second bootstrap is closed:
+  - `update.sh` refuses `--rev` while a first build is incomplete (`examine_applied`);
+  - on a recording portable the timer always finds the lock held;
+  - the window re-runs the same pinned commit, so a fix pushed to `main` never reaches the rig.
+
+  On 2026-10-05, step `60-portable-pull` failed at the pin on a broken-pipe bug in its own check,
+  fixed on `main` in `e019b29`. The only way out was a second one-command bootstrap by hand: stop
+  the writer, then run the `curl` line, which built `main`'s tip ("As built" above) and completed
+  the build. Chris chose that route by multiple-choice question. ➡️ Nothing is ruled about
+  preventing the trap.
+
 ### 9f. What `update.sh` does
 
 A systemd timer runs `update.sh` as a oneshot.
@@ -799,14 +905,20 @@ In order:
 **Update 2026-10-04: when the 🎒 portable rig updates.** Both rigs now archive everything
 ([§9m](#9m--the-portable-rigs-archive-drive)), so the portable records whenever it is on. With the
 recording lock above, it would never update. **(Chris), 2026-10-04: the pull ends the recording
-session.** Starting the pull window, `adsb-pull-window.service`, stops the writer and pulls in the
+session.** *Narrowed 2026-10-05, by the ruling of 2026-10-04 (night) at the end of this section: a
+window ends the recording session; the pull and the home check open one. 📋 The home check is not
+built.* Starting the pull window, `adsb-pull-window.service`, stops the writer and pulls in the
 same update oneshot the timer runs, ordered after the writer's stop. When the window ends, it starts
 the writer again; after a reboot, the next boot does. The mechanism is in §9m. ~~📋 None of this is
 built.~~ *Corrected 2026-10-04: built, not yet run on hardware. `setup/steps/60-portable-pull.sh`
 installs `adsb-pull-window.service`, whose `ExecStop=` waits while that update is running, and the
 sudoers rule that lets the logins in `adsb-operator`, but not the writer's own user, start and stop
-it; the workstation side is the wrapper, `tools/pull-archive`. ⚠️ That `Conflicts=` plus `After=`
-order the writer's stop before the update starts is not yet seen on the Pi.* ➡️ The ⛔ above stands: `update.sh` still never runs during a recording session. The ordering and the lock are two
+it; the workstation side is the wrapper, `tools/pull-archive`. ~~⚠️ That `Conflicts=` plus `After=`
+order the writer's stop before the update starts is not yet seen on the Pi.~~* *Corrected
+2026-10-05:* ✅ *the writer's stop was seen before the update's start, once, on one pull, on
+2026-10-05; not a guarantee across boots. The journal lines are in
+[§9m](#9m--the-portable-rigs-archive-drive)'s pull window, under its ⚠️ on `Conflicts=` and
+`After=`.* ➡️ The ⛔ above stands: `update.sh` still never runs during a recording session. The ordering and the lock are two
 mechanisms, and the lock stays as the backstop. The portable's timer also stays. While the rig is
 recording, the timer fires into a held lock and exits, and it remains the update path for a rig that
 is refusing to record.
@@ -979,6 +1091,7 @@ the option rejected below as "`update.sh` stopping the writer".
   - **`update.sh` stopping the writer.** It collides with rulings already written: ⛔ never during a
     recording session (above); the lock is asymmetric and `update.sh` never waits, because a session
     lasts hours (§9m); and the pull ends the recording session, the one ruled way to end one (above).
+    *(2026-10-05: a window ends it; the pull and the home check open one, as narrowed above.)*
   - **An update at boot before the writer starts, with a bounded network wait.** In the field the
     portable boots with no network, so the wait always runs out, and costs its whole bound at the
     start of every shoot. Ordered `Before=` the writer, a round that rebuilds `readsb` would delay
@@ -986,6 +1099,16 @@ the option rejected below as "`update.sh` stopping the writer".
     is not needed: the writer's blocking `flock` already gives update-then-record whenever the update
     holds the lock first, and the 3-minute timer lands updates on a rig whose preflights refuse,
     which is when a rig needs fixing.
+    - *Extended 2026-10-05, by the two rulings of 2026-10-04 (night): the first at the end of
+      [§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic), the second at the end
+      of this section.* The refusal stands, and was applied again: Chris's *"writer waits → network
+      available? → update → start writer"* re-derived it, and the network predicate was refused
+      again, for the reasons in §9e. ⚠️ **The third reason, that the timer lands updates, is false on
+      hardware for a recording 🎒 portable.** The writer holds the lock from boot, so every timer run
+      skips (seen 2026-10-04 at 20:08, §9e). It holds as worded for a rig whose preflights refuse,
+      because the writer takes the lock only in `ExecStart=`, after them. ➡️ The gap it left, no
+      automatic update at all on a recording portable, is closed by the home-gated window opener at
+      the end of this section, not by an update at boot.
   - The other clone locations, and copying `writer.json`: above.
 - **Open, ruled to be decided later. (Chris), 2026-10-04:**
   - ⚠️ **The 🏠 stationary cannot update as designed.** Both rigs archive everything (§9m), so a
@@ -1027,6 +1150,10 @@ the option rejected below as "`update.sh` stopping the writer".
      -u adsb-update` shows the writer stopped before `adsb-update` starts and before the window is
      started, and the closed file's `stop` event precedes `status.json`'s `started_at`. That is the
      observable check for §9m's ⚠️ on `Conflicts=` and `After=`.
+     - *Update 2026-10-05:* ✅ *the journal half was seen once, on one pull, 2026-10-05: the writer
+       stopped at 20:21:37.601549, before `adsb-pull-window.service` and `adsb-update.service` were
+       started (`-o short-iso`, Arizona time); not a guarantee across boots. The lines are in §9m.
+       The comparison with `status.json`'s `started_at` is not recorded here.*
   - Rejected: testing rollback with a new step that always fails, which fails every rig that pulls it
     and tests nothing about restoring; and a failing commit on a side branch run with `--rev`, because
     the point is the real channel's path.
@@ -1092,6 +1219,10 @@ cgroup v2, which are what these mechanisms assume. Four choices below were ruled
   second Ctrl-C does not reach them.
   - ➡️ **The install manifest is the next change, before any 🏠 stationary deploy;** see the
     deferred items below. Until then the 🎒 portable rolls back at home, where Chris can look.
+    *Weakened 2026-10-05, by the home-gated opener ruled 2026-10-04 (night) at the end of this
+    section: a portable that updates itself at home can roll back there with no one looking. That
+    is reported as a reason to pull the install manifest forward on the 🎒 portable too; it is not
+    ruled.*
   - Rejected: a per-step `--uninstall`, a second description of each step, run only at the worst
     moment; a step-list diff with `--uninstall`, which misses the common case, a new file inside an
     existing step; accepting the gap for good, which on the stationary would leave a rejected
@@ -1174,6 +1305,88 @@ cgroup v2, which are what these mechanisms assume. Four choices below were ruled
     within 60 s, and ssh keepalives on a dropped link;
   - that rsync is missing from Raspberry Pi OS Lite, and Tailscale's JSON fields;
   - the step-2 success test above.
+
+**Update 2026-10-04 (night), written 2026-10-05: the 🎒 portable updates itself at home, through a
+home-gated window opener, at boot and daily. (Chris), 2026-10-04, about 20:55, option A.** 📋
+**Ruled, not built.** Nothing of the opener exists in the tree: no unit, script, mode, key or field
+below. Ruled by multiple-choice question, after a check against the rulings already written and then
+an architecture consultation, whose design this is.
+
+- ⭐ **Chris's standing statement that drove it:** *"I want automated updates and I am ok with setup
+  installs run by me (but not multiple commands - we have been using linux scripts for years to
+  setup machines) and I understand if a major update requires me."* He named the gap that the review
+  against his goals had missed: as ruled until then, the 🎒 portable had **no** automatic update
+  path. The writer holds the lock whenever the rig is on, every timer run skips, and only a window
+  started by hand updates.
+- **The design.** An automatic update on a recording portable can only be an automatic *opening* of
+  the window. So:
+  - `adsb-home-update.timer`, 🎒 portable only: `OnBootSec=4min`, after the 3-minute timer's
+    lock-held exit, plus one daily `OnCalendar=`.
+  - It starts `adsb-home-update.service`, a oneshot: `After=network-online.target
+    adsb-writer.service`, `ExecCondition=/usr/local/bin/adsb-at-home`, `TimeoutStartSec=55min`,
+    `Nice=10`.
+  - `bin/adsb-at-home` reads the active Wi-Fi SSID through `nmcli`, read-only
+    ([§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away) bars writes, not
+    reads), and compares it with an owner-set `update.home_ssid` in `station.yml`. **Unset means
+    always off: the opener is opt-in.** It prints only "at home" or "not at home", ⛔ never the SSID
+    (the ⛔ on echoing a config value, under `status.json` above).
+  - Then `adsb-update --check`, a new mode: no lock, the fetch and the real resolver, and no
+    `status.json` written. Exit `0` means an update is pending: `main` is past `applied`, or the
+    build is incomplete.
+  - If one is pending, it drops a tmpfs marker, `/run/adsb-receiver/window-opened-by`; starts
+    `adsb-pull-window.service`; waits for `adsb-update.service` to be dispatched and to finish; stops
+    the window, whose `ExecStop=` wait applies as for any closer; and removes the marker.
+  - ⚠️ **A required guard: a window already active means there is nothing to open.**
+- **What does not change.** The writer still starts first at every boot (the ruling of about 20:45,
+  at the end of [§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic)). The window
+  stops it afterward, which is the ruled way to end a session. `update.sh` still never stops the
+  writer. The sudoers rule and the ⛔ on the monitoring login
+  ([§9m](#9m--the-portable-rigs-archive-drive)) are untouched: a root timer is not Claude's login.
+- **What it records.** `status.json`, written by `update.sh` only, gains `trigger: window` and
+  `opened_by: adsb-home-update` or `hand`. The banner shows the opener's next fire and `opened_by`.
+  One `ADSB-HOME-UPDATE` journal line per decision, with no SSID.
+- **Field cost.** A true negative costs nothing: no Wi-Fi, a hotspot with another name, or Ethernet
+  makes the condition false in milliseconds. A false positive, a hotspot named like home, costs one
+  bounded loss, once, fixed by renaming the hotspot.
+- **"A major update requires me" is ruled as exactly three things:**
+  1. a reboot: `update.sh` never reboots, and the banner asks;
+  2. anything only the bootstrap may do: the image, the format, the RTC overlay, and the §9h
+     denylist (network, SSH, `/boot/firmware`, fstab);
+  3. a hand after a rollback or a failed candidate: read the banner and push a fix; the rig retries
+     daily after the 24 h backoff.
+
+  A `readsb` rebuild at home is **not** major.
+- Rejected:
+  - **(B) The writer waits at boot, at home only:** Chris's sketch, made safe. It reverses the ruling
+    of about 20:45; it puts recording behind a unit at every boot, the shape of the 2026-10-04 hub
+    hang; it is worst on a false positive; and it runs at boot only.
+  - **(C) Opening the window daily at home, with no `--check`.** A daily recording gap for nothing.
+    It is the consultation's fallback if `--check` cannot reuse the resolver without the lock.
+  - **(D) The workstation's cron running `tools/pull-archive`.** It ties updates to this PC being
+    on; it is an unattended use of Chris's SSH key; data moves as a side effect; and it does nothing
+    for the 🏠 stationary.
+- **The 🏠 stationary.** The same opener shape is the starting point for its maintenance window,
+  with no predicate: the trigger is the candidate changing after the soak, with the §9h gate open.
+  It gets its **own** window unit, with no sudoers grant and a cap of minutes. It is to be designed
+  in its own session, not pre-built.
+- ➡️ **What would change it:**
+  - `nmcli` cannot give the SSID on this image (→ the gateway's MAC address, still local).
+    *Answered 2026-10-05: it can; see below;*
+  - a false positive twice for one cause (→ the SSID and the gateway's MAC both, or drop the boot
+    trigger);
+  - `--check` cannot reuse the resolver without the lock (→ option C);
+  - Chris rules an unattended rollback at home unacceptable (→ the install manifest first, and open
+    the window only when the last result was not `rolled_back` or `failed`).
+- ⚠️ **Unverifiable off the Pi:**
+  - that NetworkManager is the stack, and what `nmcli` prints, on Pi OS Lite trixie. *Update
+    2026-10-05:* ✅ read on the 🎒 portable Pi: `nmcli -t -f active,ssid dev wifi` prints the
+    active SSID in its terse output, as one line beginning `yes:`, plus `no:` lines duplicated per
+    band. ➡️ The predicate must take the `yes:` line;
+  - `ExecCondition=` on systemd 257. *Update 2026-10-05: the Pi runs systemd 257.13;
+    `ExecCondition=` on it is still unverified;*
+  - whether `systemctl start` of the window returns before the update's job is dispatched;
+  - the window's `Conflicts=` and `After=` ordering. *Update 2026-10-05: the writer's stop was seen
+    before the update's start, at the end of §9e.*
 
 ### 9g. Channels: portable tracks `main`, stationary tracks `stable`
 
@@ -1449,7 +1662,9 @@ Chris pasted this output from the 🎒 portable rig, a Pi 4 (4 GB) with hostname
     again.
 - `tar1090` is **not** packaged (*"Unable to locate package"*).
 - The `rtl-sdr` package installed **no** modprobe blacklist file. A grep of `/etc/modprobe.d` and
-  `/usr/lib/modprobe.d` for `rtl28xxu` found nothing.
+  `/usr/lib/modprobe.d` for `rtl28xxu` found nothing. *Update 2026-10-05: that is the 2026-10-03
+  fact about the package, and is now history for the rig. Since 2026-10-05 `00-drivers` writes its
+  own blacklist, `/etc/modprobe.d/adsb-receiver-rtlsdr.conf`; see the 2026-10-05 ruling below.*
 - The kernel's `dvb_usb_rtl28xxu` module loaded and claimed the device. **The packaged library
   detached the kernel driver itself** (*"Detached kernel driver"*) and carried on.
 
@@ -1507,11 +1722,169 @@ on the stock 2.0.2 library.
 ⛔ **V4 support on 2.0.2 is untested on a confirmed V4.** No run has shown an R828D or
 `RTL-SDR Blog V4 Detected`.
 
+**Update 2026-10-05: no verify in `setup/steps/` opens the stick; `readsb` is the rig's only
+opener. (Chris), 2026-10-05,** by multiple-choice question, on fable-architect's call after the
+rejection check.
+
+🔑 **The 2026-10-04 hazard was the close, not the open.** While the kernel's `dvb_usb_rtl28xxu` is
+loaded, every `rtlsdr_close` is a kernel re-probe of a stick that may have just hung: `librtlsdr`
+prints `Reattached kernel driver` on every close (fact 3 below). The module is loaded on every first
+build, and stays loaded until a reboot, which `update.sh` never performs. A verify opens and then
+closes, by definition, so any opener in a verify performs the second half of the hazard. `readsb`
+differs in kind: it opens the stick once and holds it.
+
+What each verify proves now, read from the code:
+
+- **`00-drivers`:** `rtl_test` and `rtl_eeprom` resolve on `PATH`. The stick is present in sysfs, as
+  `0bda:2838` or `0bda:2832`: none fails the step; more than one warns, and the first is judged. Its
+  EEPROM strings are read from sysfs, printed, and not judged. The udev rule's observable effect: the
+  node `/dev/bus/usb/BBB/DDD` is group `plugdev`, mode `660`, retried for up to 5 s. Root-only was
+  the exact 2026-10-03 failure (`usb_open error -3`, above). The blacklist file contains
+  `blacklist dvb_usb_rtl28xxu`. With the module loaded it warns, records a reboot (`need_reboot`) and
+  passes. ⛔ It never fails on that, so an update never rolls back for a pending reboot.
+- **`10-decoder`:** after its streaming checks, it reads the tuner line, an
+  `RTL-SDR Blog V4 Detected` line and the EEPROM strings from `readsb`'s journal, filtered to
+  `readsb`'s current `InvocationID`. It reports whether `Detached kernel driver` appears there: if it
+  does, a kernel driver was bound when `readsb` opened the stick, which is the state before the
+  blacklist's first reboot. The tuner table that follows informs and never gates (the next update).
+
+⛔ **Rejected,** by fable-architect, with these reasons:
+
+- **A single `rtl_eeprom` open.** It is still a close with the module loaded, on every first build.
+  "`rtl_eeprom` does not hang" is a belief. And the strings are in sysfs for free (fact 4 below).
+- **Opening the stick only when the module is not loaded.** Dead code: `readsb` holds the stick on
+  every later boot. It would also prove the wrong user's access.
+- **A reboot in the middle of the build.** That is the resume unit rejected in
+  [§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic). The bootstrap's one reboot
+  is at its end.
+- **`modprobe -r` in the install.** Removing a USB driver runs its disconnect against the stick, the
+  same class of act. To be reconsidered only if a first build ever drops the hub.
+- **Keeping the sudo user's `rtl_test` as the proof of the udev rule.** It proves the operator's
+  access, not `readsb`'s. The node's group and mode prove the rule's effect, and `readsb`'s own open
+  proves the access of the user that matters.
+- **Failing on "module loaded", or on "no tuner line".** Every update would roll back until a reboot
+  by hand.
+- **A settle wait after stopping `readsb`.** Proposed earlier the same day in the first
+  implementation pass, and withdrawn after review: it could not observe the re-bind.
+
+⚠️ **Accepted exposure.** On a first build `readsb` starts with the module still loaded, and runs so
+until the bootstrap's end-of-run reboot. That was the state of every rig, on every boot, until
+2026-10-05.
+
+➡️ **What would change it:**
+
+- a counterfeit or a genuine V4 that gives no tuner line, or a different one, through `readsb`'s
+  stderr;
+- journald rotation on the 🏠 stationary losing the current invocation's open line. Then
+  `10-decoder` would persist the first tuner line it sees, not open the stick;
+- a hub drop from `readsb`'s own open, with the module loaded, on a first build;
+- Chris ruling that a verify must prove that the human's `rtl_test` works.
+
+ℹ️ Chris's 2026-10-04 ruling that a verify may stop `readsb` for seconds
+([§9c](#9c-every-step-ends-in-a-check-of-the-observable-effect)) still stands. `00-drivers` stops
+using the permission.
+
+✅ **Verified on hardware, 2026-10-05,** on the 🎒 portable, `mobile-adsb`: the new `00-drivers`
+verify passed, with the node `plugdev 660` and the strings `Realtek` / `RTL2838UHIDIR` /
+`00000001`. After the reboot the module was not loaded, and `readsb`'s journal had no
+`Detached kernel driver` line. `10-decoder`'s verify read `Found Rafael Micro R820T tuner` from the
+current invocation.
+
+**Update 2026-10-05: the tuner table informs and never gates. (Chris), 2026-10-05:** *"I will not be
+using the counterfeit radios anymore."* In `10-decoder`'s verify the three odd combinations warn, and
+the step passes on streaming:
+
+- a V4 line with a tuner other than the R828D;
+- an R828D with no V4 line: the [BUILD.md §4](BUILD.md#4-drivers-first) silent failure, now a
+  warning;
+- Blog or V4 in the EEPROM strings on a tuner other than the R828D: the counterfeit signature, kept
+  for the record.
+
+Until 2026-10-05 the first two failed the verify, in `00-drivers`. The reason, recorded by the
+`10-decoder` review: under `update.sh`, a hardware or library verdict used as an update gate would
+roll back a candidate that cannot fix it, on every timer pass. This supersedes the 2026-10-04 interim
+ruling in [§9c](#9c-every-step-ends-in-a-check-of-the-observable-effect).
+
+**The facts behind both rulings, recorded 2026-10-05:**
+
+1. **The 2026-10-04 hub drop.** `00-drivers`' `rtl_test` hung the counterfeit stick; the DVB driver
+   re-probed it; a USB reset storm followed; then a firmware mailbox timeout (an
+   `rpi_firmware_property_list` WARNING, tag `0x00038002`); then the Pi 4's whole USB 2.0 hub,
+   `usb 1-1`, disconnected, taking the stick, the GPS puck and the archive drive together. The
+   archive drive's ext4 journal aborted, with no file open. `get_throttled` read `0x0`, so it was not
+   power. Only a reboot recovered it. ⚠️ On a Pi 4 every USB 2.0 device is on that one hub, whatever
+   the port: the kernel shows all three as `1-1.x`.
+2. **The blacklist needs no initramfs rebuild, on the 🎒 portable.** The module loads from the root
+   filesystem about 5.5 s after boot (`dmesg`), and the initramfs is `MODULES=dep` and does not
+   contain it (`lsinitramfs`). So `/etc/modprobe.d` applies at the next boot, with no initramfs
+   rebuild and nothing under `/boot/firmware`. ⚠️ Checked on the portable only. The 🏠 stationary's
+   image is unchecked.
+3. **`librtlsdr` prints `Reattached kernel driver` on every close.** Seen in the output of
+   `rtl_eeprom` and `rtl_test`, 2026-10-05.
+4. **The USB descriptor strings in sysfs are the strings `rtl_eeprom` prints.** Both read on
+   2026-10-05: `Realtek` / `RTL2838UHIDIR` / `00000001`.
+5. **The genuine RTL-SDR Blog V3.** Its EEPROM reads `Realtek` / `RTL2838UHIDIR` / `00000001`, with a
+   Rafael Micro R820T tuner (`rtl_eeprom` and `rtl_test`, run by Chris, 2026-10-05). ➡️ The
+   counterfeit match, `[Bb]log|V4`, never fires on a V3.
+6. **Since 2026-10-05 `00-drivers` writes `/etc/modprobe.d/adsb-receiver-rtlsdr.conf`.** The
+   2026-10-03 fact above, that the package installs no blacklist file, is now history.
+7. **A rollback does not remove that file:** a rollback does not undo creation
+   ([§9f](#9f-what-updatesh-does)). Harmless: nothing on the rig uses the DVB driver.
+8. **A first build now records a reboot,** because the module is loaded at boot, before the blacklist
+   exists, and the bootstrap reboots at its end
+   ([§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic)'s reboot rule). Seen
+   2026-10-05.
+
+**Update 2026-10-05: `10-decoder`, as built.** Until 2026-10-05 the step's header said its record in
+PLAN was pending; this is that record.
+
+- **`readsb`** is built from source at the `v3.16.17` tag of `wiedehopf/readsb`
+  (`094720939c01943de82b14df6f42f67fff1cd514`), with `RTLSDR=yes` and
+  `OPTIMIZE=-O2 -march=native -mtune=native`, against the packaged `librtlsdr` 2.0.2. ⛔ Never from
+  apt: trixie's packaged `readsb` has no RTL-SDR support (above). The step refuses to run while the
+  apt package is installed.
+- **The unit and `/etc/default/readsb`** are rendered from upstream's `debian/` files at the pin,
+  identical to them apart from the rendered header comment (the bodies were diffed on 2026-10-04).
+- **`tar1090`** is at `3.14.1823` (`e784ee5ae82948f41efe3ef5c235ade0943ab8ff`), installed by its own
+  `install.sh` from the pinned checkout, and served by `lighttpd`. ⚠️ **`tar1090-db`, the aircraft
+  database, is not pinned.** Accepted, (Chris) 2026-10-04: it is lookup data, not code.
+- **A drop-in, `/etc/systemd/system/readsb.service.d/adsb-receiver.conf`,** sets
+  `StartLimitIntervalSec=0`, `RestartSteps=5` and `RestartMaxDelaySec=2min`: systemd's exponential
+  backoff. A rig with no stick backs off from one attempt every 15 s toward one every 2 minutes, about
+  15, 23, 34, 52 and 79 s, then 2 min. Upstream's unit alone restarted it every 15 s: 28 restarts in
+  about 7 minutes were seen on 2026-10-04. Two minutes, not ten, bounds the loss after a transient
+  fault on the remote rig. ⚠️ That rests on a belief, not verified: that systemd does not reset the
+  restart counter after a long healthy run.
+- **The verify asserts** `RestartSteps=5`, `RestartMaxDelayUSec=2min`, `StartLimitIntervalUSec=0`,
+  and the drop-in in `DropInPaths`.
+- **When it reloads and restarts.** A changed unit file or drop-in always daemon-reloads. A run that
+  finds `readsb` `activating`, in its backoff, restarts it rather than waiting the backoff out.
+  Otherwise a running `readsb` is restarted only when its binary, unit, drop-in or defaults changed
+  (the render, diff, install rule of [§9f](#9f-what-updatesh-does)), when it lacks the `plugdev`
+  group, or when systemd had it loaded from another unit file.
+- ⚠️ **Known limitation:** with two sticks, `00-drivers` verifies the first device sysfs lists, and
+  `10-decoder` verifies `readsb`'s device 0.
+
+✅ **Verified on hardware, 2026-10-05: the first run.** On the 🎒 portable, `mobile-adsb`, by
+`adsb-update --rev 42b5115`, run by Chris after stopping the writer by hand. The install and the
+verify passed: `readsb --version` printed 3.16.17; `DropInPaths` and the three values were as
+asserted; `samples_processed` climbed; `tar1090` answered HTTP 200 at the pinned version. The commit
+then merged to `main` (`42b5115`, CI green), and `stable` advanced.
+
+- **Reception on the V3, at 20:38 (Arizona time, UTC−7, as is 14:20 below):** 5,523 messages a
+  minute, 17 aircraft, signal −13.7 dBFS and noise −30.0 dBFS. The counterfeit's baseline,
+  2026-10-04 at 14:20: 5,538 messages a minute, 14
+  aircraft, −14.2 / −38.6 dBFS. ⚠️ The noise figure is an autogain artifact, two minutes after a
+  restart, not a comparison of the sticks. Range is not comparable, because `readsb` has no receiver
+  location configured.
+
 ### 9k. The first deliverable, in order
 
 1. `setup/lib.sh` + `setup/steps/00-drivers.sh` + the CI workflow, **in one change.**
 2. `05-config` + `10-decoder`. *Half done, 2026-10-04: `05-config` is built, widened as in
-   [§9m](#9m--the-portable-rigs-archive-drive), in commit `47ed4ed`. `10-decoder` is not.*
+   [§9m](#9m--the-portable-rigs-archive-drive), in commit `47ed4ed`. ~~`10-decoder` is not.~~*
+   *Corrected 2026-10-05: `10-decoder` is built too, committed as `42b5115`, and ran on the 🎒
+   portable Pi ([§9j](#9j--verified-on-hardware-2026-10-03)).*
 3. `update.sh` + the timers + `status.json` + the job that advances `stable`. *Built 2026-10-04
    (evening), with `setup/bootstrap.sh` ([§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic)),
    `50-updater` (the timers and the login banner) and `60-portable-pull`
@@ -1951,7 +2324,10 @@ verifies each transferred file before it deletes the source.
 - ℹ️ A check against §9l found that its rejection of config management pushed from a workstation is
   about code and config going to the Pi. Its recorded reasons do not reach a data pull.
 
-**The pull window. (Chris), 2026-10-04: the pull ends the recording session.** Without this,
+**The pull window. (Chris), 2026-10-04: the pull ends the recording session.** *Narrowed
+2026-10-05, by the ruling of 2026-10-04 (night) at the end of [§9f](#9f-what-updatesh-does): a
+window ends the recording session; the pull and the home check open one. 📋 The home check is not
+built.* Without this,
 §9f's recording lock and a portable that is always recording would mean the portable never updates.
 The window is a unit, `adsb-pull-window.service`, rendered by the pull step (below):
 
@@ -1997,6 +2373,23 @@ The window is a unit, `adsb-pull-window.service`, rendered by the pull step (bel
   - *Update 2026-10-04 (evening): still unverified. 📋 The step-2 success test in
     [§9f](#9f-what-updatesh-does)'s evening update, item 4, is to check it, from the journal and from
     the closed file's `stop` event.*
+  - *Update 2026-10-05:* ✅ **the order was seen once, on one pull, 2026-10-05, on the 🎒 portable;
+    not a guarantee across boots.** Read over SSH by the coordinating session from
+    `journalctl -b -o short-iso -u adsb-pull-window -u adsb-writer -u adsb-update` (Arizona time,
+    UTC−7):
+
+    ```
+    2026-10-05T20:21:37.601549-07:00 systemd[1]: Stopped adsb-writer.service
+    2026-10-05T20:21:37.605153-07:00 systemd[1]: Starting adsb-pull-window.service
+    2026-10-05T20:21:37.609042-07:00 systemd[1]: Starting adsb-update.service
+    2026-10-05T20:21:37.631636-07:00 systemd[1]: Started adsb-pull-window.service
+    ```
+
+    Before those, at 20:21:37, the writer logged
+    `closed 2026-10-06/20261006T032000Z.beast.pcap: 6989 frames, 242549 bytes`, then
+    `stopped: SIGTERM`. Step 60's own `window_order` check read the same lines on the 2026-10-05
+    bootstrap run and passed: *"the last window stopped the writer before the update started"*.
+    ⚠️ The journal shows the order; it does not show whether the three jobs were one transaction.
 
 **(Chris), 2026-10-04: the 2 h cap bounds only how long the pull keeps the writer off.** An update
 that overruns the window is the lock's job. At the cap the window stops and the writer starts, waits
@@ -2547,6 +2940,14 @@ recording session ([§9c](#9c-every-step-ends-in-a-check-of-the-observable-effec
       window's rule is NOPASSWD is proven by the rendered-file comparison, not by `sudo -l`. ⚠️ The
       exact refusal text and exit code are from sudo's documentation, not seen on the Pi. The
       journal-order check warns and never fails.*
+    - *Update 2026-10-05: the journal-order check, `window_order`, failed inside the first window it
+      ever checked: `tail` took EPIPE under `pipefail` when the journal after the window's start
+      exceeded the pipe buffer. Fixed in `e019b29`, with one `sed` range and no pipeline. That is the
+      failure behind the trap at the end of
+      [§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic). ⚠️ The same
+      `| head -n1` shape remains, reported and not fixed, in `setup/bootstrap.sh:73` (guarded by
+      `|| unit=''`), and `setup/update.sh:237`, `setup/steps/20-portable-clock.sh:366` and
+      `bin/clock-preflight:120` and `:125` (each guarded by `|| true`).*
 - **(Chris), 2026-10-04:** no step's verify reads `UMask=`. That is the setting, not the effect: the
   full pull in the pre-field checklist tests the effect.
 - Rejected: step 30 installing units that belong to two later steps. Its verify could not exit 0 on
@@ -2721,8 +3122,13 @@ portable rig. Seen by Claude on 2026-10-04, over read-only SSH on the Pi or in o
   - The writer's CPU: 1.1% of a core, averaged over its first 30 s, start-up included (`ps`). A
     first measurement, beside R3's and [§3](#3--cpu-is-the-binding-constraint-not-power)'s estimates.
 - 📋 **Not yet seen on the Pi:** the late-plug test, the drive-pull test, any expiry, any refusal on
-  space, a `readsb` restart in the middle of a file, and a pull window. `10-decoder` has not run on
-  the Pi; it waits for a new radio (R5).
+  space, a `readsb` restart in the middle of a file~~, and a pull window~~. *Corrected 2026-10-05: a
+  pull window ran on the Pi on 2026-10-05 at 20:21 Arizona time; the journal lines are in this
+  section's pull window, under the ⚠️ on `Conflicts=` and `After=`, in its 2026-10-05 update.*
+  ~~`10-decoder` has not run on
+  the Pi; it waits for a new radio (R5).~~ *Corrected 2026-10-05: the new radio, an RTL-SDR Blog V3,
+  arrived on 2026-10-05, and `10-decoder` ran on the Pi that day
+  ([§9j](#9j--verified-on-hardware-2026-10-03)).*
 
 ### 📋 Consequences for the other docs (not yet made)
 
@@ -2732,7 +3138,7 @@ portable rig. Seen by Claude on 2026-10-04, over read-only SSH on the Pi or in o
 | BUILD.md §4 | ⚠️ "Installing either from `apt` can quietly pull an old one back in" | Re-examine. ~~On trixie the packaged `readsb` links the same 2.0.2 library ([§9j](#9j--verified-on-hardware-2026-10-03))~~ *Corrected 2026-10-04: on trixie the packaged `readsb` links no `librtlsdr` at all. It is built without RTL-SDR support and cannot drive the stick ([§9j](#9j--verified-on-hardware-2026-10-03)). Lines 149 and 153–154 make the same linking claim. On forky, whose `readsb` 3.16-2 depends on `librtlsdr0`, the concern applies again* |
 | README "The three traps that cost the most time", trap 1, lines 39–40 | "`readsb`/`dump1090-fa` link against it, so installing either from `apt` can quietly undo the fix" | *Added 2026-10-04.* The same correction as the BUILD.md §4 row above: on trixie the packaged `readsb` links no `librtlsdr` and cannot drive an RTL-SDR ([§9j](#9j--verified-on-hardware-2026-10-03)) |
 | BUILD.md §4, lines 169–171 | "If it says R820T2, or reports nothing, the old driver is still in the path" | The inference "R820T2 means the old driver" is wrong in at least one case. A stick reporting R820T on a current library may be a counterfeit, not an old driver ([§9j](#9j--verified-on-hardware-2026-10-03)) |
-| README "The three traps that cost the most time" / BUILD.md §3a parts table, row 3 | — | Warn that counterfeit V4s are sold, Amazon included ([§9j](#9j--verified-on-hardware-2026-10-03)). The check is `rtl_eeprom` (its Manufacturer and Product strings) plus `rtl_test` naming the R828D. Buy from RTL-SDR Blog or a seller listed on rtl-sdr.com |
+| README "The three traps that cost the most time" / BUILD.md §3a parts table, row 3 | — | Warn that counterfeit V4s are sold, Amazon included ([§9j](#9j--verified-on-hardware-2026-10-03)). The check is `rtl_eeprom` (its Manufacturer and Product strings) plus `rtl_test` naming the R828D. Buy from RTL-SDR Blog or a seller listed on rtl-sdr.com. *Corrected 2026-10-05: the EEPROM strings do not tell a counterfeit from a V3, because both read `Realtek` / `RTL2838UHIDIR` ([§9j](#9j--verified-on-hardware-2026-10-03)), so the tuner name is the only tell. And since 2026-10-05 no verify opens the stick, so that check is the hand check in BUILD.md §8, not a step's* |
 | BUILD.md §7 | "uploader (yours to write)" | It ships in this repo |
 | BUILD.md §8 | Steps with no scripts | Name each step's script, and add the [§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away) pre-ship checklist |
 | BUILD.md §2 | "reachable over something like Tailscale" | Tailscale key expiry, and disabling it. ⚠️ The 180-day default is an unverified claim from the consultation |

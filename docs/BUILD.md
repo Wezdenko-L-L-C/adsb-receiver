@@ -155,6 +155,9 @@ Installing either from `apt` can quietly pull an old one back in and undo the fi
 sudo apt purge '^librtlsdr'        # quote it: ^ is a regex for apt, not for the shell
 # then remove any stale librtlsdr* left behind in /usr/lib and /usr/local/lib
 echo 'blacklist dvb_usb_rtl28xxu' | sudo tee /etc/modprobe.d/blacklist-rtl.conf
+# Corrected 2026-10-05: setup/steps/00-drivers.sh now writes this blacklist itself, as
+#   /etc/modprobe.d/adsb-receiver-rtlsdr.conf. Skip the line above if you build with the one
+#   command (§8); a hand-written file beside the step's own is harmless.
 # then build current librtlsdr from osmocom/rtl-sdr, and re-check with rtl_test -t
 ```
 
@@ -187,6 +190,12 @@ Worked example, computed from the spec of an **Anker Prime 27,650 mAh / 250 W**:
 | Pi 4 + SDR only | ~5.5 W → ~15 hours |
 | Pi 4 + SDR + GPS + wifi ([local link only](#7-software)) | ~7 W → **~12 hours** |
 | ⚠️ **+ second dongle + powered hub** ([§3d](#3d--the-second-radio--either-rig)) | ~9 W → **~9.5 hours** |
+
+✅ *Measured 2026-10-05, on that bank:* one minute after boot, with the stick, the GPS puck, the
+archive drive, the fan and the RTC live and `readsb` decoding, the port read **5.1 V, 1.1 A, 5.6 W**,
+and the bank estimated **14 h 36 m** at 100 %. ➡️ The ~7 W row above is conservative. ⚠️ One
+minute is not a session: a one-hour reading, with the low-current cutoff (below) proven not to bite,
+is still owed.
 
 ⚠️ **A second radio is where the headroom goes** — 12 hours down to about 9.5. Still longer than
 any session, but no longer the "far more than needed" a single-dongle rig enjoys.
@@ -359,7 +368,10 @@ specific to a rig with no network:
 ➡️ **Build the 🎒 portable rig first.** The stationary rig reuses everything you learn, and steps
 0–1 are identical for both.
 
-**The software is one command.** *Added 2026-10-04.* ⚠️ Built, and not yet run on a Pi. Once
+**The software is one command.** *Added 2026-10-04.* ~~⚠️ Built, and not yet run on a Pi.~~
+*Corrected 2026-10-05: it ran on the portable Pi, `mobile-adsb`, on 2026-10-04 and again on
+2026-10-05, which completed the build at `e019b29` with a reboot
+([PLAN.md §9e](PLAN.md#9e-the-first-build-is-by-hand-after-that-updates-are-automatic)).* Once
 Raspberry Pi OS is installed, run this on the Pi. Missing hardware does not stop it: the update
 timer it installs finishes the build once the hardware is there.
 
@@ -395,9 +407,11 @@ below. Why it is shaped this way is in [PLAN.md §9e](PLAN.md#9e-the-first-build
   boot the update timer finishes anything still incomplete, such as a step waiting for hardware
   that was plugged in late.
 
-ℹ️ `10-decoder`, the step that installs `readsb` and `tar1090`, is not in the repo yet
+ℹ️ ~~`10-decoder`, the step that installs `readsb` and `tar1090`, is not in the repo yet
 ([PLAN.md §9m](PLAN.md#9m--the-portable-rigs-archive-drive), R5), so until it is, the command does
-not give you step 1's map.
+not give you step 1's map.~~ *Corrected 2026-10-05: `10-decoder`, the step that installs `readsb`
+and `tar1090`, is in the repo (`42b5115`) and ran on the portable Pi on 2026-10-05
+([PLAN.md §9j](PLAN.md#9j--verified-on-hardware-2026-10-03)).*
 
 ✅ **After the build, these stay yours to check, under the sky.** The build does not wait for them,
 and no script can pass them for you:
@@ -408,12 +422,28 @@ and no script can pass them for you:
 
 0. ⛔ **Install the drivers first** ([§4](#4-drivers-first)) and confirm `rtl_test -t` ~~names an
    **R828D**~~ *opens the stick and names its tuner*. Every step below would otherwise be debugging the wrong thing.
-   *Corrected 2026-10-04: an R828D is only what a V4 reports. The step script `00-drivers` fails an
+   *Corrected 2026-10-04: an R828D is only what a V4 reports. ~~The step script `00-drivers` fails an
    R828D without its V4 line, and passes any other tuner with a warning
    ([PLAN.md §9c](PLAN.md#9c-every-step-ends-in-a-check-of-the-observable-effect)'s 2026-10-04
-   update). The stick first used here was a counterfeit V4 with an R820T2
+   update).~~ The stick first used here was a counterfeit V4 with an R820T2
    ([PLAN.md §9j](PLAN.md#9j--verified-on-hardware-2026-10-03)), and the replacement radio is an
    RTL-SDR Blog V3 (R820T2), not yet in hand on 2026-10-04.*
+   *Corrected 2026-10-05: `00-drivers` no longer checks the tuner, and no step's verify opens the
+   stick. The tuner check is `10-decoder`'s, read from `readsb`'s own open of the stick, and it only
+   warns: an R828D without its V4 line, a V4 line on another tuner, and Blog or V4 in the EEPROM on
+   another tuner each print a warning, and the step passes once the stick is streaming
+   ([PLAN.md §9j](PLAN.md#9j--verified-on-hardware-2026-10-03)'s 2026-10-05 rulings).*
+   ℹ️ *Added 2026-10-05: with the one command above, step 0 is `setup/steps/00-drivers.sh`, which
+   installs the packaged driver from apt and blacklists the kernel's DVB driver. It does not do
+   [§4](#4-drivers-first)'s from-source build. This step's order is not yet rewritten for the one
+   command.*
+   ⚠️ *Added 2026-10-05: on a first build, before its reboot, the kernel's DVB driver is still
+   loaded, and every close of the stick hands it back to that driver, which re-probes it. That is
+   the hazard behind the 2026-10-04 hub drop
+   ([PLAN.md §9j](PLAN.md#9j--verified-on-hardware-2026-10-03)). The `rtl_test -t` check above
+   stands as a hand check, because the ruling that no step opens the stick covers verifies, not
+   you. After the reboot, `journalctl -u readsb -b` shows the same tuner line without opening the
+   stick.*
 1. Build it **on the bench**, on wall power and wifi. Confirm `tar1090` shows aircraft.
 2. Add GPS and the RTC. Confirm `gpsd` has a fix, `chronyc sources` shows GPS disciplining the
    clock, and the Pi still knows the time after a power cycle **with the network unplugged**.

@@ -38,7 +38,8 @@
 # all of these hold (PLAN §9e's evening update):
 #   - this run started with no /opt/adsb-receiver/applied (a first build);
 #   - this run asked for a reboot: a step or foundation script called lib.sh's need_reboot (the
-#     RTC overlay, a remounted archive drive). Each reason is also written to a file of this
+#     RTC overlay, a remounted archive drive, 00-drivers' DVB-module blacklist while
+#     dvb_usb_rtl28xxu is loaded). Each reason is also written to a file of this
 #     run's own (ADSB_REBOOT_MARK), so a reason counts even when the flag (lib.sh's
 #     ADSB_REBOOT_FLAG) already held it from an earlier run in the same boot;
 #   - adsb-update.timer is enabled, so the build can finish after the boot;
@@ -48,14 +49,21 @@
 #   - update.sh exited 0 (applied) or 3 (incomplete). After a Ctrl-C or SIGTERM it exits 128+N,
 #     even on a first build, so an interrupted build never turns into a reboot countdown.
 # Otherwise it prints REBOOT REQUIRED with the reasons and exits. It never reboots once `applied`
-# exists. update.sh itself never reboots. After the boot, adsb-update.timer finishes an incomplete
-# build: on a portable about 3 minutes after the boot; on a stationary, which has no boot timer,
-# at its nightly run (or by hand: sudo systemctl start adsb-update.service).
+# exists. update.sh itself never reboots. After the boot, adsb-update.timer runs an incomplete
+# build again at the same commit while the recording lock is free (no writer running): on a
+# portable about 3 minutes after the boot; on a stationary, which has no boot timer, at its
+# nightly run (or by hand: sudo systemctl start adsb-update.service). On a recording portable the
+# writer holds the lock from every boot, so the build completes in the next pull window instead
+# (tools/pull-archive from the workstation, or sudo systemctl start adsb-pull-window.service, then
+# stop, on the rig). If a failed step cannot pass at that commit, run this bootstrap again (BUILD.md
+# §8), which pins to main's tip.
 #
 # Everything is inside functions, run by the last line (main), so a download cut short runs
 # nothing, or stops at the usage check.
 #
-# What has run on hardware: nothing. ⚠️ Unverified on the Pi: all of it.
+# What has run on hardware: the portable, mobile-adsb, on 2026-10-04 (incomplete: steps failed
+# on a hung stick) and on 2026-10-05 (applied, and the reboot taken). ⚠️ Unverified: all of it on
+# the stationary.
 
 set -euo pipefail
 
@@ -237,14 +245,22 @@ main() {
   [[ $holder == free ]] || echo "==> The recording lock is held by $holder; the reboot stops it cleanly."
   if ((rc == 0)); then
     echo "==> Rebooting in 5 seconds: the build is applied, and the reboot puts into effect what"
-    echo "    needs one (above). Ctrl-C now to stay up, then reboot when ready."
-  elif [[ $(systemctl cat adsb-update.timer 2>/dev/null) == *OnBootSec=* ]]; then
-    echo "==> Rebooting in 5 seconds to finish the build; the update timer runs it again about"
-    echo "    3 minutes after the boot. Ctrl-C now to stay up, then reboot when ready."
+    echo "    needs one (above)."
   else
-    echo "==> Rebooting in 5 seconds; the update timer runs the build again at its next scheduled"
-    echo "    run (sooner by hand: sudo systemctl start adsb-update.service). Ctrl-C now to stay up."
+    if [[ $(systemctl cat adsb-update.timer 2>/dev/null) == *OnBootSec=* ]]; then
+      echo "==> Rebooting in 5 seconds; the update timer runs the build again at this commit"
+      echo "    about 3 minutes after the boot, if the recording lock is free. On a recording"
+      echo "    portable the writer holds it from the boot, so the build completes in the next pull"
+      echo "    window instead (tools/pull-archive from the workstation, or sudo systemctl start"
+      echo "    adsb-pull-window.service, then stop, on the rig)."
+    else
+      echo "==> Rebooting in 5 seconds; the update timer runs the build again at its next scheduled"
+      echo "    run (sooner by hand: sudo systemctl start adsb-update.service)."
+    fi
+    echo "    If a failed step cannot pass at this commit, run this bootstrap again (BUILD.md §8),"
+    echo "    which pins to main's tip."
   fi
+  echo "    Ctrl-C now to stay up, then reboot when ready."
   sleep 5
   if ! systemctl reboot; then
     echo "!!  systemctl reboot failed (see above); reboot by hand: sudo systemctl reboot" >&2

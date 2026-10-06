@@ -11,8 +11,8 @@
 #   setup/steps/10-decoder.sh --verify   verify only
 #
 # What this encodes: the portable rig's decoder as set up by hand on
-# 2026-10-03, with wiedehopf's readsb-install script. Its record in PLAN is
-# pending (documenter, next).
+# 2026-10-03, with wiedehopf's readsb-install script. Recorded in PLAN §9j
+# (2026-10-05).
 #   - readsb: the pin below is the v3.16.17 tag of wiedehopf/readsb (checked
 #     with `gh api`, 2026-10-04). Built with RTLSDR=yes against the packaged
 #     librtlsdr 2.0.2. ⛔ Never from apt: trixie's packaged readsb has no
