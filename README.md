@@ -62,6 +62,11 @@ V4. ⚠️ Counterfeit V4s are sold, Amazon included: the stick first used here 
 printed V4 case. Its EEPROM strings read the same as a genuine V3's, so the tuner name is the only
 tell, and reading it is the hand check in BUILD.md §8 step 0. Buy from RTL-SDR Blog or a seller
 listed on rtl-sdr.com (PLAN.md §9j).*
+*Corrected 2026-10-10: a genuine V4 is not available (**(Chris)**, 2026-10-10), and RTL-SDR Blog
+has posted an end-of-line notice for it. The 🎒 portable runs on a genuine RTL-SDR Blog V3, whose
+tuner reads R820T ([PLAN.md §9j](docs/PLAN.md#9j--verified-on-hardware-2026-10-03)). ➡️ This trap,
+and its ✅ check for an R828D, are for a V4 you already have. The counterfeit warning stands:
+counterfeit V4s are still sold.*
 
 **2. The common DS3231 RTC board (ZS-042) will try to charge a non-rechargeable coin cell.**
 It ships with a trickle-charge circuit intended for a LIR2032. Fit an ordinary CR2032 and the board
@@ -77,6 +82,7 @@ Presents as "ADS-B stopped working for no reason."
 | | |
 |---|---|
 | [`docs/PLAN.md`](docs/PLAN.md) | ⭐ **The why** — the architecture as one base plus radio slots, what the real constraints are, and what was rejected |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | *Added 2026-10-10.* The order of the remaining work: an ordered list, each item linking to its issue and to the PLAN.md section that holds its reason |
 | [`docs/BUILD.md`](docs/BUILD.md) | The rig end to end — Pi choice, parts, power, drivers, GPS/RTC, software, build order |
 | [`docs/RADIOS.md`](docs/RADIOS.md) | The second radio — airband/ATC audio and ACARS/VDL2, antennas, legality, multi-dongle pitfalls. ~~⚠️ Currently behind [`PLAN.md §1`](docs/PLAN.md#1-one-base-several-radio-slots)~~ *Corrected 2026-10-10: brought into line with PLAN.md §1's slots* |
 | [`config/station.portable.example.yml`](config/station.portable.example.yml) | 🎒 Template for the per-station settings that must **not** be committed |

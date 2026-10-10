@@ -223,6 +223,10 @@ places:
 ⛔ **None of this changes the build order.** [BUILD.md §8](BUILD.md#8-build-order) still applies:
 the portable rig first, drivers first, second radio only once the base is boring. Slots are added
 **one at a time**, and each one is allowed to be boring before the next arrives.
+*Corrected 2026-10-10: BUILD.md §8's staged order is overtaken where it differs from
+[ROADMAP.md](ROADMAP.md): the uploader is the first step of the 🏠 stationary work, not the last
+step before it, and the second radio comes after the 🏠 stationary, not before it (the 2026-10-10
+update at the end of this section).*
 
 ➡️ Rough order, with everything after the first line still 📋:
 
@@ -234,6 +238,28 @@ the portable rig first, drivers first, second radio only once the base is boring
 5. HFDL — **only if the site turns out to be coastal.** Inland, skip it.
 6. ACARS POA, if VDL2 turns out to be missing traffic worth having.
 7. SATCOM. A project in itself, and last for good reason.
+
+**Update 2026-10-10: the order of remaining work moves to [ROADMAP.md](ROADMAP.md). (Chris),
+2026-10-10, in three rulings.** This section stays as the record of the order it set; ROADMAP.md is
+the current order. The reasons stay in this file.
+
+- **About 12:01, by multiple-choice question: the interface comes before the 🏠 stationary
+  design.** His aim: *"I want the remote rig done sooner."*
+- **About 12:35, in chat:** *"I want the portable completed first."* By multiple-choice question at
+  about 12:39, "completed" means: the stale-sweep fixes; where the collected data lives
+  ([§9m](#9m--the-portable-rigs-archive-drive), "Update 2026-10-10: the pull into a synced
+  folder"); the interface, which is the field display showing the rig's position and the time for
+  the camera shot, a viewer, and ATC playback; the 🎒 pre-field checklist (§9m); and a field
+  session. ➡️ **The second radio comes after the 🏠 stationary.** ℹ️ Chris added: *"the portable
+  has been running the battery for the last three days worth of sessions so it could be outside"*.
+  That is his statement; Claude has not seen those sessions.
+- **The uploader is not part of the portable's completion.** It is the first step of the 🏠
+  stationary work ([§9i](#9i-what-is-not-chosen-yet-the-writer-the-extractor-the-uploader)'s
+  2026-10-10 update).
+- **About 12:39, by multiple-choice question: the plan's home is a new `docs/ROADMAP.md`,** an
+  ordered list in which each item links to its issue and to the section of this file that holds its
+  reason, with the issues on the project's tracking board. Chris approves the list of issues before
+  any is filed.
 
 ---
 
@@ -432,6 +458,9 @@ yet ruled.
 - *The question left open above, whether a genuine V4 brings back the R828D requirement, is still
   not ruled. ➡️ Since 2026-10-05 the table gates no stick, so the question has no effect unless
   Chris reopens it.*
+- *Update 2026-10-10: the question closes for the 🎒 portable. (Chris), 2026-10-10: no genuine V4
+  is available, and the portable runs on a genuine V3 ([§9j](#9j--verified-on-hardware-2026-10-03)'s
+  2026-10-10 update). ⚠️ This ruling does not choose the 🏠 stationary's radio.*
 
 The verify prints its raw evidence and exits non-zero on failure. `--verify` runs the check on its
 own.
@@ -2154,6 +2183,27 @@ reboot", below).*
   - So journald was not restarted on this run, and no stream observation was owed by it (the
     "📋 Owed, standing" item below). The belief that a restart keeps the streams is not touched by
     this run.
+- ✅ **A third boot, unexplained: the 🎒 portable, `mobile-adsb`, 2026-10-10, about 11:50, read by
+  Claude over SSH, read-only, in the 12:40s.** *Added 2026-10-10.*
+  - The boot that began at 11:14:26 (the second reboot, above) ended with **no shutdown sequence**
+    in its journal. Its last entry is 11:49:32.
+  - `uptime -s`: 11:50:42. The new boot's first journal entry: 11:50:48.
+  - Among the files pulled that day is `20261010T185000Z.beast.pcap.torn`, opened at 11:50:00
+    Arizona time, 1,247 records, torn. So the writer was recording at 11:50:00, and the Pi was up
+    again by 11:50:42.
+  - ⚠️ **The last journal entry is not the moment of the reset.** The journal ends at 11:49:32,
+    but the writer opened a file at 11:50:00, so at least the boot's last ~28 s never reached the
+    persistent journal.
+  - systemd runs the hardware watchdog with a 1-minute timeout. `throttled=0x0` in the current
+    boot, and no undervoltage line in the previous boot's journal.
+  - Chris, asked whether he cut the power: *"Not sure."*
+  - ➡️ **An unexplained unclean reset.** ⚠️ Belief, Claude's, not checked: a power blip, because a
+    hang ended by the 1-minute watchdog fits poorly in the 42 s between the writer's 11:50:00 file
+    and the 11:50:42 boot. Its investigation is an item in [ROADMAP.md](ROADMAP.md).
+  - **The opener's firing at 11:54:51 was correct.** `adsb-home-update.timer` is `OnBootSec=4min`
+    plus `OnCalendar=*-*-* 04:30:00`, with `Persistent=no` (the step renders no `Persistent=` line,
+    and its header says why: `setup/steps/70-portable-home-update.sh`). 11:54:51 is boot plus
+    4 min 09 s: the `OnBootSec=` fire of this boot, not a missed 04:30 caught up.
 - 📋 **Owed, standing: the stream observation, by hand, whenever step 06's restart runs on a rig
   where `readsb` is already running.** *Added 2026-10-10,* by the ~~11:00~~ *10:35 (time corrected
   2026-10-10)* ruling above.
@@ -2510,8 +2560,10 @@ the writer. Choosing for them now would get ahead of both.
 [§9m](#9m--the-portable-rigs-archive-drive), under "The archive writer". The timing this section
 waited for has come: the writer is being built now, and its extractor is built alongside it, as
 BUILD.md §9 says. 📋 Decided, ~~not built~~ *built: corrected 2026-10-04, `bin/adsb-writer` and
-`tools/adsb-extract` are written, and the writer records on the 🎒 portable Pi (the end of §9m)*. The uploader's language is still not chosen; BUILD.md §8
-step 4 still puts it last.
+`tools/adsb-extract` are written, and the writer records on the 🎒 portable Pi (the end of §9m)*. The uploader's language is still not chosen; ~~BUILD.md §8
+step 4 still puts it last.~~ *Corrected 2026-10-10: its place is ruled. (Chris), 2026-10-10: the
+uploader is the first step of the 🏠 stationary work; see "Update 2026-10-10: both rigs get an
+automatic uploader", at the end of this section.*
 
 **Only the interfaces are fixed:**
 
@@ -2597,6 +2649,61 @@ installed there by `20-portable-clock`; see the end of [§9m](#9m--the-portable-
 - ➡️ **The storage design does not wait on the open item above.** File names use the disciplined Pi
   clock's wall time. Only the writer's per-frame time depends on what a BEAST frame carries.
 
+**Recorded 2026-10-10: the data-path rulings of 2026-10-04. (Chris), 2026-10-04, after midnight.**
+Until 2026-10-10 no document in this repo held them, though BUILD.md §8 step 4 cites the gate below.
+
+- **The archive goes to its own off-site store:** not a bucket, and not a folder shared with another
+  project.
+- *"Lets get [the private service] built first. For now we can save to a drive and I will upload
+  manually."* ➡️ The interim: each rig saves to its own disk (`uploader.endpoint: null`), and Chris
+  moves the data off by hand ([§9m](#9m--the-portable-rigs-archive-drive), "What it is for").
+  *Overtaken in part on 2026-10-10: by the pull into a synced folder (§9m, "Update 2026-10-10: the
+  pull into a synced folder"), and by the uploader on both rigs (below).*
+- ⛔ **The gate, in his words:** *"the auto upload has to work before the remote stations can be
+  deployed."*
+- ⛔ **Not ruled: what credential a rig holds.** Chris: *"We may need to create 3rd party
+  credientials for the stations."* A reading of it, that a rig's key is a device credential under
+  Chris's own personal identity, was not accepted.
+
+**Update 2026-10-10: both rigs get an automatic uploader. (Chris), 2026-10-10, in three rulings by
+multiple-choice question.**
+
+- **About 12:39: which rig, if any, still gets an uploader.** *"Both get it - make my life easier
+  please."* His aim: fewer hand steps.
+- **About 12:55: the receiving end is a route in the private service outside this repo planned on
+  2026-10-04** (above). Chris's choice; no reason beyond the choice itself is on record.
+  - Not taken: a small standalone receiving service, with its own keyless account, which an
+    architecture consultation recommended the same day. The consultation's reasons for it: that
+    private service's hosting is not built, so the 🏠 stationary would wait on it; and the archive
+    is its own trust boundary.
+  - ➡️ **Consequence: the 🏠 stationary's remote deploy waits on that private service's hosting
+    being built,** because the 2026-10-04 gate above stands: automatic upload must work before any
+    remote station deploys.
+- **About 12:55: the uploader is not part of the 🎒 portable's completion.** It is the first step
+  of the 🏠 stationary work: built and first proven on the 🎒 portable at home, where a hand can
+  reach the drive, then inherited by the stationary. The order is in [ROADMAP.md](ROADMAP.md)
+  ([§8](#8-sequencing)'s 2026-10-10 update).
+- ℹ️ **The consultation's rig-side shape: a recommendation for the uploader's design session, not
+  ruled.**
+  - A generic client in this repo, for a three-call contract: open; a resumable PUT to a URL the
+    endpoint hands back; confirm.
+  - Signed with a key the rig generates on its first boot, so no secret is delivered to a rig.
+    ⚠️ What credential a rig holds is not ruled (the 2026-10-04 rulings above).
+  - A file is deleted locally only on confirm. `endpoint: null` stays a valid rig.
+  - On the 🎒 portable it would run alongside the writer, at home only: the opener's SSID resolver,
+    `bin/adsb-at-home`, plus a guard that refuses on a metered link. It would take closed 10-minute
+    files, never inside the pull window.
+  - `adsb-extract --decode` would move onto the rig, per file, before upload.
+  - The pull keeps its role for the window and the update.
+- **What it overtakes, and what stays:**
+  - §9m's "moved off by hand (`uploader.endpoint: null`)" is the interim until the uploader.
+  - ⛔ **The 🏠 stationary's refusal of an `uploader:` block stays in force until the change that
+    lands the uploader.** It is planned behavior, not code: [§9b](#9b-one-bash-script-per-build-step)
+    rules it for `20-stationary-clock`, which is not written, and the stationary template's closing
+    comment says the same (✅ read in `config/station.stationary.example.yml`: *"THERE IS
+    DELIBERATELY NO `uploader:` BLOCK HERE"*).
+  - The uploader's language is still not chosen.
+
 ### 9j. ✅ Verified on hardware, 2026-10-03
 
 Chris pasted this output from the 🎒 portable rig, a Pi 4 (4 GB) with hostname `mobile-adsb`:
@@ -2679,9 +2786,11 @@ and the board, with close-ups. ✅ Read from those photos:
 matches the software: `rtl_test` printed an R820T tuner, and the library reports the R820T2 as
 *"R820T"*.
 
-**(Chris), 2026-10-03: return the stick, and buy a genuine V4** from RTL-SDR Blog's store or a
-seller listed on rtl-sdr.com. Building continues on this stick meanwhile, because it decodes 1090
+**(Chris), 2026-10-03: return the stick, ~~and buy a genuine V4~~** ~~from RTL-SDR Blog's store or a
+seller listed on rtl-sdr.com~~. Building continues on this stick meanwhile, because it decodes 1090
 on the stock 2.0.2 library.
+*Superseded 2026-10-10 (Chris), in its second half: no genuine V4 is coming. See "Update
+2026-10-10: no genuine V4; the portable runs on a genuine V3", at the end of this section.*
 
 **(Chris), 2026-10-04:** *"I will return these."* He is returning them.
 
@@ -2844,6 +2953,20 @@ then merged to `main` (`42b5115`, CI green), and `stable` advanced.
   restart, not a comparison of the sticks. Range is not comparable, because `readsb` has no receiver
   location configured.
 
+**Update 2026-10-10: no genuine V4; the portable runs on a genuine V3. (Chris), 2026-10-10, about
+12:35, in chat:** *"A genuine V4 is not available - we are running on a genuine V3 for the mobile."*
+
+- The source for "not available": GitHub issue #25, "RTL-SDR BLOG V4 - end of life notice", opened
+  2026-09-07, which cites RTL-SDR Blog's end-of-line notice
+  (<https://www.rtl-sdr.com/rtl-sdr-blog-v4-end-of-line/>). ✅ The issue was read with
+  `gh issue view 25`. ⚠️ The notice itself was not opened; that it says end of line is from the
+  issue's text.
+- ➡️ It supersedes the 2026-10-03 ruling's second half, to buy a genuine V4 (above).
+- ➡️ It closes, for the 🎒 portable, the question of whether a genuine V4 brings back the R828D
+  requirement ([§9c](#9c-every-step-ends-in-a-check-of-the-observable-effect)). ⚠️ It does not choose
+  the 🏠 stationary's radio.
+- The warning that counterfeit V4s are sold stays: it is still true of what is sold.
+
 ### 9k. The first deliverable, in order
 
 1. `setup/lib.sh` + `setup/steps/00-drivers.sh` + the CI workflow, **in one change.**
@@ -2869,6 +2992,9 @@ then merged to `main` (`42b5115`, CI green), and `stable` advanced.
 The foundation scripts come when the stationary build starts. *Update 2026-10-04 (evening): two
 foundation scripts came first, for the 🎒 portable's first build, `rtc-overlay.sh` and
 `format-archive.sh` (§9e); the 🏠 stationary's still come with its build.*
+
+*Update 2026-10-10: the order of remaining work is in [ROADMAP.md](ROADMAP.md)
+([§8](#8-sequencing)'s 2026-10-10 update). This list stays as the record of the first deliverable.*
 
 ### 9l. Rejected
 
@@ -2994,6 +3120,9 @@ The workstation pulls instead.
 ⛔ **Rejected: copying the archive off, then trimming the drive.** **(Chris)** chose a move.
 `rsync --remove-source-files` verifies each file before it deletes the source. ⚠️ Accepted
 consequence: once pulled, the workstation holds the only copy until it is uploaded onward.
+*Update 2026-10-10: under the interim pull into a synced folder, the accepted consequence is that
+the only copy sits in the sync client's cache until it syncs
+([§9m](#9m--the-portable-rigs-archive-drive), "Update 2026-10-10: the pull into a synced folder").*
 
 ⛔ **Rejected: the spool on the SD card.** It wears the card, and it would be a second place to pull
 from.
@@ -3063,7 +3192,10 @@ lost day that gets fixed is acceptable; a failure that keeps losing data is not.
 
 **What it is for.** **(Chris), 2026-10-03:** both rigs archive everything, for matching to
 photographs by UTC time. **(Chris), 2026-10-04:** each rig saves to its own disk, and the data is
-moved off by hand (`uploader.endpoint: null`). ⚠️ ~~[BUILD.md §2](BUILD.md#2-two-rigs-not-one),
+moved off by hand (`uploader.endpoint: null`). *Update 2026-10-10: by hand until the uploader, which
+both rigs now get ([§9i](#9i-what-is-not-chosen-yet-the-writer-the-extractor-the-uploader)'s
+2026-10-10 update, beside the 2026-10-04 data-path rulings this sentence comes from); meanwhile the
+pull goes into a synced folder ("Update 2026-10-10: the pull into a synced folder", below).* ⚠️ ~~[BUILD.md §2](BUILD.md#2-two-rigs-not-one),
 [BUILD.md §9](BUILD.md#9--the-archive-and-feeding) and the README still frame the archive as the 🏠
 stationary rig's alone; see the consequences table below.~~ *Corrected 2026-10-10: BUILD.md §2, the
 first line of BUILD.md §9 and the README now say both rigs archive everything, by dated corrections
@@ -3303,7 +3435,9 @@ tail or a bad block costs an hour instead of ten minutes. 10-minute files are on
 verifies each transferred file before it deletes the source.
 
 - **(Chris), 2026-10-04: move, not copy.** ⚠️ Accepted consequence: once pulled, the workstation
-  holds the only copy until it is uploaded onward.
+  holds the only copy until it is uploaded onward. *Update 2026-10-10: under the interim pull into a
+  synced folder ("Update 2026-10-10: the pull into a synced folder", below), the only copy sits in
+  the sync client's cache until it syncs.*
 - There is no `retention_days` on the portable. The only deletion besides the pull is the backstop
   below.
 - Rejected: pushing from the Pi, which puts a credential to the workstation on a rig that travels and
@@ -3402,13 +3536,51 @@ advanced to `2ace345`. The mechanism below is from
   status stays rsync's. A no-frames file raises no banner, because `--decode` exits 0 on it.
   - ⚠️ On a rerun after a pull that died part-way, rsync may find a file already identical at the
     destination. That file is deleted from the rig without being named, so it is not decoded.
-  - 📋 Not yet seen on a real pull: no pull has run with step 5.
+  - ~~📋 Not yet seen on a real pull: no pull has run with step 5.~~ *Corrected 2026-10-10: step 5
+    first ran on a real pull on 2026-10-10 at about 12:59, the trial pull into a synced folder
+    ("Update 2026-10-10: the pull into a synced folder", below).*
 
 ✅ **Seen 2026-10-10, by Claude on the workstation, read-only,** with `--decode` on the
 workstation's pulled archive: 106 files, exit 0, 0 failing, 7 with no frames. DF17/18 was
 1,134,485/1,134,485 CRC-valid, with 1,205 distinct addresses across the set. On the 27 files of the
 2026-10-10 hand review it reproduces 287,930/287,930 CRC-valid and 474 distinct addresses across
 those files; the per-file counts sum to 835.
+
+**Update 2026-10-10: the pull into a synced folder, the interim for where the collected data lives.
+(Chris), 2026-10-10, about 12:55, by multiple-choice question ("one trial pull"),** approving an
+architecture consultation's interim of the same day.
+
+- **Where it starts:** the 2026-10-04 data-path rulings
+  ([§9i](#9i-what-is-not-chosen-yet-the-writer-the-extractor-the-uploader), "Recorded 2026-10-10"):
+  the archive goes to its own off-site store, moved there by hand for now. On 2026-10-09 the store
+  was created, and the 106 files already pulled were copied there by hand (✅ seen: the store's
+  folder holds them).
+- **The interim:** run `tools/pull-archive` with its destination set to a synced folder on the
+  workstation that mirrors into the archive's off-site store. "Pull, then upload by hand" becomes
+  one hand step, with no code change and no new credential anywhere. ✅ No code change is needed:
+  the destination is already the wrapper's second argument (`tools/pull-archive <ssh-target>
+  <destination-dir>`, read in the script).
+- ⛔ **It is not automatic, and it is not the uploader**
+  ([§9i](#9i-what-is-not-chosen-yet-the-writer-the-extractor-the-uploader)'s 2026-10-10 update).
+- ⚠️ **Accepted consequence, changed:** "once pulled, the workstation holds the only copy until it
+  is uploaded onward" ("The pull", above) becomes: the only copy sits in the sync client's cache
+  until it syncs.
+- ✅ **The trial, seen by Claude, 2026-10-10, 12:58:32 to 12:59:22:**
+  - 21 files moved; 0 left on the rig's drive; the writer recording again
+    (`20261010T195919Z.beast.pcap.part`).
+  - `--decode`, run by `tools/pull-archive`'s own step 5 inside the pull's run: it printed
+    "==> decoding the 21 archive file(s) this pull moved", then 21 lines and the total. 21 files,
+    0 failing, 0 with no frames; DF17/18 193,330/193,330 CRC-valid; 322 distinct addresses. ➡️ The
+    first real pull with step 5, at about 12:59.
+  - The off-site store shows the last file, `20261010T195000Z.beast.pcap`, created 19:58:39Z,
+    874,652 bytes, equal to its size on the workstation (the store's API search, and `stat`).
+  - ⚠️ **Not checked:** the hashes of every file in the store; how the sync client behaves on a
+    pull of several GB.
+- 📋 **Still open, for where the collected data lives:**
+  - a database: whether, of what (raw files, decoded rows, an index for photo correlation), and
+    where it runs. **(Chris), 2026-10-09:** *"we need to put the collected data into a database
+    and/or file location"*;
+  - the store's folder layout, which is provisional.
 
 **The pull window. (Chris), 2026-10-04: the pull ends the recording session.** *Narrowed
 2026-10-05, by the ruling of 2026-10-04 (night) at the end of [§9f](#9f-what-updatesh-does): a
@@ -3503,7 +3675,9 @@ directory is never empty. ~~It fixes the destination,~~ *The destination is an a
 workstation path cannot go in this public repo (corrected 2026-10-04, as built),* and it prints the
 file count, the bytes moved and what remains. *Update 2026-10-10: since `2ace345` it has a fifth
 step, a `--decode` of the files the pull moved, after the window is closed; see "Update 2026-10-10:
-the tool half is built", after "The pull" above. ⚠️ No pull has run with it.*
+the tool half is built", after "The pull" above. ~~⚠️ No pull has run with it.~~* *Corrected
+2026-10-10: it first ran on a real pull on 2026-10-10 at about 12:59 ("Update 2026-10-10: the pull
+into a synced folder", above).*
 
 *As built, 2026-10-04 (evening), the build's own choices after review; ~~⚠️ not yet run against the
 Pi~~:* *Corrected 2026-10-10: run against the 🎒 portable at about 10:12 on 2026-10-10, opening the
@@ -4273,7 +4447,7 @@ portable rig. Seen by Claude on 2026-10-04, over read-only SSH on the Pi or in o
 | BUILD.md §4 | ⚠️ "Installing either from `apt` can quietly pull an old one back in" | Re-examine. ~~On trixie the packaged `readsb` links the same 2.0.2 library ([§9j](#9j--verified-on-hardware-2026-10-03))~~ *Corrected 2026-10-04: on trixie the packaged `readsb` links no `librtlsdr` at all. It is built without RTL-SDR support and cannot drive the stick ([§9j](#9j--verified-on-hardware-2026-10-03)). Lines 149 and 153–154 make the same linking claim. On forky, whose `readsb` 3.16-2 depends on `librtlsdr0`, the concern applies again* *Done 2026-10-10, in the stale sweep: BUILD.md §4 strikes the sentence and corrects it, and the code block's comment carries the same correction* |
 | README "The three traps that cost the most time", trap 1, lines 39–40 | "`readsb`/`dump1090-fa` link against it, so installing either from `apt` can quietly undo the fix" | *Added 2026-10-04.* The same correction as the BUILD.md §4 row above: on trixie the packaged `readsb` links no `librtlsdr` and cannot drive an RTL-SDR ([§9j](#9j--verified-on-hardware-2026-10-03)). *Done 2026-10-10, in the stale sweep: the README's trap 1 strikes the clause and corrects it* |
 | BUILD.md §4, lines ~~169–171~~ *183–185 (corrected 2026-10-10)* | "If it says R820T2, or reports nothing, the old driver is still in the path" | The inference "R820T2 means the old driver" is wrong in at least one case. A stick reporting R820T on a current library may be a counterfeit, not an old driver ([§9j](#9j--verified-on-hardware-2026-10-03)). *Done 2026-10-10, in the stale sweep: BUILD.md §4's ✅ check strikes "says R820T2, or" and says why; the sweep moved it, so the lines named in this row no longer hold it* |
-| BUILD.md §4, the code block (lines 152–164) and the paragraph after it (lines 175–178) | "`sudo apt purge '^librtlsdr'`" … "then build current librtlsdr from osmocom/rtl-sdr"; "Build from `osmocom/rtl-sdr`, not `rtlsdrblog/rtl-sdr-blog`" | *Added 2026-10-10.* The steps do the opposite: `00-drivers` installs the packaged `rtl-sdr` from apt, and `10-decoder` installs `librtlsdr0` and `librtlsdr-dev` from apt and builds `readsb` against the packaged 2.0.2 ([§9j](#9j--verified-on-hardware-2026-10-03)). No step purges `librtlsdr` or builds it from source. `setup/steps/10-decoder.sh:98–101` sends the reader to this table for it, which had no row until this one. *Done 2026-10-10: BUILD.md §4 carries a dated correction after the block (lines 166–173) saying what the steps do; the recipe is kept as written beside it.* Still owed, in code: `10-decoder.sh:98–101` then calls BUILD.md §4 "queued for a rewrite", and gives "no V4 is coming" as a reason, which no ruling in this file says: (Chris), 2026-10-03, ruled to buy a genuine V4 ([§9j](#9j--verified-on-hardware-2026-10-03)) |
+| BUILD.md §4, the code block (lines 152–164) and the paragraph after it (lines 175–178) | "`sudo apt purge '^librtlsdr'`" … "then build current librtlsdr from osmocom/rtl-sdr"; "Build from `osmocom/rtl-sdr`, not `rtlsdrblog/rtl-sdr-blog`" | *Added 2026-10-10.* The steps do the opposite: `00-drivers` installs the packaged `rtl-sdr` from apt, and `10-decoder` installs `librtlsdr0` and `librtlsdr-dev` from apt and builds `readsb` against the packaged 2.0.2 ([§9j](#9j--verified-on-hardware-2026-10-03)). No step purges `librtlsdr` or builds it from source. `setup/steps/10-decoder.sh:98–101` sends the reader to this table for it, which had no row until this one. *Done 2026-10-10: BUILD.md §4 carries a dated correction after the block (lines 166–173) saying what the steps do; the recipe is kept as written beside it.* Still owed, in code: `10-decoder.sh:98–101` then calls BUILD.md §4 "queued for a rewrite", and gives "no V4 is coming" as a reason, which no ruling in this file says: (Chris), 2026-10-03, ruled to buy a genuine V4 ([§9j](#9j--verified-on-hardware-2026-10-03)). *Update 2026-10-10: a ruling says it now: (Chris), 2026-10-10, no genuine V4 is available, and the 🎒 portable runs on a genuine V3 (§9j's 2026-10-10 update). The comment's correction is still owed, in code, and is in [ROADMAP.md](ROADMAP.md)'s sweep fixes* |
 | README "The three traps that cost the most time" / BUILD.md §3a parts table, row 3 | — | Warn that counterfeit V4s are sold, Amazon included ([§9j](#9j--verified-on-hardware-2026-10-03)). The check is `rtl_eeprom` (its Manufacturer and Product strings) plus `rtl_test` naming the R828D. Buy from RTL-SDR Blog or a seller listed on rtl-sdr.com. *Corrected 2026-10-05: the EEPROM strings do not tell a counterfeit from a V3, because both read `Realtek` / `RTL2838UHIDIR` ([§9j](#9j--verified-on-hardware-2026-10-03)), so the tuner name is the only tell. And since 2026-10-05 no verify opens the stick, so that check is the hand check in BUILD.md §8, not a step's* *Done 2026-10-10, in the stale sweep: BUILD.md §3a row 3 and the README's trap 1 carry the warning, with the tuner name as the only tell and the hand check in BUILD.md §8 step 0* |
 | BUILD.md §7 | "uploader (yours to write)" | It ships in this repo. *Done 2026-10-10, in the stale sweep: BUILD.md §7 corrects the line below its 🎒 portable block; the uploader is not written* |
 | BUILD.md §8 | Steps with no scripts | Name each step's script, and add the [§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away) pre-ship checklist. *Done 2026-10-10, in the stale sweep: BUILD.md §8 lists the step scripts the one command runs, and its step 6 points at the pre-ship checklist here rather than copying it* |
@@ -4285,7 +4459,7 @@ portable rig. Seen by Claude on 2026-10-04, over read-only SSH on the Pi or in o
 | `.gitignore` | `config/*.local.yml`, with no comment | Document what it is for, or drop it |
 | BUILD.md §2, the **Job** row | 🎒 "Log tracks at the location you are shooting from"; 🏠 "Continuous archive, feeding, ACARS harvesting" | *Added 2026-10-04.* Both rigs archive everything, for matching to photographs by UTC time (**(Chris)**, 2026-10-03, [§9m](#9m--the-portable-rigs-archive-drive)). *Done 2026-10-10, in the stale sweep: a dated note below BUILD.md §2's table; the row itself is kept as written* |
 | BUILD.md §3b | Portable parts 6–10, with nothing to archive onto | *Added 2026-10-04.* A USB flash drive for the archive, formatted ext4 by hand, in a black USB 2 port ([§9m](#9m--the-portable-rigs-archive-drive)). *Done 2026-10-10, in the stale sweep: added below BUILD.md §3b's table, formatted by the one command under its strict rule, or by hand when it refuses (as §9e now rules)* |
-| BUILD.md §7, the 🎒 portable block | "uploader (yours to write) → reads aircraft.json + gpsd, spools to disk; ships on the next network, never in the field" | *Added 2026-10-04.* The same line as the earlier "BUILD.md §7" row, which says the uploader ships in this repo; make both changes together. An archive writer on the portable too, writing to the archive drive, with the spool on that drive. The data is moved off by a pull from your workstation over your home network, and `uploader.endpoint` stays null ([§9m](#9m--the-portable-rigs-archive-drive)). *Done 2026-10-10, in the stale sweep, with the "uploader (yours to write)" row: one correction below BUILD.md §7's 🎒 portable block; the block itself is kept as written* |
+| BUILD.md §7, the 🎒 portable block | "uploader (yours to write) → reads aircraft.json + gpsd, spools to disk; ships on the next network, never in the field" | *Added 2026-10-04.* The same line as the earlier "BUILD.md §7" row, which says the uploader ships in this repo; make both changes together. An archive writer on the portable too, writing to the archive drive, with the spool on that drive. The data is moved off by a pull from your workstation over your home network, and `uploader.endpoint` stays null ([§9m](#9m--the-portable-rigs-archive-drive)). *Done 2026-10-10, in the stale sweep, with the "uploader (yours to write)" row: one correction below BUILD.md §7's 🎒 portable block; the block itself is kept as written* *Update 2026-10-10: "`uploader.endpoint` stays null" is overtaken in part; see the 2026-10-10 row for BUILD.md §7 at the end of this table* |
 | BUILD.md §8 | No archive step | *Added 2026-10-04.* Name `30-archive-drive`, after the clock step and before the writer. ~~Add formatting the drive as a human gate,~~ *Corrected 2026-10-04 (evening): on the 🎒 portable, formatting is no longer a human gate; the bootstrap's foundation tier formats under a strict rule, and a human formats only when it refuses ([§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic)). BUILD.md §8 now says what the one command does without asking, the format among it. Still owed:* and the 🎒 pre-field checklist ([§9m](#9m--the-portable-rigs-archive-drive)). *Done 2026-10-10, in the stale sweep: BUILD.md §8's list of step scripts names `30-archive-drive` after the clock step and before the writer, and its step 3 points at the pre-field checklist* |
 | BUILD.md §9, the heading and first line | "🏠 The archive, and feeding"; "⛔ This is the stationary rig's job, and it is why that rig exists." | *Added 2026-10-04.* The archive is no longer the stationary rig's alone: both rigs archive everything (**(Chris)**, 2026-10-03, [§9m](#9m--the-portable-rigs-archive-drive)). *Done 2026-10-10, in the stale sweep, for the first line: BUILD.md §9 strikes it and corrects it. The heading is kept as written, because its anchor, `#9--the-archive-and-feeding`, is linked from this file* |
 | README "The idea worth stealing", the **Job** row, line 22 | 🏠 "Continuous archive, feeding aggregators, harvesting ACARS" | *Added 2026-10-04.* The same as the BUILD.md §2 row above: both rigs archive everything. *Done 2026-10-10, in the stale sweep: a dated note below the README's table; the row itself is kept as written* |
@@ -4298,3 +4472,6 @@ portable rig. Seen by Claude on 2026-10-04, over read-only SSH on the Pi or in o
 | BUILD.md §8 step 2 | "Confirm `gpsd` has a fix, `chronyc sources` shows GPS disciplining the clock, and the Pi still knows the time after a power cycle **with the network unplugged**" | *Added 2026-10-04.* When this step names `20-portable-clock`, say that the script's verify checks only the install tier, and that these checks stay human gates under the sky ([§9c](#9c-every-step-ends-in-a-check-of-the-observable-effect)). *Done 2026-10-10, in the stale sweep: BUILD.md §8 step 2 names `20-portable-clock`, says its verify is install tier only, and leaves the three checks to you, under the sky* |
 | `setup/lib.sh`, `ADSB_DENY_PATHS` | No `/etc/fstab`; its comment says the list is "Written as in the PLAN §9h table" | *Added 2026-10-04.* Add `/etc/fstab` (**(Chris)**, [§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away)). CI reads this array for its grep of `setup/steps/`. *Done 2026-10-04, in commit `47ed4ed`* |
 | BUILD.md §8 | No `06-journal` | *Added 2026-10-10.* Name the shared step `06-journal` ([§9f](#9f-what-updatesh-does), "A persistent journal, step `06-journal`"): the journal made persistent, capped at `SystemMaxUse=200M`; journald restarted only under `update.sh`; run by hand, the step installs and warns, and the drop-in loads at the next boot. *Done 2026-10-10: BUILD.md §8 names it, after the list of what the one command does without asking.* Still owed, in code: the header of `setup/steps/06-journal.sh`, line 4, says "BUILD.md: none yet (no section, no §8 step)" |
+| BUILD.md §3a parts table, row 3; BUILD.md §4, "⛔ The V4 fails silently on old drivers"; README "The three traps that cost the most time", trap 1 | — | *Added 2026-10-10.* No genuine V4 is available, and the 🎒 portable runs on a genuine RTL-SDR Blog V3 ((Chris), 2026-10-10, [§9j](#9j--verified-on-hardware-2026-10-03)'s 2026-10-10 update). Keep the counterfeit warning: it is still true of what is sold. *Done 2026-10-10: BUILD.md §3a row 3 strikes ", or RTL-SDR Blog V4" and corrects it; BUILD.md §4 carries a note under its heading; the README's trap 1 carries a correction; all three keep the counterfeit warning* |
+| BUILD.md §7, the correction below the 🎒 portable block | "`uploader.endpoint` stays null" | *Added 2026-10-10.* The data is moved off by hand only until the uploader, which both rigs get ((Chris), 2026-10-10, [§9i](#9i-what-is-not-chosen-yet-the-writer-the-extractor-the-uploader)'s 2026-10-10 update); meanwhile the pull goes into a synced folder ([§9m](#9m--the-portable-rigs-archive-drive)). *Done 2026-10-10: BUILD.md §7 strikes "and `uploader.endpoint` stays null", and a correction below the next paragraph calls the null endpoint interim until the uploader. The synced folder is not mentioned there* |
+| BUILD.md §8, steps 4 to 6 | "Write the uploader last"; the second radio (step 5) before the stationary (step 6) | *Added 2026-10-10.* The order of remaining work is [ROADMAP.md](ROADMAP.md): the uploader is the first step of the 🏠 stationary work, and the second radio comes after the 🏠 stationary ((Chris), 2026-10-10, [§8](#8-sequencing)'s 2026-10-10 update). *Done 2026-10-10: BUILD.md §8 gains a note at its head pointing to ROADMAP.md; step 4 strikes "last", step 5 says it comes after the stationary, and step 6 strikes "and 5"* |

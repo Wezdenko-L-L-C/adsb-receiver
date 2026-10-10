@@ -88,7 +88,7 @@ Buy the shared core once per rig, then only the additions for the rig you are bu
 |---|---|---|
 | 1 | **Raspberry Pi 4** (3 or Zero 2 W also fine) | See [§1](#1-which-pi) |
 | 2 | **microSD, 32 GB, A2 / high-endurance** | Cheap cards are the usual cause of "it stopped working" |
-| 3 | **1090 MHz SDR** — FlightAware Pro Stick Plus, or RTL-SDR Blog **V4** | ⭐ Best is a stick with a **built-in 1090 filter + LNA**. The V4's triple-tuned front end notches broadcast FM and DAB, which is most of what swamps a generic dongle near a city — but it carries **no 1090 SAW filter**, so a **1090 bandpass** inline is still the ADS-B upgrade. ⛔ A broadcast-AM reject high-pass is *not* that filter: it cuts below ~2 MHz and does nothing at 1090. ⛔ **A V4 needs current drivers — [§4](#4-drivers-first)**. *Added 2026-10-10: ⚠️ counterfeit V4s are sold, Amazon included; the stick first used here was an R820T2 board in a printed V4 case. Its EEPROM strings read the same as a genuine V3's, so the tuner name is the only tell: the hand check in [§8](#8-build-order) step 0. Buy from RTL-SDR Blog or a seller listed on rtl-sdr.com ([PLAN.md §9j](PLAN.md#9j--verified-on-hardware-2026-10-03))* |
+| 3 | **1090 MHz SDR** — FlightAware Pro Stick Plus~~, or RTL-SDR Blog **V4**~~ | ⭐ Best is a stick with a **built-in 1090 filter + LNA**. The V4's triple-tuned front end notches broadcast FM and DAB, which is most of what swamps a generic dongle near a city — but it carries **no 1090 SAW filter**, so a **1090 bandpass** inline is still the ADS-B upgrade. ⛔ A broadcast-AM reject high-pass is *not* that filter: it cuts below ~2 MHz and does nothing at 1090. ⛔ **A V4 needs current drivers — [§4](#4-drivers-first)**. *Added 2026-10-10: ⚠️ counterfeit V4s are sold, Amazon included; the stick first used here was an R820T2 board in a printed V4 case. Its EEPROM strings read the same as a genuine V3's, so the tuner name is the only tell: the hand check in [§8](#8-build-order) step 0. Buy from RTL-SDR Blog or a seller listed on rtl-sdr.com ([PLAN.md §9j](PLAN.md#9j--verified-on-hardware-2026-10-03))* *Corrected 2026-10-10: struck ", or RTL-SDR Blog V4" from the part. A genuine V4 is not available (**(Chris)**, 2026-10-10), and RTL-SDR Blog has posted an end-of-line notice for it (<https://www.rtl-sdr.com/rtl-sdr-blog-v4-end-of-line/>). The 🎒 portable runs on a genuine RTL-SDR Blog V3, an R820T2 stick, on the packaged driver ([PLAN.md §9j](PLAN.md#9j--verified-on-hardware-2026-10-03)). The V4 notes in this row stay, for a V4 already in hand, and so does the counterfeit warning: counterfeit V4s are still sold.* |
 | 4 | **Coax + the right adapter** | ⚠️ Check connectors before ordering — FlightAware antennas are **N-female**, the sticks are **SMA-female**. You want an N-male → SMA-male cable, not a stack of adapters |
 | 5 | **Heatsink case, with a fan** | A Pi 4 throttles under sustained load, and [RADIOS.md](RADIOS.md) gives it real work |
 
@@ -170,6 +170,12 @@ but no longer the comfortable margin a single-dongle rig enjoys.
 ## 4. Drivers first
 
 ### ⛔ The V4 fails silently on old drivers
+
+*Added 2026-10-10: a genuine V4 is not available (**(Chris)**, 2026-10-10; §3a row 3), and the 🎒
+portable runs on a genuine RTL-SDR Blog V3. Like the FlightAware Pro Stick at the end of this
+section, the V3 is an R820T2 device, and it runs on the packaged driver
+([PLAN.md §9j](PLAN.md#9j--verified-on-hardware-2026-10-03)). ➡️ This section is for a V4 you
+already have.*
 
 **Do this before anything else, and do not skip it because the dongle enumerates.**
 
@@ -384,7 +390,7 @@ language is not chosen; once written it ships in this repo, not as something you
 [§9i](PLAN.md#9i-what-is-not-chosen-yet-the-writer-the-extractor-the-uploader)). The 🎒 portable
 runs an archive writer, `bin/adsb-writer`, which records `readsb`'s BEAST stream onto the archive
 drive, with the spool on that drive too. The data is moved off by a pull from your workstation over
-your home network, `tools/pull-archive`, and `uploader.endpoint` stays null
+your home network, `tools/pull-archive`, ~~and `uploader.endpoint` stays null~~
 ([PLAN.md §9m](PLAN.md#9m--the-portable-rigs-archive-drive)).*
 
 ⛔ **The portable uploader does not upload in the field.** [§2](#2-two-rigs-not-one) means it
@@ -392,6 +398,14 @@ literally: there is no network out there. It writes numbered batches to `spool_d
 session and ships them the next time the rig sees a network. ➡️ Which is why rule 3 below is not
 optional on this rig, and why `uploader.endpoint` may be null — a rig that only ever logs locally
 is a valid rig.
+
+*Corrected 2026-10-10: struck "and `uploader.endpoint` stays null" above. Both rigs get an
+automatic uploader (**(Chris)**, 2026-10-10: his aim, fewer hand steps), built and first proven on
+the 🎒 portable at home ([§8](#8-build-order) step 4). Until it lands, the pull is how the data
+comes off, and `uploader.endpoint` is null. For the two rigs here a null endpoint is therefore
+interim. Whether it stays a valid setting once the uploader exists, as the paragraph above says, is
+for the uploader's design and is not ruled
+([PLAN.md §9i](PLAN.md#9i-what-is-not-chosen-yet-the-writer-the-extractor-the-uploader)).*
 
 ℹ️ **The wifi in the [§5](#5-power-portable-only) power budget is a local link, not a route out.**
 A phone hotspot or the Pi's own AP, so you can check a headless rig is alive without carrying a
@@ -434,6 +448,16 @@ specific to a rig with no network:
 
 ➡️ **Build the 🎒 portable rig first.** The stationary rig reuses everything you learn, and steps
 0–1 are identical for both.
+
+*Added 2026-10-10: **the 🎒 portable is completed first** (**(Chris)**, 2026-10-10). "Completed"
+means the stale-sweep fixes; where the collected data lives; the interface, which is the field
+display showing the rig's position and the time for the camera shot, a viewer, and ATC playback;
+the 🎒 pre-field checklist ([PLAN.md §9m](PLAN.md#9m--the-portable-rigs-archive-drive), "The
+pre-field checklist"); and a field session. The interface comes before the 🏠 stationary's design
+(**(Chris)**, 2026-10-10: his aim, the remote rig done sooner). The uploader is not part of
+"completed": it is the first step of the stationary work (step 4 below). The second radio comes
+after the stationary (step 5 below). ➡️ Where steps 4–6 below differ from this, this holds, and the
+order of the remaining work is kept in [ROADMAP.md](ROADMAP.md).*
 
 **The software is one command.** *Added 2026-10-04.* ~~⚠️ Built, and not yet run on a Pi.~~
 *Corrected 2026-10-05: it ran on the portable Pi, `mobile-adsb`, on 2026-10-04 and again on
@@ -602,12 +626,27 @@ and no script can pass them for you:
    📋 *Added 2026-10-10: 🎒 the archive's pre-field checklist (among its items: power cuts
    mid-recording, a boot with the drive pulled, a full pull, an update inside the pull window) is in
    [PLAN.md §9m](PLAN.md#9m--the-portable-rigs-archive-drive), "The pre-field checklist".*
-4. Write the uploader last, against a receiver you already trust.
+4. Write the uploader ~~last~~, against a receiver you already trust.
+   *Corrected 2026-10-10: not last. The uploader is the first step of the 🏠 stationary work, and
+   not part of the 🎒 portable's completion (above). Both rigs get it (**(Chris)**, 2026-10-10;
+   [§7](#7-software)): it is built and first proven on the 🎒 portable at home, where a hand can
+   reach the drive, then inherited by the stationary. Its receiving end is a private service
+   outside this repo, as planned 2026-10-04. ➡️ The 🏠 stationary's remote deploy waits on that
+   service's hosting being built, because the gate of 2026-10-04 stands: automatic upload works
+   before any remote station deploys. ⚠️ Until the change that lands the uploader, the 🏠
+   stationary still has no `uploader:` block: its template leaves one out on purpose, and the
+   planned `20-stationary-clock` is to refuse one
+   ([PLAN.md §9b](PLAN.md#9b-one-bash-script-per-build-step)). Both stand until then.*
 5. ⭐ **Add a second radio only after all of the above is boring.** Adding dongles is exactly what
    destabilizes a working rig — see [RADIOS.md](RADIOS.md). ➡️ Order its parts at this point, not
    with the first order: [§3d](#3d--the-second-radio--either-rig).
-6. 🏠 **Then build the stationary rig**, reusing steps 1 and 5 — but ⛔ **not** step 2. Its own
+   *Corrected 2026-10-10: the second radio comes after the 🏠 stationary (step 6), not before it
+   (**(Chris)**, 2026-10-10; the order at the head of this section). It still goes on only once the
+   rig is boring.*
+6. 🏠 **Then build the stationary rig**, reusing steps 1 ~~and 5~~ — but ⛔ **not** step 2. Its own
    extra step is the mast, because height is the only thing that materially changes reception.
+   *Corrected 2026-10-10: struck "and 5": step 5 now comes after this one, so the stationary is
+   built before any second radio. Its first step is the uploader (step 4).*
    📋 *Added 2026-10-10: before it moves to its remote site, the pre-ship checklist in
    [PLAN.md §9h](PLAN.md#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away)
    (a sky check with the real collinear, cold power cuts, a smart-plug power cycle, the WAN unplugged, an update that rolls back, a
