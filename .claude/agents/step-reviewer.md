@@ -17,7 +17,8 @@ Read first: `docs/PLAN.md` §9 in full (§9b–§9d, §9h, §9l especially), the
 
 1. **A verify that checks the setting, not the effect** (§9c). `systemctl is-active` or `dpkg -l`
    where the step's purpose is observable directly. A verify that **trusts an exit status** without
-   knowing what the tool means by it (`rtl_test` exits non-zero on every non-E4000 tuner). A verify
+   knowing what the tool means by it (the login banner always exits 0, so `50-updater.sh` greps its
+   output; 00-drivers' first verify, 2026-10-03, had the same problem with `rtl_test`). A verify
    that can pass when the thing failed: grep patterns that match an error message too, `|| true`
    swallowing what the check needed, output read from the wrong stream.
 2. **Not idempotent.** A second run appends a duplicate line, re-downloads, restarts a service

@@ -1164,7 +1164,10 @@ In order:
    **If it has not changed, exit having touched nothing.**
    *Update 2026-10-05, (Chris): the channel is `stable` on both rigs; the soak, a role default, is
    the only role difference (§9g's 2026-10-05 update). ~~📋 Ruled, not built.~~* *Corrected
-   2026-10-05: built in `94e4f94`, ⚠️ not yet run on a Pi.*
+   2026-10-05: built in `94e4f94`, ~~⚠️ not yet run on a Pi~~.* *Corrected 2026-10-10: run on the 🎒
+   portable: its `status.json` read `channel: stable` on 2026-10-09 and 2026-10-10, and it applied
+   `5428470` and `398ad28` from `stable` on 2026-10-10 (the step-06 records at the end of this
+   section). ⚠️ The 🏠 stationary's soak of 7 has not run: no stationary is built.*
 4. Check the candidate out into a **second worktree** (blue/green, detached SHAs, ⛔ never a tracking
    branch).
 5. Run the candidate's steps.
@@ -1418,14 +1421,16 @@ the option rejected below as "`update.sh` stopping the writer".
     2026-10-10, about 08:50: built right after step 5, as the shared step `06-journal`, in the shape
     above. ~~⚠️ Not yet run on hardware.~~ The rulings, the build and its beliefs are in "A persistent
     journal, step `06-journal`", at the end of this section.* *Corrected again 2026-10-10: install
-    and verify ran on the 🎒 portable under `update.sh`; ⚠️ that the journal survives a reboot is not
-    yet seen.*
+    and verify ran on the 🎒 portable under `update.sh`; ~~⚠️ that the journal survives a reboot is not
+    yet seen~~ and the journal survived a reboot there at about 11:14 (corrected 2026-10-10; "✅ A
+    second reboot", in that block).*
 - 📋 **The step-2 success test.** Not run; it needs step 2 built and bootstrapped on the 🎒
   portable, with `status.json` at `result: applied` and the writer recording again.
   1. **A push to `main` lands by itself.** *Note 2026-10-05: under the channel ruling of
      2026-10-05 ([§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable)), the push lands
-     once `advance-stable` has run, not on "CI green" alone. 📋 Until that ruling is built, the 🎒
-     portable still pulls `main`.* Commit a harmless change that is *rendered*, such as a
+     once `advance-stable` has run, not on "CI green" alone. ~~📋 Until that ruling is built, the 🎒
+     portable still pulls `main`.~~* *Corrected 2026-10-10: the ruling is built, in `94e4f94`, and
+     the 🎒 portable pulls `stable` (§9g).* Commit a harmless change that is *rendered*, such as a
      comment in the writer unit's rendered header, so that landing shows beyond a SHA. With CI green,
      start the pull window. Over SSH, with no sudo: `status.json` reads `result: applied` at the new
      SHA, every step `ok` or `skipped (role)`, `readiness` filled in; `readlink
@@ -1526,7 +1531,10 @@ cgroup v2, which are what these mechanisms assume. Four choices below were ruled
     *Weakened 2026-10-05, by the home-gated opener ruled 2026-10-04 (night) at the end of this
     section: a portable that updates itself at home can roll back there with no one looking. That
     is reported as a reason to pull the install manifest forward on the 🎒 portable too; it is not
-    ruled.*
+    ruled.* *Corrected 2026-10-10: it was not the next change. The opener (`f411815`) and step
+    `06-journal` were built before it, and it is still not built: no helper in `setup/lib.sh` records
+    what it installs, and `install_if_changed` is still defined in each step that uses it. Its ruled place is
+    unchanged: before any 🏠 stationary deploy.*
   - Rejected: a per-step `--uninstall`, a second description of each step, run only at the worst
     moment; a step-list diff with `--uninstall`, which misses the common case, a new file inside an
     existing step; accepting the gap for good, which on the stationary would leave a rejected
@@ -1586,7 +1594,8 @@ cgroup v2, which are what these mechanisms assume. Four choices below were ruled
     helpers. Before any 🏠 stationary deploy, and the pre-ship checklist's failing commit should then
     create something.
   - **`install_if_changed` moves into `lib.sh`.** It is defined again in steps 05, 10, 20, 30, 40,
-    50 and 60, and it is where the manifest's recording goes.
+    50 and 60, and it is where the manifest's recording goes. *Update 2026-10-10: and in step 70
+    (`setup/steps/70-portable-home-update.sh`); step 06 installs its drop-in without it.*
   - **The repo's `new-step` skill is stale.** `.claude/skills/new-step/SKILL.md` still says *"Not
     an `install-all.sh`… The first build is by hand"*, which the one-command build supersedes. Not
     edited here.
@@ -1881,8 +1890,10 @@ Read on the Pi over SSH by Claude, or pasted by Chris; Arizona time, which is th
   journal is built, as step `06-journal`, ~~⚠️ not yet run on hardware, so the journal on the Pi is
   still volatile~~ ("A persistent journal, step `06-journal`", below).* *Corrected again
   2026-10-10: step 06's install and verify ran on the 🎒 portable under `update.sh` at about 10:12,
-  and its verify read a token back from `/var/log/journal/<machine-id>/`. ⚠️ That the journal
-  survives a reboot is not yet seen.*
+  and its verify read a token back from `/var/log/journal/<machine-id>/`. ~~⚠️ That the journal
+  survives a reboot is not yet seen.~~ Corrected 2026-10-10: after Chris rebooted it at about 11:14,
+  `journalctl --list-boots` shows two boots, and the earlier boot reads back ("✅ A second reboot",
+  below).*
 - ⚠️ ~~**No automatic open has happened yet:** nothing has been pending. The open path, the window's
   start, a new `InvocationID` on `adsb-update.service`, then the outcome, is still a belief, as is
   `ExecMainStatus` holding the oneshot's exit code.~~ *Corrected 2026-10-10: the first automatic
@@ -1898,8 +1909,9 @@ Read on the Pi over SSH by Claude, or pasted by Chris; Arizona time, which is th
 "Open, ruled to be decided later" item above that put the persistent journal later. Built in
 `787fd06`, `cc26f27`, `5f4a077` and `77e7282` (`setup/steps/06-journal.sh`). ~~⚠️ **Not yet run on
 hardware.**~~ *Corrected 2026-10-10: install and verify ran on the 🎒 portable under `update.sh`, in
-the pull window at about 10:12 (the "✅ Run on hardware" block below). ⚠️ That the journal survives
-a reboot is not yet seen.*
+the pull window at about 10:12 (the "✅ Run on hardware" block below). ~~⚠️ That the journal survives
+a reboot is not yet seen.~~ Corrected 2026-10-10: it survived a reboot at about 11:14 ("✅ A second
+reboot", below).*
 
 - **About 08:50: a persistent journal on both rigs, built right after step 5, as a shared step
   06.** The reason given: the "logs reset every day" observation was in fact every reboot.
@@ -1920,8 +1932,10 @@ a reboot is not yet seen.*
       holds the lock; otherwise warn that the drop-in loads at the next boot.
     - **"Leave as built":** always restart; run by hand, the restart is Chris's own choice, and the
       warning reports it.
-- **About 11:00, by multiple-choice question, on an architecture consultation's recommendation:
-  the stream check is dropped** (option B). The step keeps journald's `NFileDescriptorStore` before
+- **~~About 11:00~~ *about 10:35*, by multiple-choice question, on an architecture consultation's recommendation:
+  the stream check is dropped** (option B). *Corrected 2026-10-10: the time. The consultation's
+  report closed at about 10:31, the ruling came after it, and the commits that carry it, `b91e874`
+  and `398ad28`, were made at 10:44, so 11:00 is impossible.* The step keeps journald's `NFileDescriptorStore` before
   and after the restart, printed and not judged, and `readsb`'s and `adsb-writer`'s `InvocationID`
   and `NRestarts` before and after, warned. How it came to a question: the check that paired each
   unit's fd 1 with journald through `ss -xpn` warned falsely on its first run on hardware, because
@@ -1993,7 +2007,8 @@ a reboot is not yet seen.*
     judged; ~~each unit's fd 1 held by the new journald, read from `ss -xpn`;~~ and each unit's
     `InvocationID` and `NRestarts`, before and after. ~~All three warn and never die.~~
     *Corrected 2026-10-10: the store's count is printed, not judged; a changed `InvocationID` or
-    `NRestarts` is warned; neither dies. The `ss -xpn` check is removed by the 11:00 ruling above. It
+    `NRestarts` is warned; neither dies. The `ss -xpn` check is removed by the ~~11:00~~ 10:35 ruling
+    above (time corrected 2026-10-10). It
     warned falsely on its first run, because `ss` sees no unix peers on the Pi's kernel (the "✅ Run
     on hardware" block below), and the stream-file check that replaced it, on the same branch, was
     never shipped. In the step, `fd_store` reads the store and `unit_mark` the two values, compared in
@@ -2042,7 +2057,8 @@ a reboot is not yet seen.*
     seen: the kernel, `6.18.50+rpt-rpi-v8`, has `# CONFIG_UNIX_DIAG is not set`, so `ss` reads
     `/proc/net/unix`, which carries no peers: every one of the 106 unix sockets showed peer 0. The
     warning was the check's, not a dropped stream.
-  - The streams, seen, not as root: after the restart, the inodes of the sockets bound to
+  - The streams, seen, not as root *(added 2026-10-10: read by Claude over SSH at about 10:30,
+    after the run, not within the 10:12 to 10:13 of this block's heading)*: after the restart, the inodes of the sockets bound to
     `/run/systemd/journal/stdout` (journald's ends) equal, 16 of 16, the inode parts of the file
     names in `/run/systemd/journal/streams/` (`9:<ino>`). Sockets created at boot (08:41; 345, 10330
     and 10343, for example) are still among them after the restart at about 10:12. Two stream files
@@ -2052,11 +2068,39 @@ a reboot is not yet seen.*
   - Also seen: `readsb` and `adsb-writer` both have `StandardOutput=journal`,
     `StandardError=inherit` and `IgnoreSIGPIPE=yes`; `readsb` has `Restart=always`, the writer
     `Restart=on-failure`; the writer has two `ExecStartPre=+` preflights.
-  - ⚠️ **Not yet seen: a second reboot,** for `journalctl --list-boots` to show two boots or more.
+  - ⚠️ ~~**Not yet seen: a second reboot,** for `journalctl --list-boots` to show two boots or more.
     That is the remaining hardware observation for persistence itself (in
-    [§9m](#9m--the-portable-rigs-archive-drive)'s pre-field checklist).
+    [§9m](#9m--the-portable-rigs-archive-drive)'s pre-field checklist).~~ *Corrected 2026-10-10:
+    seen, at about 11:14; see "✅ A second reboot" right below.*
+- ✅ **A second reboot: the 🎒 portable, `mobile-adsb`, 2026-10-10, rebooted by Chris at home at
+  about 11:14, read by Claude over SSH, read-only, as a login in group `adm`.** *Added 2026-10-10.*
+  - `uptime -s`: 11:14:20.
+  - `journalctl --list-boots` shows two boots: `-1`, `3ab92481…`, from 08:41:05 to 11:14:10, its
+    last entry the shutdown's (`systemd-shutdown`, "Journal stopped"); and `0`, `193ee80b…`, from
+    11:14:26. `journalctl -b -1` reads back, 5,366 lines. Its first entry is that boot's start,
+    08:41:05, so what journald held in `/run` before step 06's flush at about 10:12 to 10:13 was
+    carried to disk by that flush.
+  - Step 06's own verify tokens (tag `adsb-06-journal`) from the run before the reboot, logged at
+    10:12:40 and 10:13:03, were still on disk after it, beside this run's of 11:18:27 and 11:18:43:
+    direct evidence that the journal survives a reboot.
+  - The opener opened the window by itself: `adsb-home-update.timer` fired at 11:18:20.
+    `status.json` then read `trigger: window`, `opened_by: adsb-home-update`, started 11:18:25,
+    finished 11:19:03, `result: applied`, exit 0, `applied_rev` `398ad28`, `failed_steps: []`,
+    `rollback: null`; all ten steps' install and verify ok; `06-journal` took 3 s.
+  - Step 06's log (run directory `20261010T181826Z`): the drop-in "is unchanged"; tmpfiles ran;
+    "journald (PID 293) has a file open under /var/log/journal/<machine-id>/, started after the
+    drop-in was written, and the drop-in is unchanged; not restarted". Every verify check passed:
+    the drop-in matches its render; `cat-config`'s last word is `Storage=persistent` and
+    `SystemMaxUse=200M`; the machine directory is `root:systemd-journal 2755`; the token was read
+    back from disk. `journalctl --disk-usage` gave 20.7M.
+  - Afterwards `readsb` and `adsb-writer` were active; `readsb` had `NRestarts=0` and
+    `ActiveEnterTimestamp` 11:14:38.
+  - So journald was not restarted on this run, and no stream observation was owed by it (the
+    "📋 Owed, standing" item below). The belief that a restart keeps the streams is not touched by
+    this run.
 - 📋 **Owed, standing: the stream observation, by hand, whenever step 06's restart runs on a rig
-  where `readsb` is already running.** *Added 2026-10-10,* by the 11:00 ruling above.
+  where `readsb` is already running.** *Added 2026-10-10,* by the ~~11:00~~ *10:35 (time corrected
+  2026-10-10)* ruling above.
   - On a first build, `06-journal` restarts journald before `10-decoder` and `40-archive-writer`
     install (`update.sh`'s `step_list` takes the steps in file-name order; §9b). So no stream unit
     is running and nothing can be dropped: `readsb` is started by `10-decoder` afterwards, and the
@@ -2086,20 +2130,23 @@ a reboot is not yet seen.*
     journald's PID in the columns the check reads~~ *corrected 2026-10-10: the flush returned
     within its 30 s bound on the 🎒 portable (the whole step took 7 s). The `ss -xpn` belief is
     moot: `ss` sees no unix peers on the Pi's kernel, and the check that rested on it is removed (the
-    11:00 ruling above)*;
+    ~~11:00~~ 10:35 ruling above; time corrected 2026-10-10)*;
   - the 🏠 stationary's clock. It is not built, and may have no RTC: then fake-hwclock can make
     journald look older than the drop-in, which costs one extra restart under the lock and corrects
     itself;
   - ~~all of step 06: it has not run on hardware.~~ *Corrected 2026-10-10: install and verify ran
-    on the 🎒 portable under `update.sh` (above). Still not seen: the journal surviving a reboot, and
-    any run on the 🏠 stationary.*
+    on the 🎒 portable under `update.sh` (above). Still not seen: ~~the journal surviving a reboot,
+    and~~ any run on the 🏠 stationary. Corrected 2026-10-10: the journal surviving a reboot is seen,
+    on the 🎒 portable at about 11:14 ("✅ A second reboot", above).*
 
 ### 9g. Channels: portable tracks `main`, stationary tracks `stable`
 
 *Corrected 2026-10-05, (Chris): the heading's "portable tracks `main`" is superseded. Both rigs
 follow `stable`, and the soak is the only role difference; see the 2026-10-05 update below the
 emergency brake. ~~📋 Ruled, not built.~~ The heading is kept as written because other sections link to
-its anchor.* *Corrected 2026-10-05: built in `94e4f94`, ⚠️ not yet run on a Pi.*
+its anchor.* *Corrected 2026-10-05: built in `94e4f94`, ~~⚠️ not yet run on a Pi~~.* *Corrected
+2026-10-10: the 🎒 portable is seen following `stable`; see "As built" at the end of the 2026-10-05
+update below.*
 
 - 🎒 ~~**The portable rig tracks `main`.**~~ *Superseded 2026-10-05, (Chris): the 🎒 portable
   follows `stable` too, with no soak (the 2026-10-05 update below). This bullet carried no reason,
@@ -2157,8 +2204,8 @@ fast-forwards: nothing on `main` says "held", so the job is right to follow the 
   change it: a need to hold `stable` without touching `main` for longer than `update.soak_days`;
   then a `stable-hold` ref, accepted as a second truth.*
 - *Restated 2026-10-05, (Chris), now that both rigs follow `stable` (the update below). ~~📋 Ruled, not
-  built.~~ Corrected 2026-10-05: both rigs follow `stable` as built in `94e4f94`, ⚠️ not yet run on
-  a Pi.* A revert on `main` reaches `stable` through the job. The 🎒 portable takes it on its next
+  built.~~ Corrected 2026-10-05: both rigs follow `stable` as built in `94e4f94`, ~~⚠️ not yet run on
+  a Pi~~. Corrected 2026-10-10: the 🎒 portable is seen following it (the "As built" below).* A revert on `main` reaches `stable` through the job. The 🎒 portable takes it on its next
   pull; the 🏠 stationary once the revert and the bad commit have aged together. ⚠️ **The force-push
   last resort now holds both rigs** until the next green push to `main`; during a hold the portable
   runs a fix by `--rev`. A hand fast-forward of `stable`, `git push origin main:stable`, is not a
@@ -2168,8 +2215,9 @@ fast-forwards: nothing on `main` says "held", so the job is right to follow the 
 **Update 2026-10-05: both rigs follow `stable`, and the soak is the only role difference. (Chris),
 2026-10-05, about 21:50.** ~~📋 **Ruled, not built.** Nothing below is in the tree yet: `update.sh`'s
 `channel_of` and `bootstrap.sh`'s `--role` case still give the 🎒 portable `main` (read 2026-10-05).~~
-*Corrected 2026-10-05: built in `94e4f94`, ⚠️ not yet run on a Pi; see "As built" at the end of this
-update.*
+*Corrected 2026-10-05: built in `94e4f94`, ~~⚠️ not yet run on a Pi~~; see "As built" at the end of this
+update.* *Corrected 2026-10-10: the `update.sh` half is seen on the 🎒 portable; the bootstrap's half
+has not run since; both in "As built".*
 Ruled by multiple-choice question, after a check against the rulings already written and then an
 architecture consultation, whose mechanism this is. Chris's question that opened it: *"should we be
 using stable build points instead of main to determine where to pull the latest code from?"*
@@ -2252,7 +2300,14 @@ using stable build points instead of main to determine where to pull the latest 
 - **As built, 2026-10-05, in `94e4f94`** on `main`, pushed about 21:55 Arizona time; ~~CI pending when
   this was written~~ *corrected 2026-10-05: ✅ CI green (scripts, smoke and `advance-stable` all
   succeeded; `stable` is `94e4f94`), seen on GitHub by the coordinating session at about 22:00
-  Arizona time*. ⚠️ **Not yet run on a Pi.** From `setup/update.sh` and `setup/bootstrap.sh`:
+  Arizona time*. ⚠️ ~~**Not yet run on a Pi.**~~ *Corrected 2026-10-10: the `update.sh` half has
+  run on the 🎒 portable. Its `status.json` read `channel: stable` on 2026-10-09 and 2026-10-10
+  (§9f's records on hardware), and it applied `5428470` and `398ad28` from `stable` on 2026-10-10.
+  It applied `398ad28` at 11:18, about half an hour after the commit at 10:44, which a soak of a day
+  or more would have held back: the portable's soak of 0 is seen in effect. Not run: the 🏠
+  stationary's soak of 7 (no stationary is built), and the bootstrap's half, the `curl` URL and
+  `bootstrap.sh`'s `channel=stable` (no bootstrap is recorded since this commit; `bootstrap.sh`'s
+  header lists runs on 2026-10-04 and 2026-10-05, the second at `e019b29`, before it).* From `setup/update.sh` and `setup/bootstrap.sh`:
   - `channel_of` returns `stable` for both roles.
   - The role default is `SOAK_DAYS_PORTABLE=0` and `SOAK_DAYS_STATIONARY=7`; `update.soak_days`
     in `station.yml` overrides it.
@@ -2730,8 +2785,15 @@ then merged to `main` (`42b5115`, CI green), and `stable` advanced.
 3. `update.sh` + the timers + `status.json` + the job that advances `stable`. *Built 2026-10-04
    (evening), with `setup/bootstrap.sh` ([§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic)),
    `50-updater` (the timers and the login banner) and `60-portable-pull`
-   ([§9f](#9f-what-updatesh-does)'s evening update). ⚠️ Not yet run on hardware. The arm64 dry run
-   in CI is still not built.*
+   ([§9f](#9f-what-updatesh-does)'s evening update). ~~⚠️ Not yet run on hardware.~~ The arm64 dry run
+   in CI is still not built.* *Corrected 2026-10-10: run on the 🎒 portable many times since: the
+   bootstrap's first build on 2026-10-04 and its completion on 2026-10-05
+   ([§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic)); the timer's lock-held
+   skip (§9e); pull windows by hand, and the opener's automatic opens, each writing `status.json`
+   ([§9f](#9f-what-updatesh-does)'s record on hardware of 2026-10-09 and 2026-10-10, and its step-06
+   records). The job that advances `stable` has run on GitHub since 2026-10-04
+   ([§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable)). ⚠️ Nothing of it has run on
+   the 🏠 stationary, which is not built.*
 4. `20-portable-clock` + `clock-preflight`. *Done 2026-10-04: both are written, and step 20 ran on
    the 🎒 portable Pi; see the end of [§9m](#9m--the-portable-rigs-archive-drive).*
 
@@ -3561,7 +3623,8 @@ recording.
   *Corrected 2026-10-05, (Chris): the 🎒 portable follows `stable` (§9g's 2026-10-05 update). This
   rule binds a commit to its Pi run, not the portable to `main`: the portable's proving run is by
   `--rev` or a checkout bootstrap before the push; its channel pull is the second run, of the same
-  commit once green. 📋 Ruled, not built.*
+  commit once green. ~~📋 Ruled, not built.~~* *Corrected 2026-10-10: built in `94e4f94`; the 🎒
+  portable's channel pull is seen on `stable` ([§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable)).*
 
 **The writer's unit, and the recording lock.** 📋 ~~The writer itself is not designed
 ([§9i](#9i-what-is-not-chosen-yet-the-writer-the-extractor-the-uploader)); its unit is.~~ *Corrected
@@ -3887,10 +3950,13 @@ powered-hub rule ([BUILD.md §3d](BUILD.md#3d--the-second-radio--either-rig) par
   advances, and the journal shows the writer's stop before `update.sh` began.
   *Note 2026-10-05: once the channel ruling of 2026-10-05
   ([§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable)) is built, read "a new commit
-  on `stable`". 📋 Ruled, not built.*
-- [ ] *Added 2026-10-10.* The persistent journal across a reboot. Step 06 has run here
+  on `stable`". ~~📋 Ruled, not built.~~* *Corrected 2026-10-10: built in `94e4f94`, so it reads "a
+  new commit on `stable`"; the 🎒 portable is seen following `stable` (§9g).*
+- [x] *Added 2026-10-10.* The persistent journal across a reboot. Step 06 has run here
   ([§9f](#9f-what-updatesh-does), "A persistent journal, step `06-journal`"); reboot the rig a
   second time, and `journalctl --list-boots` shows two boots or more.
+  *Done 2026-10-10: Chris rebooted the 🎒 portable at about 11:14, and `journalctl --list-boots`
+  showed two boots, the earlier one readable; see §9f, "✅ A second reboot".*
 
 ➡️ If the cuts leave garbage in closed, renamed files, the answer is a different drive or an SSD on
 the hub, not a different filesystem.
@@ -4029,7 +4095,8 @@ portable rig. Seen by Claude on 2026-10-04, over read-only SSH on the Pi or in o
 | BUILD.md §7 / §8 step 1 | — | `10-decoder` ~~may install `readsb` from apt (whether the 2024 snapshot is current enough is still to decide) and pin only~~ *builds `readsb` from source at a pinned commit, with RTL-SDR support, against the packaged `librtlsdr` 2.0.2, and does not install it from apt (2026-10-04, [§9j](#9j--verified-on-hardware-2026-10-03)). It pins* `tar1090`'s installer by SHA |
 | BUILD.md §4 | ⚠️ "Installing either from `apt` can quietly pull an old one back in" | Re-examine. ~~On trixie the packaged `readsb` links the same 2.0.2 library ([§9j](#9j--verified-on-hardware-2026-10-03))~~ *Corrected 2026-10-04: on trixie the packaged `readsb` links no `librtlsdr` at all. It is built without RTL-SDR support and cannot drive the stick ([§9j](#9j--verified-on-hardware-2026-10-03)). Lines 149 and 153–154 make the same linking claim. On forky, whose `readsb` 3.16-2 depends on `librtlsdr0`, the concern applies again* |
 | README "The three traps that cost the most time", trap 1, lines 39–40 | "`readsb`/`dump1090-fa` link against it, so installing either from `apt` can quietly undo the fix" | *Added 2026-10-04.* The same correction as the BUILD.md §4 row above: on trixie the packaged `readsb` links no `librtlsdr` and cannot drive an RTL-SDR ([§9j](#9j--verified-on-hardware-2026-10-03)) |
-| BUILD.md §4, lines 169–171 | "If it says R820T2, or reports nothing, the old driver is still in the path" | The inference "R820T2 means the old driver" is wrong in at least one case. A stick reporting R820T on a current library may be a counterfeit, not an old driver ([§9j](#9j--verified-on-hardware-2026-10-03)) |
+| BUILD.md §4, lines ~~169–171~~ *183–185 (corrected 2026-10-10)* | "If it says R820T2, or reports nothing, the old driver is still in the path" | The inference "R820T2 means the old driver" is wrong in at least one case. A stick reporting R820T on a current library may be a counterfeit, not an old driver ([§9j](#9j--verified-on-hardware-2026-10-03)) |
+| BUILD.md §4, the code block (lines 152–164) and the paragraph after it (lines 175–178) | "`sudo apt purge '^librtlsdr'`" … "then build current librtlsdr from osmocom/rtl-sdr"; "Build from `osmocom/rtl-sdr`, not `rtlsdrblog/rtl-sdr-blog`" | *Added 2026-10-10.* The steps do the opposite: `00-drivers` installs the packaged `rtl-sdr` from apt, and `10-decoder` installs `librtlsdr0` and `librtlsdr-dev` from apt and builds `readsb` against the packaged 2.0.2 ([§9j](#9j--verified-on-hardware-2026-10-03)). No step purges `librtlsdr` or builds it from source. `setup/steps/10-decoder.sh:98–101` sends the reader to this table for it, which had no row until this one. *Done 2026-10-10: BUILD.md §4 carries a dated correction after the block (lines 166–173) saying what the steps do; the recipe is kept as written beside it.* Still owed, in code: `10-decoder.sh:98–101` then calls BUILD.md §4 "queued for a rewrite", and gives "no V4 is coming" as a reason, which no ruling in this file says: (Chris), 2026-10-03, ruled to buy a genuine V4 ([§9j](#9j--verified-on-hardware-2026-10-03)) |
 | README "The three traps that cost the most time" / BUILD.md §3a parts table, row 3 | — | Warn that counterfeit V4s are sold, Amazon included ([§9j](#9j--verified-on-hardware-2026-10-03)). The check is `rtl_eeprom` (its Manufacturer and Product strings) plus `rtl_test` naming the R828D. Buy from RTL-SDR Blog or a seller listed on rtl-sdr.com. *Corrected 2026-10-05: the EEPROM strings do not tell a counterfeit from a V3, because both read `Realtek` / `RTL2838UHIDIR` ([§9j](#9j--verified-on-hardware-2026-10-03)), so the tuner name is the only tell. And since 2026-10-05 no verify opens the stick, so that check is the hand check in BUILD.md §8, not a step's* |
 | BUILD.md §7 | "uploader (yours to write)" | It ships in this repo |
 | BUILD.md §8 | Steps with no scripts | Name each step's script, and add the [§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away) pre-ship checklist |
@@ -4048,8 +4115,9 @@ portable rig. Seen by Claude on 2026-10-04, over read-only SSH on the Pi or in o
 | `config/station.portable.example.yml` and `config/station.stationary.example.yml` | Portable: no `archive:` block, `spool_dir: /var/lib/adsb-receiver/spool`. Stationary: `archive.path: /mnt/ssd/beast`, `archive.format: beast` | *Added 2026-10-04 ([§9m](#9m--the-portable-rigs-archive-drive)).* The portable gets an `archive:` block with `archive.label` (default `adsb-archive`) and `archive.min_free_gb`, and the BEAST ⛔ ([BUILD.md §9](BUILD.md#9--the-archive-and-feeding) item 2) as a comment. ⛔ The stationary does not get `archive.label` yet. The archive-drive step is portable-only until the stationary rig's SSD question is decided. The stationary changes in one place: `archive.path: /mnt/ssd/beast` is replaced by a comment naming the §9i interface path and pointing at that open question. ⛔ It keeps `enabled`, `format: beast` with its ⛔, `retention_days` and `min_free_gb`. The portable gets no `retention_days`, and says why: the pull moves the data off, and the `min_free_gb` backstop is the only other deletion. The portable's `uploader.spool_dir` becomes `/var/lib/adsb-receiver/archive/spool`. ⛔ The portable still must not get `update.soak_days` or `notify.*`. *Done 2026-10-04, in commit `47ed4ed`, for both templates* |
 | BUILD.md §8 | No pull step | *Added 2026-10-04.* Name the 🎒 pull step, `NN-portable-pull`, after both the writer's step and `update.sh`'s step. ~~Its number is not assigned yet~~ *Its number is assigned: `60-portable-pull` (2026-10-04, evening)* ([§9m](#9m--the-portable-rigs-archive-drive)) |
 | README "What is here" | No `tools/` path | *Added 2026-10-04.* The new top-level `tools/` path for the pull wrapper. ~~Its exact name is not chosen yet~~ *It is `tools/pull-archive` (2026-10-04, evening)* ([§9m](#9m--the-portable-rigs-archive-drive)) |
-| PLAN.md [§9k](#9k-the-first-deliverable-in-order), items 2 and 3 | 2: "`05-config` + `10-decoder`"; 3: "`update.sh` + the timers + `status.json` + the job that advances `stable`" | *Added 2026-10-04 ([§9m](#9m--the-portable-rigs-archive-drive)).* Item 2: `05-config` is widened. It creates the `adsb-receiver` system user, the `adsb-operator` group with the installing user, and the `tmpfiles.d` entry for `/run/adsb-receiver`. Item 3: `update.sh` needs its own `TimeoutStartSec`, and it must roll back on SIGTERM ([§9f](#9f-what-updatesh-does)). *Update 2026-10-04: item 2's `05-config` half is done, in commit `47ed4ed`; `10-decoder` is not. Item 3 is not done* *Update 2026-10-04 (evening): item 3 is built, with its own `TimeoutStartSec=` and a rollback on SIGTERM, not yet run on hardware. §9k item 3 now names `bootstrap.sh`, `50-updater` and `60-portable-pull` too* |
+| PLAN.md [§9k](#9k-the-first-deliverable-in-order), items 2 and 3 | 2: "`05-config` + `10-decoder`"; 3: "`update.sh` + the timers + `status.json` + the job that advances `stable`" | *Added 2026-10-04 ([§9m](#9m--the-portable-rigs-archive-drive)).* Item 2: `05-config` is widened. It creates the `adsb-receiver` system user, the `adsb-operator` group with the installing user, and the `tmpfiles.d` entry for `/run/adsb-receiver`. Item 3: `update.sh` needs its own `TimeoutStartSec`, and it must roll back on SIGTERM ([§9f](#9f-what-updatesh-does)). *Update 2026-10-04: item 2's `05-config` half is done, in commit `47ed4ed`; `10-decoder` is not. Item 3 is not done* *Update 2026-10-04 (evening): item 3 is built, with its own `TimeoutStartSec=` and a rollback on SIGTERM, not yet run on hardware. §9k item 3 now names `bootstrap.sh`, `50-updater` and `60-portable-pull` too* *Update 2026-10-10: item 3 has run on the 🎒 portable; §9k item 3 says where it is recorded. No rollback on SIGTERM is recorded on hardware* |
 | `setup/lib.sh`, `parse_args` and `require_role` | `--verify` and `--help` only; `require_role` always dies on a mismatch | *Added 2026-10-04.* `parse_args` gains `--skip-other-role`, and `lib.sh` gains the constant `ADSB_RC_OTHER_ROLE`, an unused value below 126 and not 3. With the flag, `require_role` on a mismatch logs the skip and exits that code. `require_absent` is unchanged ([§9b](#9b-one-bash-script-per-build-step)). *Done 2026-10-04, in commit `47ed4ed`. `ADSB_RC_OTHER_ROLE` is 100* |
 | `.github/workflows/ci.yml` | Two step checks: the denylist grep, and `parse_args` plus `verify()` in every step | *Added 2026-10-04.* A third check: in every step containing `require_role`, the first non-comment command after `parse_args` and `require_root` is the `require_role` call ([§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable)). *Done 2026-10-04, in commit `47ed4ed`* |
 | BUILD.md §8 step 2 | "Confirm `gpsd` has a fix, `chronyc sources` shows GPS disciplining the clock, and the Pi still knows the time after a power cycle **with the network unplugged**" | *Added 2026-10-04.* When this step names `20-portable-clock`, say that the script's verify checks only the install tier, and that these checks stay human gates under the sky ([§9c](#9c-every-step-ends-in-a-check-of-the-observable-effect)) |
 | `setup/lib.sh`, `ADSB_DENY_PATHS` | No `/etc/fstab`; its comment says the list is "Written as in the PLAN §9h table" | *Added 2026-10-04.* Add `/etc/fstab` (**(Chris)**, [§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away)). CI reads this array for its grep of `setup/steps/`. *Done 2026-10-04, in commit `47ed4ed`* |
+| BUILD.md §8 | No `06-journal` | *Added 2026-10-10.* Name the shared step `06-journal` ([§9f](#9f-what-updatesh-does), "A persistent journal, step `06-journal`"): the journal made persistent, capped at `SystemMaxUse=200M`; journald restarted only under `update.sh`; run by hand, the step installs and warns, and the drop-in loads at the next boot. *Done 2026-10-10: BUILD.md §8 names it, after the list of what the one command does without asking.* Still owed, in code: the header of `setup/steps/06-journal.sh`, line 4, says "BUILD.md: none yet (no section, no §8 step)" |

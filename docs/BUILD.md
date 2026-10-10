@@ -159,7 +159,18 @@ echo 'blacklist dvb_usb_rtl28xxu' | sudo tee /etc/modprobe.d/blacklist-rtl.conf
 #   /etc/modprobe.d/adsb-receiver-rtlsdr.conf. Skip the line above if you build with the one
 #   command (§8); a hand-written file beside the step's own is harmless.
 # then build current librtlsdr from osmocom/rtl-sdr, and re-check with rtl_test -t
+# Corrected 2026-10-10: the one command (§8) does neither the purge nor the build above; see the
+#   correction below this block.
 ```
+
+*Corrected 2026-10-10: the steps the one command runs ([§8](#8-build-order)) do the opposite of
+the purge and the from-source build above. `setup/steps/00-drivers.sh` installs the packaged
+`rtl-sdr` from `apt` and writes the blacklist; `setup/steps/10-decoder.sh` installs `librtlsdr0` and
+`librtlsdr-dev` from `apt` and builds `readsb` from source against them, the packaged `librtlsdr`
+2.0.2 on trixie ([PLAN.md §9j](PLAN.md#9j--verified-on-hardware-2026-10-03)). No step purges
+`librtlsdr` or builds it from source, and on a rig built that way the purge would remove the library
+`readsb` is built against. ⚠️ The packaged 2.0.2 has not been run with a confirmed V4: the only
+sticks used so far are an R820T2 counterfeit and an RTL-SDR Blog V3 (PLAN.md §9j).*
 
 ⚠️ **Build from `osmocom/rtl-sdr`, not `rtlsdrblog/rtl-sdr-blog`.** Osmocom is the **upstream**
 project; the rtlsdrblog repo is the downstream **fork**, and it has carried a broken commit that
@@ -372,8 +383,10 @@ specific to a rig with no network:
 *Corrected 2026-10-05: it ran on the portable Pi, `mobile-adsb`, on 2026-10-04 and again on
 2026-10-05, which completed the build at `e019b29` with a reboot
 ([PLAN.md §9e](PLAN.md#9e-the-first-build-is-by-hand-after-that-updates-are-automatic)).* Once
-Raspberry Pi OS is installed, run this on the Pi. Missing hardware does not stop it: the update
-timer it installs finishes the build once the hardware is there.
+Raspberry Pi OS is installed, run this on the Pi. Missing hardware does not stop it: ~~the update
+timer it installs finishes the build once the hardware is there.~~ *corrected 2026-10-10: the update
+timer it installs finishes the build once the hardware is there only while no writer is recording;
+on a recording 🎒 portable a pull window finishes it (the reboot bullet below).*
 
 ```
 curl -fsSL https://raw.githubusercontent.com/Wezdenko-L-L-C/adsb-receiver/stable/setup/bootstrap.sh \
@@ -385,6 +398,12 @@ now follow `stable`, the branch CI advances only when it is green
 ([PLAN.md §9g](PLAN.md#9g-channels-portable-tracks-main-stationary-tracks-stable)), so the script
 comes from the branch it builds. ⚠️ Before `stable` exists, the `curl` returns 404 and nothing
 runs.*
+
+⚠️ *Added 2026-10-10: `stable` advances only once CI is green, about three minutes after a push, so
+the one command run within those minutes builds the previous green commit. It prints the commit it
+builds (`==> stable is <sha12>`). The checkout form below builds the checkout's `HEAD` instead, and
+warns if that is not on `stable` yet (CI may still be running)
+([PLAN.md §9g](PLAN.md#9g-channels-portable-tracks-main-stationary-tracks-stable)).*
 
 To read what runs before it runs, clone the repo and run the bootstrap from your checkout. It then
 builds the commit you read, not a newer one:
@@ -409,9 +428,39 @@ below. Why it is shaped this way is in [PLAN.md §9e](PLAN.md#9e-the-first-build
   formatted by hand.
 - **It writes the RTC overlay** into `config.txt`, on the portable only, unless the RTC is already
   wired into boot.
-- **It reboots once,** after a 5 s notice, on a first build, when those changes need it. After the
+- **It reboots once,** after a 5 s notice, on a first build, when those changes need it. ~~After the
   boot the update timer finishes anything still incomplete, such as a step waiting for hardware
-  that was plugged in late.
+  that was plugged in late.~~ *Corrected 2026-10-10: the update timer finishes an incomplete build
+  only while nothing holds the recording lock. On a recording 🎒 portable the writer holds it from
+  every boot, so every timer run skips and changes nothing. There the build is finished by the next
+  pull window, which runs the same update: `tools/pull-archive` from your workstation; `sudo
+  systemctl start adsb-pull-window.service`, then `stop`, on the rig; or the home opener,
+  `adsb-home-update`, which opens the window by itself at home once `update.home_ssid` is set in
+  `station.yml` (the template leaves it empty, and empty means off)
+  ([PLAN.md §9f](PLAN.md#9f-what-updatesh-does)).*
+
+ℹ️ *Added 2026-10-10:* **It also makes the journal persistent,** on both rigs, by the shared step
+`setup/steps/06-journal.sh`. It installs `/etc/systemd/journald.conf.d/60-adsb-receiver-persistent.conf`,
+`Storage=persistent` capped at `SystemMaxUse=200M`, which outranks Raspberry Pi OS's own
+`Storage=volatile` drop-in, so the logs of a boot are still there after the next one. It restarts
+journald, and flushes the journal to `/var/log/journal`, only when it runs under the updater, as
+the one command and the update timer run it: the updater holds the recording lock, and a restart
+on a recording rig could drop the writer's log stream. Run by hand, it installs the drop-in and
+warns, and journald loads it at the next boot
+([PLAN.md §9f](PLAN.md#9f-what-updatesh-does), "A persistent journal, step `06-journal`").
+
+ℹ️ *Added 2026-10-10: the order for a first build, with the one command.*
+
+- Install Raspberry Pi OS.
+- Fit what the steps check before you run it: the RTL-SDR stick; and on the 🎒 portable, the GPS
+  puck, the RTC (after its charge-path fix, [§6b](#6b-gps-alone-does-not-close-it)), and the
+  archive drive, in a black USB 2 port
+  ([PLAN.md §9m](PLAN.md#9m--the-portable-rigs-archive-drive)). Only the first run formats the
+  drive (above), and a step whose hardware is missing leaves the build incomplete until a later run
+  finds it.
+- Run the one command. Its `00-drivers` is step 0's driver install (step 0 below): the packaged
+  driver, not [§4](#4-drivers-first)'s from-source build.
+- After its reboot, the checks below: step 0's tuner check, and the ones under the sky.
 
 ℹ️ ~~`10-decoder`, the step that installs `readsb` and `tar1090`, is not in the repo yet
 ([PLAN.md §9m](PLAN.md#9m--the-portable-rigs-archive-drive), R5), so until it is, the command does
@@ -441,8 +490,9 @@ and no script can pass them for you:
    ([PLAN.md §9j](PLAN.md#9j--verified-on-hardware-2026-10-03)'s 2026-10-05 rulings).*
    ℹ️ *Added 2026-10-05: with the one command above, step 0 is `setup/steps/00-drivers.sh`, which
    installs the packaged driver from apt and blacklists the kernel's DVB driver. It does not do
-   [§4](#4-drivers-first)'s from-source build. This step's order is not yet rewritten for the one
-   command.*
+   [§4](#4-drivers-first)'s from-source build. ~~This step's order is not yet rewritten for the one
+   command.~~* *Corrected 2026-10-10: the order with the one command is above, under "the order for
+   a first build". This step's own first line is not rewritten.*
    ⚠️ *Added 2026-10-05: on a first build, before its reboot, the kernel's DVB driver is still
    loaded, and every close of the stick hands it back to that driver, which re-probes it. That is
    the hazard behind the 2026-10-04 hub drop

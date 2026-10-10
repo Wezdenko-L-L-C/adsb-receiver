@@ -36,8 +36,10 @@ install_step() {
 # Check what the step was FOR, not the setting that claims it (PLAN §9c table):
 # an advancing aircraft.json, not `systemctl is-active readsb`.
 # Print the raw evidence, then pass or die with what to do next.
-# ⚠️ An exit status is evidence only once you know what the tool means by it — rtl_test exits
-#    non-zero on every non-E4000 tuner (00-drivers.sh). Read the output.
+# ⚠️ An exit status is evidence only once you know what the tool means by it — the login banner
+#    always exits 0, so 50-updater.sh's verify greps its header line. (00-drivers' first verify,
+#    2026-10-03, read rtl_test's output for the same reason: it exits non-zero on every non-E4000
+#    tuner. No verify opens the stick since 2026-10-05.) Read the output.
 verify() {
   local out
   log "COMMAND (raw output follows)"
