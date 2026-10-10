@@ -430,7 +430,7 @@ installs it on this rig yet. `tools/adsb-extract` runs on a workstation, on pull
 
 📋 **~~The uploader, the archive writer and the extractor do not exist here yet.~~** *Corrected
 2026-10-10: the uploader does not exist here yet; the archive writer and the extractor do (above).*
-Four rules worth following when you write the first two — the first three apply to any logger, the fourth is
+Four rules worth following when you write ~~the first two~~ — the first three apply to any logger, the fourth is
 specific to a rig with no network:
 
 1. ⛔ Store **every candidate**, never a pick. Narrowing at write time throws away the evidence
@@ -441,6 +441,11 @@ specific to a rig with no network:
 4. ⚠️ **Refuse to record until the clock is disciplined** — by GPS on the portable rig, by NTP on
    the stationary one. An un-disciplined Pi clock silently corrupts every correlation made from
    that session, and it is cheap to check (`chronyc tracking`) before you start.
+
+*Corrected 2026-10-10: struck "the first two" above. They were the first two of the three the
+struck sentence before them named: the uploader and the archive writer. The archive writer,
+`bin/adsb-writer`, is written (above); whether it follows these rules is not checked here. The
+rules apply to the uploader, still to be written ([ROADMAP.md](ROADMAP.md) item 7, issue #1).*
 
 ---
 
