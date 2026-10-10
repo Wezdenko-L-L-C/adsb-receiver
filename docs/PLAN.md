@@ -324,7 +324,12 @@ Plain, idempotent bash with `set -euo pipefail`. Each step in [BUILD.md §8](BUI
 is one script in `setup/steps/NN-*.sh`, and shared helpers go in `setup/lib.sh`.
 
 - **Shared steps are shared files.** `00-drivers` and `10-decoder` are one file each, because
-  BUILD.md §8 steps 0–1 are identical for both rigs.
+  BUILD.md §8 steps 0–1 are identical for both rigs. *Added 2026-10-10: so is `06-journal`, the
+  persistent journal on both rigs, ruled by Chris that day to come right after step 5 (the record
+  is "A persistent journal, step `06-journal`", at the end of [§9f](#9f-what-updatesh-does)). It
+  reads no `station.yml` and asserts no role. `update.sh` runs the steps in filename order, so it
+  runs after `05-config` and before `10-decoder`; on a first build `50-updater` still runs first.
+  BUILD.md §8 has no step for it yet.*
 - **Role-specific steps are separate files.** `20-portable-clock` and `20-stationary-clock` each
   read `station.yml`, assert `station.role`, and **refuse the other role's blocks.** The portable
   step refuses a `position:` block. The stationary step refuses `clock.source` other than `ntp`,
@@ -1003,16 +1008,16 @@ mechanism this is. Chris: *"I have no problem with (a) and (b)."* It answers the
       bootstrap: `adsb-update.service` started alongside the window, as in §9m's 2026-10-05
       journal, where its "Starting" line comes before the window's "Started". Which poll of the
       opener's dispatch wait broke is not logged. The bootstrap's wait reads both the state and the
-      job (`setup/bootstrap.sh:183–188`), so it does not rest on this;*
+      job (~~`setup/bootstrap.sh:183–188`~~ `setup/bootstrap.sh:190–195`), so it does not rest on this;*
     - `systemctl list-jobs <unit>` shows a start job still queued; *update 2026-10-10: ⚠️ not seen.
-      The opener lists the jobs at every poll (`bin/adsb-home-update:297`) and logs nothing about
+      The opener lists the jobs at every poll (~~`bin/adsb-home-update:297`~~ `bin/adsb-home-update:308`) and logs nothing about
       them;*
     - `systemctl stop` blocks through `ExecStop=`, and `stop --no-block` carries through it;
       *update 2026-10-10: the blocking stop is half seen, under the opener, not under the bootstrap.
-      The opener's `timeout 120 systemctl stop` (`bin/adsb-home-update:156`) returned 0 with the
+      The opener's `timeout 120 systemctl stop` (~~`bin/adsb-home-update:156`~~ `bin/adsb-home-update:167`) returned 0 with the
       update already inactive, so the `ExecStop=` wait had nothing to wait on. Seen: a stop that
       goes through `ExecStop=` and returns. ⚠️ Not seen: the stop waiting while the update is
-      `activating`, which `setup/bootstrap.sh:237` relies on. ⚠️ `stop --no-block` is not seen:
+      `activating`, which ~~`setup/bootstrap.sh:237`~~ `setup/bootstrap.sh:246` relies on. ⚠️ `stop --no-block` is not seen:
       only the trap path takes it;*
     - `ExecStopPost=` starts the writer, and a failed start runs none; *update 2026-10-10: the
       writer start is seen 2026-10-10 under the opener, not under the bootstrap: after the close,
@@ -1020,12 +1025,12 @@ mechanism this is. Chris: *"I have no problem with (a) and (b)."* It answers the
     - a unit ended by `RuntimeMaxSec=` reads `failed`; *update 2026-10-10: ⚠️ not seen; §9m's
       checklist owes the cap test;*
     - the shutdown cancels a queued start. *Update 2026-10-10: ⚠️ not seen; only the bootstrap's
-      reboot path relies on it (`setup/bootstrap.sh:397–403`).*
+      reboot path relies on it (~~`setup/bootstrap.sh:397–403`~~ `setup/bootstrap.sh:406–412`).*
   - **No SD is staged to prove (b) on hardware. (Chris), 2026-10-10, about 08:55.** Ruled by
     multiple-choice question, on an architecture consultation's recommendation. (b) runs only on a
     second bootstrap of an incomplete, recording first build; that has not yet occurred.
     - **Why:**
-      - **A fresh-SD bootstrap does not reach (b) at all.** `setup/bootstrap.sh:372–380` opens the
+      - **A fresh-SD bootstrap does not reach (b) at all.** ~~`setup/bootstrap.sh:372–380`~~ *`setup/bootstrap.sh:381–389`* opens the
         window only on a first build (no `applied`) whose recording lock is held by
         `adsb-writer.service`, and only where `adsb-pull-window.service` is loaded. A fresh image's
         first bootstrap has no writer holding the lock, so it runs `update.sh --bootstrap` directly
@@ -1035,16 +1040,17 @@ mechanism this is. Chris: *"I have no problem with (a) and (b)."* It answers the
         (`setup/steps/60-portable-pull.sh:99–121`), started by a different caller.
       - **The remaining bootstrap-only beliefs either fail closed or are bounded by the 2 h cap.**
         The bootstrap refuses to reboot over a lock holder it cannot attribute to this build's
-        writer, and prints the hand command (`lock_verdict`, `setup/bootstrap.sh:146–157`, read at
-        :432–437); it never reboots once `applied` exists (:421–427).
+        writer, and prints the hand command (`lock_verdict`, ~~`setup/bootstrap.sh:146–157`~~ *`setup/bootstrap.sh:153–164`*, read at
+        ~~:432–437~~ *:441–446*); it never reboots once `applied` exists (~~:421–427~~ *:430–436*).
       - **(b) is attended by definition:** it runs only when a human has just typed the bootstrap
         line. The 🏠 stationary has no window unit, so it takes the refusal path (`hint=no-unit`,
-        `setup/bootstrap.sh:387–390`), the refusal it had before `94e4f94`.
+        ~~`setup/bootstrap.sh:387–390`~~ *`setup/bootstrap.sh:396–399`*), the refusal it had before `94e4f94`.
     - **Proof is opportunistic.** (b) is proven the next time a first build on the 🎒 portable comes
       up incomplete for real (the 2026-10-04 shape) and Chris runs the bootstrap again; its evidence
       is read from the journal of `adsb-pull-window`, `adsb-writer` and `adsb-update`. Its
-      precondition is the persistent journal (§9f, "Open, ruled to be decided later"), now on the
-      plan as the next rig step: a second bootstrap that reboots would otherwise leave only its own
+      precondition is the persistent journal (§9f, "Open, ruled to be decided later"), ~~now on the
+      plan as the next rig step~~ *corrected 2026-10-10: built that day as step `06-journal` (§9f, "A
+      persistent journal, step `06-journal`"); ⚠️ not yet run on a Pi*: a second bootstrap that reboots would otherwise leave only its own
       output, which carries the script's claims, not systemd's observation.
     - Rejected:
       - **A fresh SD with a plain bootstrap.** It does not reach (b) (above); it re-proves the
@@ -1070,7 +1076,7 @@ mechanism this is. Chris: *"I have no problem with (a) and (b)."* It answers the
         with a window unit): then one deliberate incomplete-then-second-bootstrap pass is added from
         a checkout, since the hands are already committed;
       - the opener's close reporting what the belief forbids: its `124` message (the window's stop
-        not finished in 120 s, `bin/adsb-home-update:159`) with the update already inactive, or the
+        not finished in 120 s, ~~`bin/adsb-home-update:159`~~ *`bin/adsb-home-update:170`*) with the update already inactive, or the
         writer not active after a close. Then the shared mechanism is wrong, (b) inherits it, and
         its hardware proof becomes urgent; the fallback is the written two-command exit in BUILD.md
         §8 (the last "What would change it" bullet of this update);
@@ -1079,7 +1085,7 @@ mechanism this is. Chris: *"I have no problem with (a) and (b)."* It answers the
         definition" no longer holds there, and a hardware proof is required before the remote
         deploy.
     - ℹ️ *From the consultation, not the ruling's text:* the opener's guard 1
-      (`bin/adsb-home-update:231–235`) opens nothing while `adsb-pull-window.service` is active,
+      (~~`bin/adsb-home-update:231–235`~~ *`bin/adsb-home-update:242–246`*) opens nothing while `adsb-pull-window.service` is active,
       activating or deactivating, so its `OnBootSec=4min` fire landing in a bootstrap's open window
       logs `window-active` and is a no-op. `94e4f94` predates the opener (`f411815`), so this
       interaction is newer than (b).
@@ -1402,11 +1408,14 @@ the option rejected below as "`update.sh` stopping the writer".
     writer, `Wants=` the update, `ExecStopPost=` starting the writer again, a short cap). The archive
     gap would be minutes, only on nights with a new commit, and recorded as `stop` and `start`
     events: a known gap, not silence ([BUILD.md §7](BUILD.md#7-software) rule 2).
-  - **A persistent journal is a separate, small step, later; not step 2.** Step 2 writes its own logs
+  - **A persistent journal is a separate, small step, ~~later~~; not step 2.** Step 2 writes its own logs
     (above), so it does not depend on one. The consultation's shape: `Storage=persistent` and
     `SystemMaxUse=200M` in a `journald.conf.d` drop-in, as a shared step. It matters most on the
     remote 🏠 stationary, where a watchdog reboot would otherwise erase its own cause, and it costs SD
-    card wear on the portable.
+    card wear on the portable. *Corrected 2026-10-10: no longer later, and no longer open. (Chris),
+    2026-10-10, about 08:50: built right after step 5, as the shared step `06-journal`, in the shape
+    above. ⚠️ Not yet run on hardware. The rulings, the build and its beliefs are in "A persistent
+    journal, step `06-journal`", at the end of this section.*
 - 📋 **The step-2 success test.** Not run; it needs step 2 built and bootstrapped on the 🎒
   portable, with `status.json` at `result: applied` and the writer recording again.
   1. **A push to `main` lands by itself.** *Note 2026-10-05: under the channel ruling of
@@ -1863,8 +1872,10 @@ Read on the Pi over SSH by Claude, or pasted by Chris; Arizona time, which is th
   the same day (above) was not pending; this is the first open.
 - ⚠️ **The Pi's journal is volatile:** `journalctl --list-boots` shows only the current boot. So
   whether the 04:30 run of 2026-10-10 happened is **not verifiable**, and any later "did the opener
-  run" check reads only the current boot. A persistent journal is not built: it is the separate,
-  later step under "Open, ruled to be decided later" above.
+  run" check reads only the current boot. ~~A persistent journal is not built: it is the separate,
+  later step under "Open, ruled to be decided later" above.~~ *Corrected 2026-10-10: a persistent
+  journal is built, as step `06-journal`, ⚠️ not yet run on hardware, so the journal on the Pi is
+  still volatile ("A persistent journal, step `06-journal`", below).*
 - ⚠️ ~~**No automatic open has happened yet:** nothing has been pending. The open path, the window's
   start, a new `InvocationID` on `adsb-update.service`, then the outcome, is still a belief, as is
   `ExecMainStatus` holding the oneshot's exit code.~~ *Corrected 2026-10-10: the first automatic
@@ -1873,8 +1884,88 @@ Read on the Pi over SSH by Claude, or pasted by Chris; Arizona time, which is th
   exit code, read as `0` beside `status.json`'s `applied` (a non-zero exit has not been read
   through it); and the window's close starting the writer. ⚠️ Still not seen: whether the
   opener's dispatch wait broke on its first poll, which is not logged; the opener's "not at home"
-  and "off" exits; its close's `124` path (`bin/adsb-home-update:159`, the window's stop not
+  and "off" exits; its close's `124` path (~~`bin/adsb-home-update:159`~~ `bin/adsb-home-update:170`, the window's stop not
   finished in 120 s); and a timer entering `running` on a by-hand start of its service.*
+
+**A persistent journal, step `06-journal`. (Chris), 2026-10-10, in two rulings.** It closes the
+"Open, ruled to be decided later" item above that put the persistent journal later. Built in
+`787fd06`, `cc26f27`, `5f4a077` and `77e7282` (`setup/steps/06-journal.sh`). ⚠️ **Not yet run on
+hardware.**
+
+- **About 08:50: a persistent journal on both rigs, built right after step 5, as a shared step
+  06.** The reason given: the "logs reset every day" observation was in fact every reboot.
+  Raspberry Pi OS ships `/usr/lib/systemd/journald.conf.d/40-rpi-volatile-storage.conf`
+  (`Storage=volatile`; ✅ read on the 🎒 portable, below). On the remote 🏠 stationary a watchdog
+  reboot would erase its own cause; on the 🎒 portable, whether a timer run happened before the last boot cannot be read. The 04:30 run
+  of 2026-10-10 is unverifiable for this reason (the record on hardware above).
+- **About 10:00, by multiple-choice question: journald is restarted only under `update.sh`** (with
+  `ADSB_UPDATE_RUN` set), which holds the recording lock, following the precedent of `50-updater`
+  and `70-portable-home-update`, which start their timers only there. Run by hand, the step installs
+  and warns, and its verify passes on the configuration, with a warning, while journald is not yet
+  writing to `/var`. The reason, as the question stated it for this option: a restart by hand on a
+  recording 🎒 portable could drop the writer's stdout stream, which nobody has seen survive; and
+  `50-updater` and `70-portable-home-update` already do it this way. Chris gave no reason beyond
+  choosing it.
+  - Not taken, the question's two other options:
+    - **"Refuse while recording":** run by hand, restart journald only if no recording session
+      holds the lock; otherwise warn that the drop-in loads at the next boot.
+    - **"Leave as built":** always restart; run by hand, the restart is Chris's own choice, and the
+      warning reports it.
+- **As built,** from `setup/steps/06-journal.sh`:
+  - **The drop-in,** `/etc/systemd/journald.conf.d/60-adsb-receiver-persistent.conf`,
+    `root:root 0644`: `Storage=persistent` and `SystemMaxUse=200M`. `60-` sorts after the vendor's
+    `40-`, and journald.conf(5) gives the drop-in sorted last the last word. `SystemKeepFree=` is
+    left at its default.
+  - **`systemd-tmpfiles --create --prefix /var/log/journal`,** systemd's own rules for the
+    directory's owner, mode and ACLs. A failure warns.
+  - **Before any restart,** the last word on `Storage=` in `systemd-analyze cat-config` must be
+    `persistent`; a later-sorted drop-in that overrides ours fails the step.
+  - **The restart decision, under `update.sh` only.** journald is restarted when this run changed
+    the drop-in, or the running journald has no file open under `/var/log/journal/<machine-id>/`
+    (read from its `/proc/<pid>/fd`), or journald's `ExecMainStartTimestamp` (read with `busctl`, in
+    µs) is older than the drop-in's mtime. Then `journalctl --flush`, bounded at 30 s. A run on a rig
+    whose journald is already on `/var` with the current drop-in loaded restarts nothing.
+  - **Three stream checks around the restart,** for `readsb` and `adsb-writer`, each only where the
+    unit was active before it: journald's `NFileDescriptorStore` before and after, printed and not
+    judged; each unit's fd 1 held by the new journald, read from `ss -xpn`; and each unit's
+    `InvocationID` and `NRestarts`, before and after. All three warn and never die. The reasons, in
+    the code: [§9c](#9c-every-step-ends-in-a-check-of-the-observable-effect)'s rule that a check may
+    never end a recording session; a die under `update.sh` rolls back, and the rollback cannot undo a
+    session already ended; and the restart repeats on every run while its cause holds, so a die would
+    turn one gap into failed updates. They run before a failed flush's die, since journald has been
+    restarted either way.
+  - **The verify:** the drop-in matches its render; `cat-config`'s last word on `Storage=` and
+    `SystemMaxUse=` is ours; the machine directory is `root:systemd-journal` with the setgid bit;
+    and a token logged now is read back from `/var/log/journal/<machine-id>/`. ⛔ No check across
+    boots: that the journal survives a reboot is a hardware observation.
+  - **A rollback** by `update.sh` to a tree without step 06 leaves the drop-in in place, and names
+    the step in `status.json`'s `rollback.leftovers_possible`. The journal stays persistent until
+    the drop-in is removed by hand.
+- ✅ **Read on the 🎒 portable, `mobile-adsb`, over SSH by Claude, 2026-10-10:**
+  - `/usr/lib/systemd/journald.conf.d/40-rpi-volatile-storage.conf` holds `[Journal]` and
+    `Storage=volatile` (read at about 10:03);
+  - journald's descriptor store is configured: `FileDescriptorStoreMax=4224`,
+    `FileDescriptorStorePreserve=yes`, `NFileDescriptorStore=16`;
+  - `systemd-journal-flush.service` requires only `-.mount` and `system.slice`;
+  - the tmpfiles rule for `/var/log/journal/%m` is `2755 root systemd-journal`, plus `adm` ACLs;
+  - `ss` is `/usr/bin/ss`, and `busctl` is `/usr/bin/busctl`; `busctl` gives
+    `ExecMainStartTimestamp` as `t <µs>`, which matched the start the monotonic clock implies to
+    within milliseconds (the portable has an RTC, so no clock step before journald); coreutils is
+    9.7, and `stat -c %.6Y` gives microseconds;
+  - the journal holds no raw GPS position: the NMEA lines carry `<lat>` and `<lon>` placeholders
+    (counted, never printed).
+- ⚠️ **Beliefs it rests on, not seen:**
+  - that a journald restart keeps the services' stdout streams. systemd-journald(8) says so, and
+    the store is configured, but no restart has been seen;
+  - that on systemd 257 journald re-reads its configuration only on a restart (a reload by SIGHUP
+    arrives in 258), and that after the restart a `journalctl --flush` is needed to move to `/var`:
+    the implementer's reading of the v257 source and the man pages;
+  - that the flush finishes within its bound on the Pi, and that `ss -xpn` run as root shows
+    journald's PID in the columns the check reads;
+  - the 🏠 stationary's clock. It is not built, and may have no RTC: then fake-hwclock can make
+    journald look older than the drop-in, which costs one extra restart under the lock and corrects
+    itself;
+  - all of step 06: it has not run on hardware.
 
 ### 9g. Channels: portable tracks `main`, stationary tracks `stable`
 
@@ -3609,8 +3700,8 @@ recording session ([§9c](#9c-every-step-ends-in-a-check-of-the-observable-effec
       exceeded the pipe buffer. Fixed in `e019b29`, with one `sed` range and no pipeline. That is the
       failure behind the trap at the end of
       [§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic). ⚠️ The same
-      `| head -n1` shape remains, reported and not fixed, in `setup/bootstrap.sh:73` (guarded by
-      `|| unit=''`), and `setup/update.sh:237`, `setup/steps/20-portable-clock.sh:366` and
+      `| head -n1` shape remains, reported and not fixed, in ~~`setup/bootstrap.sh:73`~~ `setup/bootstrap.sh:145` (guarded by
+      `|| unit=''`), and ~~`setup/update.sh:237`~~ `setup/update.sh:299`, `setup/steps/20-portable-clock.sh:366` and
       `bin/clock-preflight:120` and `:125` (each guarded by `|| true`).*
 - **(Chris), 2026-10-04:** no step's verify reads `UMask=`. That is the setting, not the effect: the
   full pull in the pre-field checklist tests the effect.
