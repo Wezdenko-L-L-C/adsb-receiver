@@ -54,7 +54,9 @@
 # ⛔ Read-only toward the network stack (PLAN §9h bars writes, not reads). Its one write is the
 #    state file above, under the unit only, in a directory only root may write.
 #
-# What has run on hardware: the nmcli commands above, by hand. This script: nothing.
+# What has run on hardware: the nmcli commands above, by hand. This script: as the opener's
+# ExecCondition=, saying "at home"; ⚠️ its "not at home" and "off" exits are not seen. The record
+# is PLAN §9f, "Verified on hardware, 2026-10-09 and 2026-10-10".
 
 set -uo pipefail
 export LC_ALL=C

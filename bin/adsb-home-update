@@ -39,13 +39,15 @@
 #   5. if pending: writes the marker (content "adsb-home-update"); reads adsb-update.service's
 #      InvocationID; starts the pull window, which stops the writer (Conflicts=) and starts
 #      adsb-update.service (Wants=); waits for a new InvocationID, the window's update dispatched
-#      (⚠️ belief, from systemd's documentation: each activation gets a new one; not seen), then for
+#      (from systemd's documentation: each activation gets a new one; seen 2026-10-10 under the
+#      opener, PLAN §9f's record on hardware), then for
 #      that run to end; reads its outcome; stops the window, whose ExecStop= wait applies as for
 #      any closer and whose ExecStopPost= starts the writer; removes the marker.
 # The outcome: adsb-update.service's ExecMainStatus (update.sh's exit code, PLAN §9f: 0 applied,
 # unchanged, skipped or lock held; 1 failed; 2 rolled back; 3 incomplete), and status.json's result
 # when this run wrote one (its finished_at not before the window opened; an unchanged or skipped
-# run writes none). ⚠️ That ExecMainStatus holds a finished oneshot's exit code: belief, not seen.
+# run writes none). That ExecMainStatus holds a finished oneshot's exit code: seen 2026-10-10, read
+# as 0 beside status.json's applied; ⚠️ a non-zero exit has not been read through it (PLAN §9f).
 #
 # Time: the unit's TimeoutStartSec=55min is ruled. Every wait here is bounded inside it, with 2 min
 # left over for ExecCondition= and the close, so a slow run ends with its real cause in the line,
@@ -74,16 +76,25 @@
 #    commits, steps and times only.
 # ⛔ It never stops the writer itself: the window does, the ruled way to end a session (PLAN §9f).
 #
-# ⚠️ Beliefs about systemd it rests on, none seen on a Pi (bootstrap.sh's list, plus these):
-#   - `systemctl list-jobs <unit>` shows a start job still queued;
-#   - `systemctl stop` blocks through ExecStop=, and `stop --no-block` carries through it;
-#   - ExecStopPost= starts the writer, and a failed start runs none;
+# Beliefs about systemd it rests on (bootstrap.sh's list, plus these), each marked as PLAN §9e's
+# (b) list and §9f's record on hardware mark it; the record itself is there, not here:
+#   - `systemctl list-jobs <unit>` shows a start job still queued: ⚠️ not seen (the jobs are
+#     listed at every poll, and nothing about them is logged);
+#   - `systemctl stop` blocks through ExecStop=: half seen, under the opener. Seen: a stop that goes
+#     through ExecStop= and returns, with the update already inactive. ⚠️ Not seen: the stop
+#     waiting while the update is activating. ⚠️ `stop --no-block` carrying through it: not seen;
+#   - ExecStopPost= starts the writer: seen 2026-10-10 under the opener. ⚠️ A failed start running
+#     none: not seen;
 #   - this unit's own start job, running while it waits and ordered After= the writer, holds
 #     neither the writer's stop (by the window's Conflicts=) nor its later start (by the window's
 #     ExecStopPost=): reasoned from systemd's ordering rules for a stop and a start, not seen;
-#   - InvocationID and ExecMainStatus, above; ExecCondition= on systemd 257 (PLAN §9f).
+#   - InvocationID and ExecMainStatus, above; ExecCondition= on systemd 257.13: seen running
+#     adsb-at-home, which said "at home" (PLAN §9f).
+# ⚠️ Still not seen (PLAN §9f): whether the dispatch wait broke on its first poll, which is not
+# logged; the "not at home" and "off" exits, so ExecCondition= skipping a run; the close's 124 path below
+# (the window's stop not finished in 120 s).
 #
-# What has run on hardware: nothing.
+# What has run on hardware: PLAN §9f, "Verified on hardware, 2026-10-09 and 2026-10-10".
 
 set -uo pipefail
 

@@ -116,9 +116,15 @@
 # What has run on hardware: the portable, mobile-adsb, on 2026-10-04 (incomplete: steps failed
 # on a hung stick) and on 2026-10-05 (applied, and the reboot taken). ⚠️ Unverified: all of it on
 # the stationary. ⚠️ Not run on hardware: the pull-window path above (written 2026-10-05, after
-# both runs). That the window's update is activating, or has a queued start job, by the time
-# `systemctl start` of the window returns is a belief (§9m's journal shows its "Starting" line
-# before the window's "Started" once); the wait checks both, so it does not rest on it.
+# both runs). It runs only on a second bootstrap of an incomplete, recording first build, which has
+# not yet occurred, and no SD is staged to prove it (PLAN §9e, the 2026-10-10 ruling under (b)'s
+# beliefs list). The window unit it starts and stops is shared with the opener, and has run end to
+# end under it (PLAN §9f's record on hardware, 2026-10-10 at 08:45). So its beliefs about systemd,
+# marked "⚠️ belief, not seen on a Pi" in this file, are each marked in PLAN §9e's (b) list as seen under
+# the opener and not under the bootstrap, half seen, or not seen. That the window's update is
+# activating, or has a queued start job, by the time `systemctl start` of the window returns: seen
+# in effect 2026-10-10 under the opener, not under the bootstrap; the wait checks both, so it does
+# not rest on it.
 
 set -euo pipefail
 
