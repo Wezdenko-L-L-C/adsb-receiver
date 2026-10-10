@@ -26,7 +26,7 @@
 set -uo pipefail
 # The number of check cases a full run makes. Bump it when cases are added or removed: a run that
 # makes fewer (a section skipped by an early return, a wait loop that timed out) fails.
-readonly EXPECTED_CHECKS=240
+readonly EXPECTED_CHECKS=249
 ((EUID != 0)) || { echo "refusing to run as root: the sandbox remaps real system paths by sed"; exit 1; }
 # The sandbox is not under systemd; update.sh adds a <N> journal prefix to its marker line when it is.
 unset INVOCATION_ID
@@ -129,17 +129,21 @@ case "\$1 \${2:-}" in
   "stop adsb-pull-window.service") rm -f "$SB/window-active" ;;
   "reboot "*) echo "FAKE REBOOT"; exit 0 ;;
   "show -p")
+    # TS: step 70's one-call snapshot of the opener timer (-p SubState -p ActiveState ...). It
+    # fails while ts-show-fails exists; otherwise it pops the first snapshot of ts-snaps (each
+    # ends with a "---" line), then repeats ts-snap-default.
+    if [[ "\$3 \${5:-}" == "SubState ActiveState" ]]; then
+      [[ -e "$SB/ts-show-fails" ]] && { echo "Failed to connect to bus (stub)" >&2; exit 1; }
+      if [[ -s "$SB/ts-snaps" ]]; then
+        sed '/^---\$/,\$d' "$SB/ts-snaps"; sed -i '1,/^---\$/d' "$SB/ts-snaps"
+      else
+        cat "$SB/ts-snap-default" 2>/dev/null
+      fi
+      exit 0
+    fi
     case "\$3 \${5:-}" in
       "LoadState adsb-pull-window.service") cat "$SB/window-load" 2>/dev/null || echo not-found ;;
       "LoadState adsb-home-update.timer") cat "$SB/home-timer-load" 2>/dev/null || echo not-found ;;
-      # TS: the opener timer as step 70's verify reads it. Each is a queue, one line per call
-      # (a blank line is an empty value), then the default.
-      "SubState adsb-home-update.timer")
-        if [[ -s "$SB/ts-sub" ]]; then head -n1 "$SB/ts-sub"; sed -i 1d "$SB/ts-sub"; else echo waiting; fi ;;
-      "NextElapseUSecRealtime adsb-home-update.timer")
-        if [[ -s "$SB/ts-next" ]]; then head -n1 "$SB/ts-next"; sed -i 1d "$SB/ts-next"; else cat "$SB/ts-next-default" 2>/dev/null; fi ;;
-      "ActiveState adsb-home-update.service")
-        if [[ -s "$SB/ts-svc" ]]; then head -n1 "$SB/ts-svc"; sed -i 1d "$SB/ts-svc"; else echo inactive; fi ;;
       "InvocationID adsb-update.service") cat "$SB/upd-inv" 2>/dev/null || echo ;;
       "ExecMainStatus adsb-update.service") cat "$SB/upd-exit" 2>/dev/null || echo 0 ;;
       "ActiveState adsb-update.service")
@@ -1109,51 +1113,94 @@ check "SEC4 the opener: error (1)" hu_line "^ADSB-HOME-UPDATE error: $SB/home is
 check "SEC4 nothing was written where the link points" [ "$RC/$(find "$SB/elsewhere" -mindepth 1 | wc -l)" = 1/0 ]
 rm -f "$SB/home"; mv "$SB/home.real" "$SB/home"
 echo
-echo "== TS. step 70's verify reads the opener timer after a fire it just caused (seen on the Pi, 2026-10-09)"
-# timer_settled from the real step, with lib.sh's four output helpers, a 4 s bound, and the
-# sandbox's marker path. It runs in a child bash; its exit status is the verdict.
-TSH=$SB/timer-settled.sh
+echo "== TS. step 70's verify of the opener timer (ruled 2026-10-09): one snapshot, decided on SubState, no wait on its run"
+# The real step's DAILY_AT and four functions, with lib.sh's four output helpers; each extraction
+# is checked, so a renamed or reshaped function stops the suite here. The harness runs its
+# arguments, so every override (reads, the pause command, the systemd-analyze command) is an
+# argument: nothing depends on the order of assignments.
+TSH=$SB/timer-check.sh
+STEP70=$REAL/setup/steps/70-portable-home-update.sh
 {
   echo 'set -euo pipefail'
   grep -E '^(log|warn|die|pass)\(\) ' "$REAL/setup/lib.sh"
-  printf 'TIMER=adsb-home-update.timer SERVICE=adsb-home-update.service ADSB_WINDOW_MARK=%s\n' "$SB/home/window-opened-by"
-  sed -n '/^timer_settled() {/,/^}/p' "$REAL/setup/steps/70-portable-home-update.sh"
-  echo 'TIMER_SETTLE_BOUND=4'
-  echo 'timer_settled'
+  grep -E "^DAILY_AT='" "$STEP70"
+  echo 'TIMER=adsb-home-update.timer SERVICE=adsb-home-update.service'
+  for fn in calendar_check timer_snapshot timer_check; do sed -n "/^$fn() {/,/^}/p" "$STEP70"; done
+  grep -E '^next_set\(\) \{.*\}$' "$STEP70"
+  echo '"$@"'
 } >"$TSH"
-grep -q '^timer_settled() {' "$TSH" && [ "$(grep -cE '^(log|warn|die|pass)\(\) ' "$TSH")" = 4 ] \
-  || { echo "timer_settled or lib.sh's helpers not extracted"; exit 1; }
-ts() { RC=0; bash "$TSH" >"$SB/out.txt" 2>&1 || RC=$?; }
-ts_reset() { rm -f "$SB/ts-sub" "$SB/ts-next" "$SB/ts-svc" "$SB/home/window-opened-by"; echo "Sat 2026-10-10 04:30:00 MST" >"$SB/ts-next-default"; }
+for fn in calendar_check timer_snapshot timer_check next_set; do
+  grep -q "^$fn() {" "$TSH" || { echo "step 70's $fn was not extracted"; exit 1; }
+done
+[ "$(grep -cE '^(log|warn|die|pass)\(\) ' "$TSH")/$(grep -c "^DAILY_AT='" "$TSH")" = 4/1 ] \
+  || { echo "lib.sh's helpers or step 70's DAILY_AT not extracted"; exit 1; }
+ts() { RC=0; : >"$SB/systemctl.log"; : >"$SB/ts-pauses"; bash "$TSH" "$@" >"$SB/out.txt" 2>&1 || RC=$?; }
+shows() { grep -c '^show -p SubState -p ActiveState' "$SB/systemctl.log"; }
+# snap <SubState> <NextElapseUSecRealtime> <LastTriggerUSec>: one snapshot for ts-snaps.
+snap() { printf 'ActiveState=active\nSubState=%s\nLastTriggerUSec=%s\nNextElapseUSecRealtime=%s\nNextElapseUSecMonotonic=0\n---\n' "$1" "$3" "$2"; }
+printf '#!/usr/bin/env bash\necho pause >>"%s"\n' "$SB/ts-pauses" >"$SB/ts-pause"; chmod +x "$SB/ts-pause"
+NEXT_AT="Sat 2026-10-10 04:30:00 MST" LAST_AT="Fri 2026-10-09 19:16:55 MST"
+snap waiting "$NEXT_AT" "$LAST_AT" | sed '/^---$/d' >"$SB/ts-snap-default"
 
-echo "-- TS1. the Pi's case: the fired opener runs for 3 polls with no next elapse, then the timer waits with one"
-ts_reset
-printf 'running\nrunning\nrunning\n' >"$SB/ts-sub"; printf 'activating\nactivating\nactivating\n' >"$SB/ts-svc"; printf '\n\n\n' >"$SB/ts-next"
-ts
-check "TS1 passes (0), naming the next elapse" rc_has 0 "PASS: adsb-home-update.timer is enabled and active, next elapse Sat 2026-10-10 04:30:00 MST" "$SB/out.txt"
-check "TS1 printed the raw state of each poll: 3 running, then waiting" \
-  [ "$(grep -c 'SubState=running; adsb-home-update.service ActiveState=activating; NextElapseUSecRealtime=(empty)' "$SB/out.txt")/$(grep -c 'SubState=waiting' "$SB/out.txt")" = 3/1 ]
+echo "-- TS1. running: pass at once, one snapshot, no pause"
+snap running "" "$LAST_AT" >"$SB/ts-snaps"
+ts timer_check 5 "$SB/ts-pause"
+check "TS1 passes (0): the timer has fired the opener and that run has not ended" \
+  rc_has 0 "PASS: adsb-home-update.timer has fired adsb-home-update.service (LastTriggerUSec=$LAST_AT) and that run has not ended" "$SB/out.txt"
+check "TS1 one snapshot, no pause" [ "$(shows)/$(wc -l <"$SB/ts-pauses")" = 1/0 ]
 
-echo "-- TS2. waiting, but no next elapse: fails, as before"
-ts_reset; : >"$SB/ts-next-default"
-ts
-check "TS2 fails (1): no next elapse" rc_has 1 "FAIL: adsb-home-update.timer is waiting but has no next elapse" "$SB/out.txt"
+echo "-- TS2. waiting with a next elapse, never triggered: pass, naming both"
+snap waiting "$NEXT_AT" "" >"$SB/ts-snaps"
+ts timer_check 5 "$SB/ts-pause"
+check "TS2 passes (0): next elapse, and none since start" \
+  rc_has 0 "PASS: adsb-home-update.timer is waiting: next elapse $NEXT_AT (monotonic: 0, 0 for none); last trigger none since start" "$SB/out.txt"
 
-echo "-- TS3. the timer's run never ends within the bound (4 s here, 90 on a rig): fails, naming the state"
-ts_reset
-printf 'running\n%.0s' $(seq 1 20) >"$SB/ts-sub"
-ts
-check "TS3 fails (1) after the bound, naming SubState" rc_has 1 "FAIL: adsb-home-update.timer's run was still going after 4 s (SubState=running" "$SB/out.txt"
+echo "-- TS3. waiting, empty for 2 reads, then set: pass after 3 reads and 2 pauses"
+{ snap waiting "" "$LAST_AT"; snap waiting "" "$LAST_AT"; snap waiting "$NEXT_AT" "$LAST_AT"; } >"$SB/ts-snaps"
+ts timer_check 5 "$SB/ts-pause"
+check "TS3 passes (0), naming the last trigger" rc_has 0 "PASS: adsb-home-update.timer is waiting: next elapse $NEXT_AT .*last trigger $LAST_AT" "$SB/out.txt"
+check "TS3 three snapshots, two pauses" [ "$(shows)/$(wc -l <"$SB/ts-pauses")" = 3/2 ]
 
-echo "-- TS4. the timer's service is the opener that opened this update's window (marker present): no wait"
-ts_reset
-printf 'running\n%.0s' $(seq 1 20) >"$SB/ts-sub"; printf 'activating\n%.0s' $(seq 1 20) >"$SB/ts-svc"
-echo adsb-home-update >"$SB/home/window-opened-by"
-t0=$SECONDS; ts; ts_el=$((SECONDS - t0))
-check "TS4 passes (0) at once, saying why the timer is running" \
-  rc_has 0 "PASS: adsb-home-update.timer is active; its service is the opener that opened this update's window" "$SB/out.txt"
-check "TS4 did not wait (took ${ts_el} s)" [ "$ts_el" -lt 2 ]
-ts_reset; rm -f "$SB/ts-next-default"
+echo "-- TS4. waiting, empty past 5 reads: fails, printing the snapshot"
+for _ in 1 2 3 4 5 6; do snap waiting "" "$LAST_AT"; done >"$SB/ts-snaps"
+ts timer_check 5 "$SB/ts-pause"
+check "TS4 fails (1): no realtime next elapse after 5 reads, the snapshot in the message" \
+  rc_has 1 "FAIL: adsb-home-update.timer is active but has no realtime next elapse after 5 reads (the last snapshot above): ActiveState=active SubState=waiting" "$SB/out.txt"
+check "TS4 five snapshots, four pauses" [ "$(shows)/$(wc -l <"$SB/ts-pauses")" = 5/4 ]
+
+echo "-- TS5. elapsed: fails, with the snapshot"
+snap elapsed "" "$LAST_AT" >"$SB/ts-snaps"
+ts timer_check 5 "$SB/ts-pause"
+check "TS5 fails (1), naming SubState elapsed" \
+  rc_has 1 "FAIL: adsb-home-update.timer is active, SubState 'elapsed', neither waiting nor running (the snapshot above): ActiveState=active" "$SB/out.txt"
+
+echo "-- TS6. systemctl show itself fails: a systemctl failure, not a missing next elapse"
+touch "$SB/ts-show-fails"
+ts timer_check 5 "$SB/ts-pause"
+rm -f "$SB/ts-show-fails"
+check "TS6 fails (1), as a systemctl failure" \
+  rc_has 1 "FAIL: systemctl show adsb-home-update.timer failed (a systemctl failure, not a missing next elapse): Failed to connect to bus (stub)" "$SB/out.txt"
+check "TS6 says nothing of a next elapse" lacks "no realtime next elapse" "$SB/out.txt"
+
+echo "-- TS7. the daily expression's calendar check: next elapse, never, a failing exit, systemd-analyze absent"
+# Fake systemd-analyze commands; the first prints what the Pi printed on 2026-10-09.
+# shellcheck disable=SC2016  # $2 is the fake command's own argument, expanded when it runs
+printf '#!/usr/bin/env bash\nprintf "  Original form: %%s\\nNormalized form: *-*-* 04:30:00\\n    Next elapse: Sat 2026-10-10 04:30:00 MST\\n       (in UTC): Sat 2026-10-10 11:30:00 UTC\\n       From now: 8h left\\n" "$2"\n' >"$SB/an-ok"
+printf '#!/usr/bin/env bash\nprintf "Normalized form: 2001-01-01 00:00:00\\n    Next elapse: never\\n"\n' >"$SB/an-never"
+printf '#!/usr/bin/env bash\necho "Failed to parse calendar specification (stub)" >&2; exit 1\n' >"$SB/an-bad"
+chmod +x "$SB/an-ok" "$SB/an-never" "$SB/an-bad"
+ts calendar_check "$SB/an-ok"
+check "TS7 a next elapse: pass, and the expression checked is the timer's" \
+  rc_has 0 "PASS: OnCalendar=\*-\*-\* 04:30:00 gives systemd a next elapse: Sat 2026-10-10 04:30:00 MST" "$SB/out.txt"
+check "TS7 the raw output was printed" grep -q "Original form: \*-\*-\* 04:30:00" "$SB/out.txt"
+ts calendar_check "$SB/an-never"
+check "TS7 never: fails" rc_has 1 "FAIL: the daily expression OnCalendar=\*-\*-\* 04:30:00 gives systemd no next elapse (exit 0" "$SB/out.txt"
+ts calendar_check "$SB/an-bad"
+check "TS7 a failing exit: fails" rc_has 1 "FAIL: the daily expression .* gives systemd no next elapse (exit 1" "$SB/out.txt"
+ts calendar_check "$SB/no-such-systemd-analyze"
+check "TS7 systemd-analyze absent: a warning, unverified, not a failure" \
+  rc_has 0 "WARNING: .*no-such-systemd-analyze is not installed, so whether OnCalendar=\*-\*-\* 04:30:00 gives a next elapse is UNVERIFIED" "$SB/out.txt"
+rm -f "$SB/ts-snaps" "$SB/ts-snap-default"
 
 echo "smoke: $NPASS passed, $NFAIL failed"
 if ((NPASS + NFAIL != EXPECTED_CHECKS)); then
