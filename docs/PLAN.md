@@ -1050,7 +1050,9 @@ mechanism this is. Chris: *"I have no problem with (a) and (b)."* It answers the
       is read from the journal of `adsb-pull-window`, `adsb-writer` and `adsb-update`. Its
       precondition is the persistent journal (§9f, "Open, ruled to be decided later"), ~~now on the
       plan as the next rig step~~ *corrected 2026-10-10: built that day as step `06-journal` (§9f, "A
-      persistent journal, step `06-journal`"); ⚠️ not yet run on a Pi*: a second bootstrap that reboots would otherwise leave only its own
+      persistent journal, step `06-journal`"); ~~⚠️ not yet run on a Pi~~ corrected again 2026-10-10:
+      install and verify ran on the 🎒 portable under `update.sh`; ⚠️ that the journal survives a
+      reboot is not yet seen*: a second bootstrap that reboots would otherwise leave only its own
       output, which carries the script's claims, not systemd's observation.
     - Rejected:
       - **A fresh SD with a plain bootstrap.** It does not reach (b) (above); it re-proves the
@@ -1414,8 +1416,10 @@ the option rejected below as "`update.sh` stopping the writer".
     remote 🏠 stationary, where a watchdog reboot would otherwise erase its own cause, and it costs SD
     card wear on the portable. *Corrected 2026-10-10: no longer later, and no longer open. (Chris),
     2026-10-10, about 08:50: built right after step 5, as the shared step `06-journal`, in the shape
-    above. ⚠️ Not yet run on hardware. The rulings, the build and its beliefs are in "A persistent
-    journal, step `06-journal`", at the end of this section.*
+    above. ~~⚠️ Not yet run on hardware.~~ The rulings, the build and its beliefs are in "A persistent
+    journal, step `06-journal`", at the end of this section.* *Corrected again 2026-10-10: install
+    and verify ran on the 🎒 portable under `update.sh`; ⚠️ that the journal survives a reboot is not
+    yet seen.*
 - 📋 **The step-2 success test.** Not run; it needs step 2 built and bootstrapped on the 🎒
   portable, with `status.json` at `result: applied` and the writer recording again.
   1. **A push to `main` lands by itself.** *Note 2026-10-05: under the channel ruling of
@@ -1874,8 +1878,11 @@ Read on the Pi over SSH by Claude, or pasted by Chris; Arizona time, which is th
   whether the 04:30 run of 2026-10-10 happened is **not verifiable**, and any later "did the opener
   run" check reads only the current boot. ~~A persistent journal is not built: it is the separate,
   later step under "Open, ruled to be decided later" above.~~ *Corrected 2026-10-10: a persistent
-  journal is built, as step `06-journal`, ⚠️ not yet run on hardware, so the journal on the Pi is
-  still volatile ("A persistent journal, step `06-journal`", below).*
+  journal is built, as step `06-journal`, ~~⚠️ not yet run on hardware, so the journal on the Pi is
+  still volatile~~ ("A persistent journal, step `06-journal`", below).* *Corrected again
+  2026-10-10: step 06's install and verify ran on the 🎒 portable under `update.sh` at about 10:12,
+  and its verify read a token back from `/var/log/journal/<machine-id>/`. ⚠️ That the journal
+  survives a reboot is not yet seen.*
 - ⚠️ ~~**No automatic open has happened yet:** nothing has been pending. The open path, the window's
   start, a new `InvocationID` on `adsb-update.service`, then the outcome, is still a belief, as is
   `ExecMainStatus` holding the oneshot's exit code.~~ *Corrected 2026-10-10: the first automatic
@@ -1887,10 +1894,12 @@ Read on the Pi over SSH by Claude, or pasted by Chris; Arizona time, which is th
   and "off" exits; its close's `124` path (~~`bin/adsb-home-update:159`~~ `bin/adsb-home-update:170`, the window's stop not
   finished in 120 s); and a timer entering `running` on a by-hand start of its service.*
 
-**A persistent journal, step `06-journal`. (Chris), 2026-10-10, in two rulings.** It closes the
+**A persistent journal, step `06-journal`. (Chris), 2026-10-10, in ~~two~~ *three* rulings.** It closes the
 "Open, ruled to be decided later" item above that put the persistent journal later. Built in
-`787fd06`, `cc26f27`, `5f4a077` and `77e7282` (`setup/steps/06-journal.sh`). ⚠️ **Not yet run on
-hardware.**
+`787fd06`, `cc26f27`, `5f4a077` and `77e7282` (`setup/steps/06-journal.sh`). ~~⚠️ **Not yet run on
+hardware.**~~ *Corrected 2026-10-10: install and verify ran on the 🎒 portable under `update.sh`, in
+the pull window at about 10:12 (the "✅ Run on hardware" block below). ⚠️ That the journal survives
+a reboot is not yet seen.*
 
 - **About 08:50: a persistent journal on both rigs, built right after step 5, as a shared step
   06.** The reason given: the "logs reset every day" observation was in fact every reboot.
@@ -1911,6 +1920,60 @@ hardware.**
       holds the lock; otherwise warn that the drop-in loads at the next boot.
     - **"Leave as built":** always restart; run by hand, the restart is Chris's own choice, and the
       warning reports it.
+- **About 11:00, by multiple-choice question, on an architecture consultation's recommendation:
+  the stream check is dropped** (option B). The step keeps journald's `NFileDescriptorStore` before
+  and after the restart, printed and not judged, and `readsb`'s and `adsb-writer`'s `InvocationID`
+  and `NRestarts` before and after, warned. How it came to a question: the check that paired each
+  unit's fd 1 with journald through `ss -xpn` warned falsely on its first run on hardware, because
+  the Pi's kernel has no unix_diag (the "✅ Run on hardware" block below). It was then replaced, on
+  the same branch, never shipped, by a check of journald's per-stream state files
+  (`UNIT=<unit>` in `/run/systemd/journal/streams/`, tied to journald's open sockets, against a
+  baseline taken before the restart). That took three rewrites in a row, and Chris asked for the
+  consultation.
+  - The reasoning, the consultation's; ✅ marks what Claude checked:
+    - The restart runs only under `update.sh`, which refuses to run while the writer holds the
+      recording lock (✅ read in `setup/update.sh`: `take_lock`, :459–468, takes it with `flock -n`;
+      a timer run that finds it held exits 0, a run by hand exits `RC_FAILED`, with
+      `lock_held_by_hand`'s message at :485–503), so the writer is never recording across it. Its
+      unit has `IgnoreSIGPIPE=yes` (✅ seen on the 🎒 portable), so if its stream did break, the
+      Python writer would get `EPIPE` on its next write to stderr, exit, and be restarted, which the
+      `InvocationID` and `NRestarts` check reports. ⚠️ Belief, not seen, and not certain on every
+      path: the writer's `log()` in `bin/adsb-writer` is `print(..., file=sys.stderr, flush=True)`,
+      but some of its calls sit in `try` blocks with `except OSError`, and there are catch-alls
+      (`except Exception`, in `start_probes` and at the end of `main`), so an `EPIPE` could be caught
+      instead of ending the process.
+    - ⚠️ **The residual, not detected by the step:** `readsb` (C) would lose its journal lines
+      silently until its next restart. By the code's order (`update.sh`'s `step_list` takes the
+      steps in file-name order; §9b: `06-journal` runs before `10-decoder`), it arises only on a rig
+      whose `readsb` was running when the drop-in first landed, the 🎒 portable's case, already
+      observed (the "✅ Run on hardware" block below), or at a later restart with `readsb` running:
+      a change to the drop-in, a journald that looks older than it, or journald with no file open
+      under `/var` (a later boot whose flush failed; from the step's restart decision,
+      `journald_on_var`, not seen).
+    - The restart happens about once per rig (the drop-in changed, journald not on `/var`, or
+      journald older than the drop-in), so a check for it cannot be validated on a rig before its
+      one real run. The stream files are systemd's private format ("This is private data. Do not
+      parse"), read here only through the strings of a systemd 259 binary, while the rigs run 257.
+    - [§9c](#9c-every-step-ends-in-a-check-of-the-observable-effect): a verification that happens
+      once per rig is a hardware observation recorded in the docs, not a script. What is owed is
+      the standing item "📋 Owed, standing" below.
+  - Rejected:
+    - **A: finish the stream-file check.** It still rests on the private format, and a format
+      mismatch would be a permanent false warning, the pattern the `ss` form already produced.
+    - **C1: a probe of liveness after the restart.** There is no write the step can cause in
+      `readsb`; it would need a change to `readsb`. ⚠️ A belief.
+    - **C2: the whole set of socket inodes, compared and printed.** Nothing pairs it to a unit
+      without unix_diag.
+    - **C3: restart `readsb` after journald's restart.** It replaces an observation with an
+      intervention on a mechanism seen to work once, and costs `readsb` its stick for seconds.
+      ➡️ **Kept as the fallback, a ruling in waiting:** it is the answer if a dropped stream is
+      ever seen.
+    - **Keeping the check, log-only.** Maintenance with no warning.
+  - ➡️ **What would change it:**
+    - a dropped `readsb` stream seen on either rig: then C3;
+    - a lock design in which the writer records across `update.sh`: then journald must not be
+      restarted while the writer holds the lock;
+    - a Pi kernel with `CONFIG_UNIX_DIAG`: then the pairing through `ss` could return cheaply.
 - **As built,** from `setup/steps/06-journal.sh`:
   - **The drop-in,** `/etc/systemd/journald.conf.d/60-adsb-receiver-persistent.conf`,
     `root:root 0644`: `Storage=persistent` and `SystemMaxUse=200M`. `60-` sorts after the vendor's
@@ -1925,10 +1988,16 @@ hardware.**
     (read from its `/proc/<pid>/fd`), or journald's `ExecMainStartTimestamp` (read with `busctl`, in
     µs) is older than the drop-in's mtime. Then `journalctl --flush`, bounded at 30 s. A run on a rig
     whose journald is already on `/var` with the current drop-in loaded restarts nothing.
-  - **Three stream checks around the restart,** for `readsb` and `adsb-writer`, each only where the
+  - **~~Three~~ *Two* stream checks around the restart,** for `readsb` and `adsb-writer`, each only where the
     unit was active before it: journald's `NFileDescriptorStore` before and after, printed and not
-    judged; each unit's fd 1 held by the new journald, read from `ss -xpn`; and each unit's
-    `InvocationID` and `NRestarts`, before and after. All three warn and never die. The reasons, in
+    judged; ~~each unit's fd 1 held by the new journald, read from `ss -xpn`;~~ and each unit's
+    `InvocationID` and `NRestarts`, before and after. ~~All three warn and never die.~~
+    *Corrected 2026-10-10: the store's count is printed, not judged; a changed `InvocationID` or
+    `NRestarts` is warned; neither dies. The `ss -xpn` check is removed by the 11:00 ruling above. It
+    warned falsely on its first run, because `ss` sees no unix peers on the Pi's kernel (the "✅ Run
+    on hardware" block below), and the stream-file check that replaced it, on the same branch, was
+    never shipped. In the step, `fd_store` reads the store and `unit_mark` the two values, compared in
+    `check_streams`.* The reasons, in
     the code: [§9c](#9c-every-step-ends-in-a-check-of-the-observable-effect)'s rule that a check may
     never end a recording session; a die under `update.sh` rolls back, and the rollback cannot undo a
     session already ended; and the restart repeats on every run while its cause holds, so a die would
@@ -1945,7 +2014,9 @@ hardware.**
   - `/usr/lib/systemd/journald.conf.d/40-rpi-volatile-storage.conf` holds `[Journal]` and
     `Storage=volatile` (read at about 10:03);
   - journald's descriptor store is configured: `FileDescriptorStoreMax=4224`,
-    `FileDescriptorStorePreserve=yes`, `NFileDescriptorStore=16`;
+    `FileDescriptorStorePreserve=yes`, `NFileDescriptorStore=16` (*added 2026-10-10:* read earlier
+    that day, before step 06 ran; the run read 17 before its restart and 17 after, so the count
+    varies and is not a constant);
   - `systemd-journal-flush.service` requires only `-.mount` and `system.slice`;
   - the tmpfiles rule for `/var/log/journal/%m` is `2755 root systemd-journal`, plus `adm` ACLs;
   - `ss` is `/usr/bin/ss`, and `busctl` is `/usr/bin/busctl`; `busctl` gives
@@ -1954,18 +2025,74 @@ hardware.**
     9.7, and `stat -c %.6Y` gives microseconds;
   - the journal holds no raw GPS position: the NMEA lines carry `<lat>` and `<lon>` placeholders
     (counted, never printed).
+- ✅ **Run on hardware: the 🎒 portable, `mobile-adsb`, 2026-10-10, about 10:12 to 10:13, seen by
+  Claude over SSH.**
+  - `tools/pull-archive` opened the pull window, and the window's update applied `5428470`
+    (`stable`): `trigger: window`, `opened_by: hand`, `result: applied`, exit 0. Every step's
+    install and verify were ok; `06-journal` took 7 s. The window stopped the writer, and it
+    recorded again from 10:13:28. The version that ran had the `ss -xpn` stream check.
+  - Step 06's log: the drop-in changed, and was installed by rename; tmpfiles ran; `readsb`'s
+    `InvocationID` and `NRestarts` were recorded; `systemctl restart systemd-journald`; `timeout 30
+    journalctl --flush` returned. `NFileDescriptorStore` was 17 before the restart and 17 after the
+    flush. `readsb`'s `InvocationID` and `NRestarts` were unchanged afterwards.
+  - The verify: the drop-in matches its render; `cat-config`'s last word is `Storage=persistent`
+    and `SystemMaxUse=200M`; `/var/log/journal/<machine-id>` is `root:systemd-journal 2755`; the
+    token was read back from disk; `journalctl --disk-usage` gave 16M.
+  - ⚠️ **The `ss` stream check warned for `readsb`** ("no journald end … ss: (no line)"). The cause,
+    seen: the kernel, `6.18.50+rpt-rpi-v8`, has `# CONFIG_UNIX_DIAG is not set`, so `ss` reads
+    `/proc/net/unix`, which carries no peers: every one of the 106 unix sockets showed peer 0. The
+    warning was the check's, not a dropped stream.
+  - The streams, seen, not as root: after the restart, the inodes of the sockets bound to
+    `/run/systemd/journal/stdout` (journald's ends) equal, 16 of 16, the inode parts of the file
+    names in `/run/systemd/journal/streams/` (`9:<ino>`). Sockets created at boot (08:41; 345, 10330
+    and 10343, for example) are still among them after the restart at about 10:12. Two stream files
+    have an mtime of 08:41:17, which is `readsb`'s `ExecMainStartTimestamp`. ⚠️ **Not seen:** the
+    files' contents, which are root-only, so which unit owns them is inferred from the mtime alone;
+    and `readsb`'s output after the restart, since it has logged nothing since 08:41:58.
+  - Also seen: `readsb` and `adsb-writer` both have `StandardOutput=journal`,
+    `StandardError=inherit` and `IgnoreSIGPIPE=yes`; `readsb` has `Restart=always`, the writer
+    `Restart=on-failure`; the writer has two `ExecStartPre=+` preflights.
+  - ⚠️ **Not yet seen: a second reboot,** for `journalctl --list-boots` to show two boots or more.
+    That is the remaining hardware observation for persistence itself (in
+    [§9m](#9m--the-portable-rigs-archive-drive)'s pre-field checklist).
+- 📋 **Owed, standing: the stream observation, by hand, whenever step 06's restart runs on a rig
+  where `readsb` is already running.** *Added 2026-10-10,* by the 11:00 ruling above.
+  - On a first build, `06-journal` restarts journald before `10-decoder` and `40-archive-writer`
+    install (`update.sh`'s `step_list` takes the steps in file-name order; §9b). So no stream unit
+    is running and nothing can be dropped: `readsb` is started by `10-decoder` afterwards, and the
+    writer once the run ends, both on streams to the new journald. ➡️ The 🏠 stationary owes no
+    stream observation at its first build.
+  - After the 🎒 portable's first application (done, 2026-10-10, above), such a restart comes only
+    from a later change to the drop-in, a journald that looks older than it, or journald with no
+    file open under `/var` (a later boot whose flush failed; from the step's restart decision,
+    `journald_on_var`, not seen).
+  - The observation: before and after journald's restart, record
+    `systemctl show -p NFileDescriptorStore systemd-journald`; `readsb`'s and the writer's
+    `InvocationID` and `NRestarts`; the set of `/run/systemd/journal/stdout` socket inodes from
+    `ss -xn`, and the file names in `/run/systemd/journal/streams/`; and, as root, the `UNIT=` lines
+    of the stream files. Paste the output into the rig's build record.
 - ⚠️ **Beliefs it rests on, not seen:**
   - that a journald restart keeps the services' stdout streams. systemd-journald(8) says so, and
-    the store is configured, but no restart has been seen;
+    the store is configured, ~~but no restart has been seen~~ *corrected 2026-10-10: and one restart
+    has been seen, on the 🎒 portable at about 10:12 (the "✅ Run on hardware" block above).
+    journald's ends of the stdout sockets match the stream files 16 of 16 after it, sockets from
+    boot among them, and two files carry `readsb`'s start time as their mtime. ⚠️ Still a belief for
+    `readsb` itself: the files' contents were not read, and it has logged nothing since, so its
+    output after the restart is not seen*;
   - that on systemd 257 journald re-reads its configuration only on a restart (a reload by SIGHUP
     arrives in 258), and that after the restart a `journalctl --flush` is needed to move to `/var`:
     the implementer's reading of the v257 source and the man pages;
-  - that the flush finishes within its bound on the Pi, and that `ss -xpn` run as root shows
-    journald's PID in the columns the check reads;
+  - that the flush finishes within its bound on the Pi, ~~and that `ss -xpn` run as root shows
+    journald's PID in the columns the check reads~~ *corrected 2026-10-10: the flush returned
+    within its 30 s bound on the 🎒 portable (the whole step took 7 s). The `ss -xpn` belief is
+    moot: `ss` sees no unix peers on the Pi's kernel, and the check that rested on it is removed (the
+    11:00 ruling above)*;
   - the 🏠 stationary's clock. It is not built, and may have no RTC: then fake-hwclock can make
     journald look older than the drop-in, which costs one extra restart under the lock and corrects
     itself;
-  - all of step 06: it has not run on hardware.
+  - ~~all of step 06: it has not run on hardware.~~ *Corrected 2026-10-10: install and verify ran
+    on the 🎒 portable under `update.sh` (above). Still not seen: the journal surviving a reboot, and
+    any run on the 🏠 stationary.*
 
 ### 9g. Channels: portable tracks `main`, stationary tracks `stable`
 
@@ -3761,6 +3888,9 @@ powered-hub rule ([BUILD.md §3d](BUILD.md#3d--the-second-radio--either-rig) par
   *Note 2026-10-05: once the channel ruling of 2026-10-05
   ([§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable)) is built, read "a new commit
   on `stable`". 📋 Ruled, not built.*
+- [ ] *Added 2026-10-10.* The persistent journal across a reboot. Step 06 has run here
+  ([§9f](#9f-what-updatesh-does), "A persistent journal, step `06-journal`"); reboot the rig a
+  second time, and `journalctl --list-boots` shows two boots or more.
 
 ➡️ If the cuts leave garbage in closed, renamed files, the answer is a different drive or an SSD on
 the hub, not a different filesystem.
