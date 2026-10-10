@@ -46,18 +46,33 @@
 #   - The services' stdout and stderr streams. systemd-journald(8): a restart keeps them ("It is
 #     thus safe to restart systemd-journald.service, but stopping it is not recommended"), because
 #     the service manager holds copies of their descriptors. Read on the 🎒 portable, 2026-10-10
-#     (systemd 257.13): systemd-journald.service has FileDescriptorStoreMax=4224,
-#     FileDescriptorStorePreserve=yes and NFileDescriptorStore=16, so the store is configured; no
-#     restart was seen. ⚠️ That the streams survive the restart is a belief. So the step checks it,
-#     and warns loudly (never dies, even when the flush then fails) on what it finds:
+#     (systemd 257.13): systemd-journald.service has FileDescriptorStoreMax=4224 and
+#     FileDescriptorStorePreserve=yes, so the store is configured; NFileDescriptorStore, the count
+#     it holds, varies (it was not the same at two readings that day). ⚠️ That the streams survive
+#     the restart is a belief. The step checks two things across it, and never dies on them (not
+#     even when the flush then fails):
 #       - the mechanism, printed and not judged: journald's NFileDescriptorStore before the restart
 #         and after the flush (it holds every service's streams, and transient services' streams
-#         come and go inside the window, so a change in it proves nothing);
-#       - each of readsb and adsb-writer that is running: its main process's fd 1 is a unix
-#         socket whose other end, /run/systemd/journal/stdout in `ss -xpn`, is held by the new
-#         journald's PID. This sees a dropped stream before the unit next writes; warned;
-#       - the outcome: their InvocationID and NRestarts, before and after, which catch a unit
-#         that has already died on a broken stream and been restarted; warned.
+#         come and go inside the window, so a change in it proves nothing). Printed only when one
+#         of readsb and adsb-writer was active before the restart;
+#       - the outcome, warned: readsb's and adsb-writer's InvocationID and NRestarts, before and
+#         after, which catch a unit that has died on a broken stream and been restarted.
+#     ⚠️ The gap, accepted: a unit that keeps running on a broken stream is not detected. The
+#     restart runs only under update.sh, which refuses while the writer holds the recording lock
+#     (setup/update.sh:459–468, flock -n), so the writer is never recording across it. Both units
+#     run with IgnoreSIGPIPE=yes (seen on the portable, 2026-10-10): a write to a broken stream
+#     fails with EPIPE rather than killing them. The writer (Python) would then raise on its next
+#     log line and exit, and be restarted, which the InvocationID check reports (a belief, not
+#     seen). ⚠️ But some of its log calls sit inside `except OSError` handlers, and it has `except
+#     Exception` catch-alls, so the EPIPE may be swallowed and the InvocationID check may not see
+#     it: the writer's gap is then readsb's, and it is not recording across the restart in any
+#     case. readsb would lose its journal lines silently until its next restart, which this step
+#     does not see.
+#     A direct check of each unit's stream was dropped: `ss` shows no unix peers on the Raspberry Pi
+#     kernel (CONFIG_UNIX_DIAG not set, seen), and journald's per-stream files under
+#     /run/systemd/journal/streams/ are systemd's private format. The hardware observation is in
+#     PLAN §9f. 📋 If a dropped stream is ever seen: restart readsb after journald under update.sh
+#     (not built).
 #     A unit not loaded, as on a first build, or loaded but not active before the restart, is
 #     skipped: one that starts inside the window is not a restart. update.sh's own output goes
 #     through its tee, which ignores SIGPIPE (setup/update.sh:235): its journal copy could lose
@@ -81,7 +96,11 @@
 #    rollback(), lines 1109–1112). Nothing removes the drop-in, so the journal stays persistent
 #    until it is removed by hand.
 #
-# What has run on hardware: nothing.
+# What has run on hardware: the step as of `5428470`, on the 🎒 portable, 2026-10-10, under
+# update.sh (the pull window): install and verify ok. Its `ss` fd-1 pairing warned falsely for
+# readsb (the kernel has no unix_diag) and is removed here; the NFileDescriptorStore and
+# InvocationID/NRestarts checks that remain ran as they are now (17 -> 17; readsb unchanged). The
+# record is PLAN §9f, "A persistent journal, step `06-journal`".
 
 set -euo pipefail
 # shellcheck source=setup/lib.sh
@@ -248,56 +267,27 @@ fd_store() {
   printf '%s\n' "${n:-?}"
 }
 
-# stream_held <unit>: the unit's main process has fd 1 on a unix stream socket whose peer is
-# /run/systemd/journal/stdout and is held by the running journald. Prints what it found; returns 1
-# when the stream is not held, 2 when it cannot tell (not running, or fd 1 is not a socket).
-# Read from `ss -xpn`: the journald end is the line whose local address is
-# /run/systemd/journal/stdout and whose peer inode is the unit's socket inode (that shape seen
-# with ss on the workstation; the process column, pid=<journald>, needs root, which this step is).
-stream_held() {
-  local u=$1 pid link ino jpid line
-  pid=$(systemctl show -P MainPID "$u" 2>/dev/null) || pid=
-  [[ $pid =~ ^[1-9][0-9]*$ ]] || { echo "$u: no main process"; return 2; }
-  link=$(readlink "/proc/$pid/fd/1" 2>/dev/null) || link=
-  [[ $link =~ ^socket:\[([0-9]+)\]$ ]] || { echo "$u: fd 1 of PID $pid is '${link:-unreadable}', not a socket"; return 2; }
-  ino=${BASH_REMATCH[1]}
-  command -v ss >/dev/null || { echo "$u: ss is not installed, so its stream cannot be read"; return 2; }
-  jpid=$(journald_pid)
-  line=$(ss -xpn 2>/dev/null | awk -v i="$ino" '$1 == "u_str" && $5 == "/run/systemd/journal/stdout" && $8 == i') || line=
-  if [[ -n $line && -n $jpid && $line == *"pid=$jpid,"* ]]; then
-    echo "$u: fd 1 of PID $pid (socket $ino) is connected to journald (PID $jpid)"
-    return 0
-  fi
-  echo "$u: fd 1 of PID $pid (socket $ino) has no journald end held by PID ${jpid:-?}; ss: ${line:-(no line)}"
-  return 1
-}
-
-# check_streams <when>: compare each stream unit marked before the restart (BEFORE; only the ones
-# that were active then) with its mark now, <when> ("after the flush", or after a failed one).
-# A changed InvocationID or NRestarts means the unit was restarted across journald's restart: its
-# stream may have broken, and for the writer that ended a recording session. Warned, never fatal:
-# the reason is at the call.
+# check_streams <when>: the two checks across journald's restart (see the header), <when> being
+# "after the flush", or after a failed one. Printed, not judged: journald's NFileDescriptorStore,
+# FD_BEFORE against now. Warned: each stream unit marked before the restart (BEFORE; only the ones
+# that were active then) against its mark now. A changed InvocationID or NRestarts means the unit was
+# restarted across journald's restart, as a unit that exits on a broken stream would be. Warned,
+# never fatal: the reason is at the call. ⚠️ A unit that keeps running on a broken stream is not
+# seen here (see the header).
 declare -A BEFORE=()
 FD_BEFORE='?'
 check_streams() {
-  local when=$1 u now st i n_after rc any=0
+  local when=$1 u now st i n_after note any=0
   for u in "${STREAM_UNITS[@]}"; do [[ -z ${BEFORE[$u]:-} ]] || any=1; done
   if ((any == 0)); then
     log "none of ${STREAM_UNITS[*]} was active before journald's restart; no stream to check"
     return 0
   fi
   sleep 5   # a write that hits a broken stream, and the unit's Restart=, take a moment
-  # The mechanism, directly: the store, then each running unit's own stream. The store also holds
-  # every other service's stream, and transient services' streams come and go inside the window, so
-  # its count is printed, not judged; the warnings come from the units' own checks below.
+  # The store also holds every other service's stream, and transient services' streams come and go
+  # inside the window, so its count is printed, not judged.
   n_after=$(fd_store)
   log "$JOURNALD NFileDescriptorStore: $FD_BEFORE before the restart, $n_after $when (printed, not judged)"
-  for u in "${STREAM_UNITS[@]}"; do
-    [[ -n ${BEFORE[$u]:-} ]] || continue
-    rc=0
-    stream_held "$u" || rc=$?
-    ((rc != 1)) || warn "$u's stdout stream is no longer held by journald: its output is lost until it restarts (see above). Check: journalctl -u $u -n 50; then: sudo systemctl restart $u"
-  done
   for u in "${STREAM_UNITS[@]}"; do
     [[ -n ${BEFORE[$u]:-} ]] || continue
     now=$(unit_mark "$u")
@@ -310,7 +300,11 @@ check_streams() {
       [[ $st == active ]] && break
       sleep 1
     done
-    warn "$u WAS RESTARTED ACROSS JOURNALD'S RESTART (InvocationID NRestarts: ${BEFORE[$u]} -> ${now:-not loaded}). Its stream into the journal may not have survived (a belief; see the header); for adsb-writer that ended a recording session. It is now '${st:-unknown}'. Check: journalctl -u $u -n 50; if it is not active: sudo systemctl start $u"
+    note=''
+    if [[ $u == adsb-writer.service ]]; then
+      note=" update.sh holds the recording lock across journald's restart, so adsb-writer was not recording."
+    fi
+    warn "$u's InvocationID or NRestarts CHANGED ACROSS JOURNALD'S RESTART (${BEFORE[$u]} -> ${now:-not loaded}): the restart may have broken its stream into the journal (a belief; see the header), or it restarted for another reason in the window.$note It is now '${st:-unknown}'. Check: journalctl -u $u -n 50; if it is not active: sudo systemctl start $u"
   done
 }
 
