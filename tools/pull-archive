@@ -43,6 +43,8 @@
 # It prints rsync's statistics for what moved, the count of files left on the drive, and the total
 # now in the destination (everything there, not only this pull).
 # ⚠️ Once moved, this workstation holds the only copy until it is uploaded onward (PLAN §9m).
+#    Update 2026-10-10: with the destination a synced folder, the interim PLAN §9m records, the
+#    only copy sits in the sync client's cache until it syncs.
 
 set -euo pipefail
 

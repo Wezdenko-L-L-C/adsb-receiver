@@ -255,7 +255,10 @@ verify() {
     # allowed, and here it prints nothing then, or "... is not allowed to run sudo ...".
     # Anything else (exit 0, or an error such as an unknown user or a sudoers parse error, which
     # sudo prints with a "sudo:" prefix) is not a refusal. ⚠️ The exact refusal text is from
-    # sudo's documentation and its usual output, not seen on the Pi.
+    # sudo's documentation and its usual output, not seen on the Pi. Corrected 2026-10-10: this
+    # check passed on the 🎒 portable in every update PLAN §9f records, the last at 11:18 that day
+    # (PLAN §9m), so sudo's answer there was one of the two refusal forms above; which one is not
+    # recorded.
     log "sudo -l -U $SERVICE_USER $cmd: must be refused (raw output follows)"
     rc=0
     # shellcheck disable=SC2086

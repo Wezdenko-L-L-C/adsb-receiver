@@ -43,6 +43,13 @@
 #    after the boot. ⚠️ Belief, not seen through this path (PLAN §9e): that
 #    reboot makes rtc0 appear. The ZS-042's charge-path fix (BUILD.md §6b) is a
 #    hardware-assembly step, not software: nothing here checks it.
+#    Corrected 2026-10-10: on a recording 🎒 portable the update timer does not
+#    run this step again after the boot. The writer starts at boot and holds the
+#    recording lock, so each timer run finds it held and exits; a pull window
+#    finishes the build (PLAN §9e, "First-build mode", its 2026-10-05
+#    correction). The timer still does on a build that installed no writer,
+#    because then nothing holds the lock. The belief above is still untested: the bootstraps on the
+#    portable found /dev/rtc0 already present, so this path was not exercised.
 # ⛔ The verify never judges the sky (fix quality, offset). That is
 #    clock-preflight's job (PLAN §9c, two tiers).
 
@@ -128,7 +135,9 @@ rtc_gate() {
     No step edits the boot partition (PLAN §9h). On a first build, the
     bootstrap's setup/foundation/rtc-overlay.sh writes the RTC overlay into
     config.txt and the bootstrap reboots once; /dev/rtc0 is expected after
-    that boot, and the update timer then runs this step again.
+    that boot, and the update timer then runs this step again, unless the
+    archive writer is recording: then every timer run finds the recording
+    lock held and skips, and a pull window runs this step again.
     A rig built before the bootstrap existed never runs that script: add
     dtparam=i2c_arm=on and dtoverlay=i2c-rtc,ds3231 to config.txt on the boot
     partition, under [all], by hand (BUILD.md §6b), then reboot.

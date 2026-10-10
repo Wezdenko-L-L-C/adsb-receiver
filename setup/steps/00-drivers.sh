@@ -27,6 +27,8 @@
 # ⚠️ A rollback by update.sh does not remove the blacklist file: rollback does not undo creation
 #    inside an existing step (PLAN §9f; the install manifest is the ruled next change). A
 #    blacklist left behind is harmless: nothing on the rig uses the DVB driver.
+#    Corrected 2026-10-10: the install manifest was not the next change, and it is still not
+#    built. Its ruled place is unchanged: before any 🏠 stationary deploy (PLAN §9f).
 
 set -euo pipefail
 # shellcheck source=setup/lib.sh

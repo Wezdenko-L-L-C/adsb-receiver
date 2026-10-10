@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # 06-journal: make the systemd journal persistent, with a size cap. BUILD.md: none yet (no
-# section, no §8 step). The shape is PLAN §9f's "A persistent journal is a separate, small step"
+# section, no §8 step). Corrected 2026-10-10: BUILD.md §8 names it, after its list of what the
+# one command does without asking. The shape is PLAN §9f's "A persistent journal is a separate, small step"
 # (under "Open, ruled to be decided later"); ruled to be built, right after step 5, by Chris on
 # 2026-10-10.
 #

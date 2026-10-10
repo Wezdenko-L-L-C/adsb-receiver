@@ -23,7 +23,9 @@ argument-hint: NN-name
    - **Shared** (both rigs run it identically): reads no `station.yml`, asserts no role.
    - **Role-specific**: `require_role <portable|stationary>`, then `require_absent` for every
      block the other role owns. The portable step refuses `position:`; the stationary one refuses
-     `uploader:` and any `clock.source` but `ntp`.
+     `uploader:` and any `clock.source` but `ntp`. *Corrected 2026-10-10: the stationary refuses
+     `uploader:` only until the change that lands the uploader, which both rigs get (PLAN §9i's
+     2026-10-10 update).*
 4. Write `install_step` so that a second run changes nothing.
 5. Write `verify()` against the observable effect, using the §9c table as the model. It prints its raw
    evidence and dies with a next action.
@@ -38,8 +40,11 @@ argument-hint: NN-name
 ## Hold to these too (CI cannot see them)
 
 - ⛔ No `--role` flag. No "tested on" header. No `yq` (not on the image; use `station_get`).
-- ⛔ Not an `install-all.sh`, and nothing that chains steps. The first build is by hand because
-  BUILD.md §8 has human gates (§9e, §9l).
+- ⛔ Not an `install-all.sh`, and nothing that chains steps. ~~The first build is by hand because
+  BUILD.md §8 has human gates (§9e, §9l).~~ *Corrected 2026-10-10: the first build is one command
+  (PLAN §9e's 2026-10-04 evening update): `setup/bootstrap.sh` runs `setup/update.sh --bootstrap`,
+  the one orchestrator, which runs every step in order. A step still chains nothing. BUILD.md §8's
+  human gates (a sky check, a power cycle with the network unplugged) stay human.*
 - ⚠️ A comment that states a belief says it is a belief, as `00-drivers.sh` does for the udev
   re-trigger. Never describe the intended end state as the current one.
 

@@ -1063,6 +1063,8 @@ doc = {
     "failed_steps": [s for s in E["S_FAILED_STEPS"].split("\n") if s],
     "steps": dict(sorted(steps.items())),
     # complete is false until rollback can remove what a candidate created (the next change).
+    # Corrected 2026-10-10: that change, the install manifest, was not the next one and is not
+    # built. Its ruled place is unchanged: before any stationary deploy (PLAN §9f).
     "rollback": ({"result": E["S_RB"], "failed_step": nz(E["S_RB_STEP"]), "complete": False,
                   "leftovers_possible": [s for s in E["S_LEFT"].split("\n") if s]}
                  if E["S_RB"] else None),

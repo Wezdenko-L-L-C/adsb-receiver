@@ -83,3 +83,8 @@ feeders:
 # ⛔ THERE IS DELIBERATELY NO `uploader:` BLOCK HERE. On this rig the archive
 #    and the feeder clients are the equivalent, and they are above. A rig with a
 #    permanent network does not need to spool for a trip home. See BUILD.md §7.
+# Corrected 2026-10-10: both rigs get an automatic uploader (Chris, 2026-10-10,
+#    PLAN §9i), and automatic upload must work before this rig deploys. It is
+#    not written; its design is issue #1. The refusal of an `uploader:` block
+#    on this rig stays in force until the change that lands it. It is planned,
+#    not code: PLAN §9b rules it for 20-stationary-clock, which is not written.

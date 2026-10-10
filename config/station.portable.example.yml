@@ -74,7 +74,9 @@ archive:
   #    else.
 
   # A backstop, not a budget, in GiB (2^30 bytes; the writer counts it so).
-  # ~10 MB an hour is an estimate (PLAN §9m), not a measurement. Below this
+  # ~10 MB an hour is an estimate (PLAN §9m), not a measurement. Corrected
+  # 2026-10-10: measured on 2026-10-04 at about 9 MB an hour, on the writer's
+  # first closed file on the portable (PLAN §9m). Below this
   # much free space the archive writer expires the oldest closed files, but
   # only if deleting every closed file would bring it back above this;
   # otherwise it deletes nothing and refuses to record (bin/adsb-writer,
@@ -90,8 +92,21 @@ uploader:
   #    spools batches to disk for the whole session and ships them the next
   #    time the rig sees a network — BUILD.md §7 rule 3.
   #
+  # Corrected 2026-10-10: the uploader is not written, and nothing reads this
+  #    block yet (BUILD.md §7). Both rigs get one (Chris, 2026-10-10, PLAN
+  #    §9i), built and first proven on this rig at home. Its design is issue
+  #    #1, and the keys below may change with it. Until it lands, the data is
+  #    moved off by tools/pull-archive (PLAN §9m).
+  #
   # Null endpoint means log locally only, and never ship. That is a valid rig.
+  # Corrected 2026-10-10: on this rig null is interim, until the uploader.
+  #    Whether it stays a valid setting after that is for the uploader's
+  #    design, and is not ruled (BUILD.md §7, PLAN §9i).
   endpoint: null
+  # ⚠️ Not decided: what credential a rig holds is not ruled (PLAN §9i), and the
+  #    design PLAN §9i records as a recommendation, not a ruling, delivers no
+  #    secret to a rig. The field is kept until the uploader's design (issue
+  #    #1); it may change or go there.
   token: null                 # ⛔ a credential; keep it out of the repo
   batch_seconds: 10
 

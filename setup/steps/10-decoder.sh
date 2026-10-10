@@ -99,6 +99,11 @@ READSB_USER=readsb
 #    step does the opposite, and installs librtlsdr0 and librtlsdr-dev from
 #    apt: no V4 is coming, and 00-drivers uses the packaged 2.0.2. BUILD.md §4
 #    is queued for a rewrite (PLAN §9's consequences table).
+#    Corrected 2026-10-10: BUILD.md §4 is not rewritten; it carries a dated
+#    correction after its code block saying what the steps do, with the recipe
+#    kept beside it. "No V4 is coming" was not a ruling when written; it is now:
+#    no genuine V4 is available, and the portable runs on a genuine V3 (Chris,
+#    2026-10-10, PLAN §9j).
 BUILD_PKGS=(git ca-certificates gcc make libc6-dev pkg-config libusb-1.0-0-dev
   librtlsdr-dev librtlsdr0 libncurses-dev zlib1g zlib1g-dev libzstd1 libzstd-dev)
 # lighttpd serves tar1090. tar1090's install.sh at the pin apt-installs only

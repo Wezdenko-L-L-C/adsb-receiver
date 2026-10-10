@@ -23,6 +23,11 @@
 #     rule it must never use (step 60 excludes it by name too). ⚠️ Belief, not seen
 #     on the Pi: the two ExecStartPre=+ preflights still pass under it (they run
 #     as root and only drop privileges, which NoNewPrivileges allows).
+#     Corrected 2026-10-10: seen in effect, not read, on the 🎒 portable (PLAN
+#     §9m). This step's install and verify, which reads NoNewPrivs, were ok at
+#     11:18 that day, and the writer recorded again after that day's windows;
+#     systemd starts ExecStart= only after every ExecStartPre= without a -
+#     succeeds. The preflights' own output from those starts is not recorded.
 #
 # Starting and restarting (§9f: a service restarts only if its rendered config
 # or its binary changed):
