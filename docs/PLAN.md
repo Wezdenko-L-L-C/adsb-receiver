@@ -892,18 +892,21 @@ finishes the build.
   the build. Chris chose that route by multiple-choice question. ➡️ ~~Nothing is ruled about
   preventing the trap.~~ *Ruled 2026-10-05, (Chris): the trap is kept, with an exit; see the update
   right below. ~~📋 Not built.~~* *Corrected 2026-10-05: (b), the one-command exit, is built in
-  `94e4f94`, ⚠️ not yet run on a Pi; ~~(a) is still 📋 not built.~~* *Corrected 2026-10-09: (a) is
-  built, in `f411815`; see "The opener, as built" at the end of §9f.*
+  `94e4f94`, ~~⚠️ not yet run on a Pi~~; ~~(a) is still 📋 not built.~~* *Corrected 2026-10-09: (a) is
+  built, in `f411815`; see "The opener, as built" at the end of §9f.* *Corrected 2026-10-10: (b)
+  runs only on a second bootstrap of an incomplete, recording first build; not yet occurred. No SD
+  is staged to prove it: the ruling after (b)'s beliefs list below.*
 
 **Update 2026-10-05: the pinned first build keeps its daily retry, and gets a one-command exit.
 (Chris), 2026-10-05.** 📋 **Ruled, not built.** Nothing below exists in the tree: no `--check`, no
 reason line, no banner line, ~~and no change to `bootstrap.sh`~~. *Corrected 2026-10-05: (b) is
-✅ built, in `94e4f94`, ⚠️ not yet run on a Pi; how, in "(b), as built" below. ~~(a) is still not
+✅ built, in `94e4f94`, ~~⚠️ not yet run on a Pi~~; how, in "(b), as built" below. ~~(a) is still not
 built: no `--check`, no reason line, no banner line.~~* *Corrected 2026-10-09: (a) is built, in
 `f411815`: `--check` prints the reason line below for an incomplete first build, and the banner
 prints the two lines below while `status.json` says `incomplete` and `applied` does not exist.
 ⚠️ Neither has run on a Pi: they show only on an incomplete first build, and the 🎒 portable's
-build is complete. See "The opener, as built" at the end of §9f.* Ruled by multiple-choice question,
+build is complete. See "The opener, as built" at the end of §9f.* *Corrected 2026-10-10: (b) runs
+only on a second bootstrap of an incomplete, recording first build; not yet occurred.* Ruled by multiple-choice question,
 after a check against the rulings already written and then an architecture consultation, whose
 mechanism this is. Chris: *"I have no problem with (a) and (b)."* It answers the ⚠️ trap just above.
 
@@ -970,8 +973,9 @@ mechanism this is. Chris: *"I have no problem with (a) and (b)."* It answers the
   *Added 2026-10-05:* ✅ **(b), as built, 2026-10-05, in `94e4f94`**
   on `main`, pushed about 21:55 Arizona time; ~~CI pending when this was written~~ *corrected
   2026-10-05: ✅ CI green (scripts, smoke and `advance-stable` all succeeded; `stable` is
-  `94e4f94`), seen on GitHub by the coordinating session at about 22:00 Arizona time*. ⚠️ **Not yet run
-  on a Pi.** Smoke cases W1 to W7 in `tests/smoke_update.sh` exercise the shapes below on stubs (a
+  `94e4f94`), seen on GitHub by the coordinating session at about 22:00 Arizona time*. ~~⚠️ **Not yet run
+  on a Pi.**~~ *Corrected 2026-10-10: runs only on a second bootstrap of an incomplete, recording
+  first build; not yet occurred.* Smoke cases W1 to W7 in `tests/smoke_update.sh` exercise the shapes below on stubs (a
   stub `systemctl`, a `flock` process holding the lock). From `setup/bootstrap.sh`:
   - **When.** A first build (no `applied`) whose recording lock is held by `adsb-writer.service`,
     read with `lslocks` and the holder's cgroup, and only where `adsb-pull-window.service` is
@@ -990,17 +994,100 @@ mechanism this is. Chris: *"I have no problem with (a) and (b)."* It answers the
   - **Where the window unit is absent, or the holder is not the writer,** `update.sh`'s refusal
     names the holder and what frees the lock. The refusal is now holder-aware, and is told by
     `ADSB_BOOTSTRAP_WINDOW` what the bootstrap tried (`opened`, `no-unit`, `built`, `not-writer`).
-  - ⚠️ **Beliefs about systemd it rests on, none seen on a Pi:**
+  - ⚠️ **Beliefs about systemd it rests on, ~~none seen on a Pi~~:** *Corrected 2026-10-10: some
+    are now seen under the opener on the 🎒 portable (§9f's record on hardware, 2026-10-10 at
+    08:45), not under the bootstrap. Both start and stop the same `adsb-pull-window.service`. Each
+    belief is marked below.*
     - the window's update is `activating`, or has a queued start job, when `systemctl start` of the
-      window returns;
-    - `systemctl list-jobs <unit>` shows a start job still queued;
+      window returns; *update 2026-10-10: seen in effect 2026-10-10 under the opener, not under the
+      bootstrap: `adsb-update.service` started alongside the window, as in §9m's 2026-10-05
+      journal, where its "Starting" line comes before the window's "Started". Which poll of the
+      opener's dispatch wait broke is not logged. The bootstrap's wait reads both the state and the
+      job (`setup/bootstrap.sh:183–188`), so it does not rest on this;*
+    - `systemctl list-jobs <unit>` shows a start job still queued; *update 2026-10-10: ⚠️ not seen.
+      The opener lists the jobs at every poll (`bin/adsb-home-update:297`) and logs nothing about
+      them;*
     - `systemctl stop` blocks through `ExecStop=`, and `stop --no-block` carries through it;
-    - `ExecStopPost=` starts the writer, and a failed start runs none;
-    - a unit ended by `RuntimeMaxSec=` reads `failed`;
-    - the shutdown cancels a queued start.
+      *update 2026-10-10: the blocking stop is half seen, under the opener, not under the bootstrap.
+      The opener's `timeout 120 systemctl stop` (`bin/adsb-home-update:156`) returned 0 with the
+      update already inactive, so the `ExecStop=` wait had nothing to wait on. Seen: a stop that
+      goes through `ExecStop=` and returns. ⚠️ Not seen: the stop waiting while the update is
+      `activating`, which `setup/bootstrap.sh:237` relies on. ⚠️ `stop --no-block` is not seen:
+      only the trap path takes it;*
+    - `ExecStopPost=` starts the writer, and a failed start runs none; *update 2026-10-10: the
+      writer start is seen 2026-10-10 under the opener, not under the bootstrap: after the close,
+      `adsb-writer` was active and the window inactive. ⚠️ A failed start running none is not seen;*
+    - a unit ended by `RuntimeMaxSec=` reads `failed`; *update 2026-10-10: ⚠️ not seen; §9m's
+      checklist owes the cap test;*
+    - the shutdown cancels a queued start. *Update 2026-10-10: ⚠️ not seen; only the bootstrap's
+      reboot path relies on it (`setup/bootstrap.sh:397–403`).*
+  - **No SD is staged to prove (b) on hardware. (Chris), 2026-10-10, about 08:55.** Ruled by
+    multiple-choice question, on an architecture consultation's recommendation. (b) runs only on a
+    second bootstrap of an incomplete, recording first build; that has not yet occurred.
+    - **Why:**
+      - **A fresh-SD bootstrap does not reach (b) at all.** `setup/bootstrap.sh:372–380` opens the
+        window only on a first build (no `applied`) whose recording lock is held by
+        `adsb-writer.service`, and only where `adsb-pull-window.service` is loaded. A fresh image's
+        first bootstrap has no writer holding the lock, so it runs `update.sh --bootstrap` directly
+        (`hint=not-writer`).
+      - **The shared window unit has now run end to end on hardware,** under the opener (§9f's
+        record on hardware, 2026-10-10 at 08:45): the same `adsb-pull-window.service`
+        (`setup/steps/60-portable-pull.sh:99–121`), started by a different caller.
+      - **The remaining bootstrap-only beliefs either fail closed or are bounded by the 2 h cap.**
+        The bootstrap refuses to reboot over a lock holder it cannot attribute to this build's
+        writer, and prints the hand command (`lock_verdict`, `setup/bootstrap.sh:146–157`, read at
+        :432–437); it never reboots once `applied` exists (:421–427).
+      - **(b) is attended by definition:** it runs only when a human has just typed the bootstrap
+        line. The 🏠 stationary has no window unit, so it takes the refusal path (`hint=no-unit`,
+        `setup/bootstrap.sh:387–390`), the refusal it had before `94e4f94`.
+    - **Proof is opportunistic.** (b) is proven the next time a first build on the 🎒 portable comes
+      up incomplete for real (the 2026-10-04 shape) and Chris runs the bootstrap again; its evidence
+      is read from the journal of `adsb-pull-window`, `adsb-writer` and `adsb-update`. Its
+      precondition is the persistent journal (§9f, "Open, ruled to be decided later"), now on the
+      plan as the next rig step: a second bootstrap that reboots would otherwise leave only its own
+      output, which carries the script's claims, not systemd's observation.
+    - Rejected:
+      - **A fresh SD with a plain bootstrap.** It does not reach (b) (above); it re-proves the
+        2026-10-05 first-build path and nothing of the bootstrap's open or close of the window.
+      - **A fresh SD with a contrived incomplete first build, smoke case W7's shape on hardware.** It
+        reaches (b), but it is a hand procedure of several steps invented for a test, on the rig
+        whose build is currently healthy; with the journal volatile, a second bootstrap that reboots
+        leaves only its own output; and what it proves is a path that fails closed.
+      - **Removing `applied` on the 🎒 portable.** It fakes the state, and a wrong turn leaves the
+        rig with no `applied` and the writer off.
+      - **A narrower proof by hand of the bootstrap-only beliefs** (start the window, interrupt a
+        bootstrap, a `stop --no-block`, wait out the 2 h cap). Each tests a bounded or fail-closed
+        branch by hand. The two worth hardware time, the cap and a full pull, are already owed on
+        §9m's checklist, need no `applied` removed, and are done when the pull is next done.
+      - **Dropping the ⚠️ markers on the strength of the smoke stubs.** The stub `systemctl`
+        (`tests/smoke_update.sh:108–172`) encodes the same beliefs the script holds: a `list-jobs`
+        that lists a job, a `stop` that only removes a flag. The markers stay until (b) runs for
+        real.
+    - ➡️ **What would change it:**
+      - a real incomplete first build on the 🎒 portable: then (b) runs on its own, attended; its
+        journal and the bootstrap's output are read, and the markers that hold are cleared;
+      - a fresh-SD build scheduled anyway (a re-image of the 🎒 portable, or a bench build of a rig
+        with a window unit): then one deliberate incomplete-then-second-bootstrap pass is added from
+        a checkout, since the hands are already committed;
+      - the opener's close reporting what the belief forbids: its `124` message (the window's stop
+        not finished in 120 s, `bin/adsb-home-update:159`) with the update already inactive, or the
+        writer not active after a close. Then the shared mechanism is wrong, (b) inherits it, and
+        its hardware proof becomes urgent; the fallback is the written two-command exit in BUILD.md
+        §8 (the last "What would change it" bullet of this update);
+      - the stationary design giving the 🏠 stationary a maintenance window (§9f, "Open, ruled to be
+        decided later"): then (b) could apply to a rig that must heal with no hands, "attended by
+        definition" no longer holds there, and a hardware proof is required before the remote
+        deploy.
+    - ℹ️ *From the consultation, not the ruling's text:* the opener's guard 1
+      (`bin/adsb-home-update:231–235`) opens nothing while `adsb-pull-window.service` is active,
+      activating or deactivating, so its `OnBootSec=4min` fire landing in a bootstrap's open window
+      logs `window-active` and is a no-op. `94e4f94` predates the opener (`f411815`), so this
+      interaction is newer than (b).
 - **Order:** ~~both (a) and (b) are 📋 ruled, not built.~~ (b) is built and reviewed before the opener.
-  *Corrected 2026-10-05: (b) is built (`94e4f94`), ⚠️ not yet run on a Pi; ~~(a) is still 📋 ruled,
+  *Corrected 2026-10-05: (b) is built (`94e4f94`), ~~⚠️ not yet run on a Pi~~; ~~(a) is still 📋 ruled,
   not built.~~* *Corrected 2026-10-09: (a) is built, in `f411815`, ⚠️ not run on a Pi (above).*
+  *Corrected 2026-10-10: (b) runs only on a second bootstrap of an incomplete, recording first
+  build; not yet occurred.*
 - Rejected:
   - **P1: `--check` not pending when the pin already failed the same steps.** That is the
     hardware-waiting build's exact signature, and it narrows a ruled contract on a heuristic the
@@ -1047,7 +1134,8 @@ mechanism this is. Chris: *"I have no problem with (a) and (b)."* It answers the
   - that `bootstrap.sh` can start the window, wait for the window-started pinned update to finish,
     then take the lock without a race, is reasoned from `flock -n` and §9m's `Wants=` and `After=`,
     not seen;
-  - the window's `ExecStopPost=` writer start is reasoned, not seen;
+  - ~~the window's `ExecStopPost=` writer start is reasoned, not seen;~~ *corrected 2026-10-10: seen
+    under the opener, not under the bootstrap (§9f's record on hardware, 2026-10-10 at 08:45);*
   - whether §9f's *"It is the one time a human stops the writer for an update"* is Chris's ruling or
     the consultation's expectation is unmarked in this file.
 
@@ -1762,13 +1850,31 @@ Read on the Pi over SSH by Claude, or pasted by Chris; Arizona time, which is th
   the opener logged
   `ADSB-HOME-UPDATE not-pending: not pending: stable is still b7d252760b31, which is applied`; the
   service deactivated successfully. Next elapse: Sun 2026-10-11 04:30 MST.
+- **2026-10-10, about 08:45: the opener's first automatic open, read over SSH by Claude.** CI
+  advanced `stable` to `11cebb9` at 08:25; Chris then rebooted the 🎒 portable at home, and it
+  booted at 08:41:05. `adsb-home-update.timer` fired at 08:45:01, and `adsb-at-home` printed "at
+  home". `adsb-pull-window.service` started at 08:45:03, with `adsb-update.service` starting
+  alongside it. At 08:45:43 the opener logged one line,
+  `ADSB-HOME-UPDATE opened-applied: pending: stable's tip 11cebb9b3ae6 is the candidate; applied is b7d252760b31; adsb-update.service ran (40 s), exit 0, status.json: applied; the window is closed, and its end starts the writer`,
+  and the service deactivated successfully. Afterwards `status.json` read `result: applied`,
+  `channel: stable`, `trigger: window`, `opened_by: adsb-home-update` and `applied_rev`
+  `11cebb9b3ae6…`; `applied` pointed at `worktrees/11cebb9b3ae6`; `readsb` and `adsb-writer` were
+  active and `adsb-pull-window` inactive. Next elapse: Sun 2026-10-11 04:30 MST. The 08:02 run of
+  the same day (above) was not pending; this is the first open.
 - ⚠️ **The Pi's journal is volatile:** `journalctl --list-boots` shows only the current boot. So
   whether the 04:30 run of 2026-10-10 happened is **not verifiable**, and any later "did the opener
   run" check reads only the current boot. A persistent journal is not built: it is the separate,
   later step under "Open, ruled to be decided later" above.
-- ⚠️ **No automatic open has happened yet:** nothing has been pending. The open path, the window's
+- ⚠️ ~~**No automatic open has happened yet:** nothing has been pending. The open path, the window's
   start, a new `InvocationID` on `adsb-update.service`, then the outcome, is still a belief, as is
-  `ExecMainStatus` holding the oneshot's exit code.
+  `ExecMainStatus` holding the oneshot's exit code.~~ *Corrected 2026-10-10: the first automatic
+  open happened at 08:45 (the 08:45 bullet above). Seen: the open path itself, the window's start, a new
+  `InvocationID` on `adsb-update.service`, then the outcome; `ExecMainStatus` holding the oneshot's
+  exit code, read as `0` beside `status.json`'s `applied` (a non-zero exit has not been read
+  through it); and the window's close starting the writer. ⚠️ Still not seen: whether the
+  opener's dispatch wait broke on its first poll, which is not logged; the opener's "not at home"
+  and "off" exits; its close's `124` path (`bin/adsb-home-update:159`, the window's stop not
+  finished in 120 s); and a timer entering `running` on a by-hand start of its service.*
 
 ### 9g. Channels: portable tracks `main`, stationary tracks `stable`
 
