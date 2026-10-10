@@ -3599,8 +3599,14 @@ architecture consultation's interim of the same day.
     (B, next).*
 
 **Update 2026-10-10 (afternoon): where the collected data lives, ruled. (Chris), 2026-10-10, about
-15:15 to 15:40, by multiple-choice question,** each question put after an architecture
+~~15:15 to 15:40~~ 15:00 to 15:10, by multiple-choice question,** each question put after an architecture
 consultation. It rules the two items left open above, and closes issue #29.
+*Corrected 2026-10-10, 15:17: the times first written in this block were guessed by the main loop
+rather than read; these are from the subagent journal's stop times, which it keeps in UTC, given here in Arizona time (UTC−7).
+B and Chris's first answer on A came at about 15:00, after the first consultation stopped at 14:59;
+the four A questions at about 15:06, after the second stopped at 15:05:53; the code's home was
+named at about 15:10. The store listing was at about 14:57, between the rejection check's stop at
+14:56 and the first consultation.*
 
 - **B, the store's layout. Ruled: *"Ratify the mirror rule."***
   - **The rule:** `<store>/<rig hostname>/<path exactly as on the rig's drive>`. It is keyed by
@@ -3608,7 +3614,7 @@ consultation. It rules the two items left open above, and closes issue #29.
   - The pull and the future uploader share this one rule. The 🏠 stationary, and later audio,
     ACARS and VDL2, land under their own host folder, with no new decision about the store.
   - ⛔ This repo may name the rule and the subtree. It never names the store.
-  - ✅ **It is the layout the store holds today,** seen by Claude at about 15:10 in a listing of
+  - ✅ **It is the layout the store holds today,** seen by Claude at about ~~15:10~~ 14:57 in a listing of
     the store: the 🎒 portable's folder, `mobile-adsb`, holds `beast/YYYY-MM-DD/<UTC>.beast.pcap`
     and an empty `spool/`, with 126 `.beast.pcap` files and 1 `.torn`. It came from
     `tools/pull-archive <ssh-target> <dest>`, with `<dest>` set to the store's folder for that host.
@@ -3673,7 +3679,7 @@ consultation. It rules the two items left open above, and closes issue #29.
     - No rig code is touched, and nothing in the 🎒 portable's order is displaced.
     - Rejected, as put: all of it after the 🎒 portable is complete; or all of it now, before #30.
   - **4. The code's home: a private repository, not this public one,** chosen by Chris on
-    2026-10-10, at about 15:45, by question. It is not named here, because this repository is
+    2026-10-10, at about ~~15:45~~ 15:10, by question. It is not named here, because this repository is
     public.
     - Rejected, as put: this repo, with the store's path held in a gitignored `.env`. No reason
       beyond the choice itself is on record here.
