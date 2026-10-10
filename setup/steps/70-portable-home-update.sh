@@ -426,7 +426,7 @@ verify() {
   else
     die "$TIMER is '$ac', not active (waiting), under update.sh; run this step without --verify"
   fi
-  calendar_check
+  calendar_check systemd-analyze
   # Only an active timer's state is decided: an inactive one, warned about by hand above, is
   # believed to read SubState dead (⚠️ belief, not seen), which timer_check would fail.
   if [[ $ac == active ]]; then
