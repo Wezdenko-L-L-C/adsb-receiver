@@ -23,13 +23,13 @@
 #   - /etc/tmpfiles.d/adsb-home-update.conf, making /run/adsb-home-update (lib.sh's ADSB_HOME_DIR)
 #     root:root 0755, at every boot and at install (systemd-tmpfiles --create on that file alone).
 #     The opener's marker and its predicate's state file live there. ⛔ Not in /run/adsb-receiver
-#     (05-config's), which is adsb-receiver:adsb-operator 0755 (✅ read on the portable Pi
-#     2026-10-09, stat): its owner is the writer's user, and a symlink planted there would turn a
-#     root write by name into a write anywhere (security review, 2026-10-09). A tmpfiles.d entry
-#     rather than RuntimeDirectory=: the directory must outlive each run of the oneshot, since the
-#     banner reads the state between runs. Its own file, not 05-config's: the opener is
-#     portable-only. ⚠️ Belief, from systemd's documentation, not seen: `d` also corrects the
-#     owner and mode of a directory already there. The verify checks the result.
+#     (05-config's), which is adsb-receiver:adsb-operator 0755: its owner is the writer's user,
+#     and a symlink planted there would turn a root write by name into a write anywhere (security
+#     review, 2026-10-09). A tmpfiles.d entry rather than RuntimeDirectory=: the directory must
+#     outlive each run of the oneshot, since the banner reads the state between runs. Its own
+#     file, not 05-config's: the opener is portable-only. ⚠️ Belief, from systemd's
+#     documentation, not seen: `d` also corrects the owner and mode of a directory already there.
+#     The verify checks the result.
 #   - bin/adsb-at-home and bin/adsb-home-update -> /usr/local/bin, root:root 0755, by
 #     write-then-rename (as 50-updater installs the updater): the opener may be the process that
 #     started the update running this step (its window's update), and bash reads a script as it
@@ -49,23 +49,26 @@
 #     No [Install]: the timer starts it.
 #   - /etc/systemd/system/adsb-home-update.timer: OnBootSec=4min, as ruled (after adsb-update's
 #     3 min boot run, which a recording writer turns into a lock-held exit), and one daily
-#     OnCalendar=*-*-* 04:30:00, local time: Arizona's (✅ read on the portable Pi 2026-10-09:
-#     Timezone=America/Phoenix). ⚠️ 04:30 is the implementer's pick, NOT RULED. Its reasons: it is
-#     apart from adsb-update.timer's own daily run at midnight; and, a belief, not measured, a rig
-#     left on at home overnight records the fewest aircraft then, so the window's gap would cost
-#     least. No Persistent=: on a rig that was off at 04:30 it would fire again at boot beside
-#     OnBootSec=, two triggers for one boot, and the boot trigger already covers a rig switched on
-#     at home. No RandomizedDelaySec=: one rig, nothing to spread.
+#     OnCalendar=*-*-* 04:30:00, in the rig's local time. ⚠️ 04:30 is the implementer's pick, NOT
+#     RULED. Its reasons: it is apart from adsb-update.timer's own daily run at midnight; and, a
+#     belief, not measured, a rig left on at home overnight records the fewest aircraft then, so
+#     the window's gap would cost least. No Persistent=: on a rig that was off at 04:30 it would
+#     fire again at boot beside OnBootSec=, two triggers for one boot, and the boot trigger
+#     already covers a rig switched on at home. No RandomizedDelaySec=: one rig, nothing to
+#     spread.
 #
 # Starting, as 50-updater does for its own timer: the timer is enabled; under update.sh
 # (ADSB_UPDATE_RUN) it is started, or restarted when its file changed, so a rig that receives this
 # step by an ordinary update has its opener without a reboot; by hand the step prints the command
 # instead, and its verify warns rather than fails. A timer started after its OnBootSec= has
-# passed elapses at once, so a first install under update.sh always fires the opener once, at
-# once. That is harmless by the opener's guards: inside a window it finds the window open (decision
-# window-active); under adsb-update.service it finds that unit running; and under a bootstrap's
-# update.sh or a by-hand run, outside any unit, it finds the recording lock held by something
-# other than the writer. Each opens nothing. The verify does not wait for that run (below).
+# passed elapses at once: seen once on the portable Pi, 2026-10-09, on a first start (the record
+# is PLAN's, not this file's). So a first install under update.sh fires the opener once, at once.
+# ⚠️ That it always does, and that a restart does too, is belief: systemd may skip a monotonic
+# elapse older than the timer's last trigger. That fire is harmless by the opener's guards:
+# inside a window it finds the window open (decision window-active); under adsb-update.service it
+# finds that unit running; and under a bootstrap's update.sh or a by-hand run, outside any unit,
+# it finds the recording lock held by something other than the writer. Each opens nothing. The
+# verify does not wait for that run (below).
 # ⛔ It never starts or restarts adsb-home-update.service itself: that may be the unit whose window
 #    runs this step, waiting on the update.
 # A unit file changed on disk outside this step (NeedDaemonReload) is reloaded here, and the verify
@@ -246,7 +249,8 @@ install_step() {
 # neither empty nor "never". It reads no unit state, so it holds whether or not the timer is
 # active. A missing systemd-analyze is warned about, and the check counted as unverified, not
 # failed: this is tooling, not the rig's state. ℹ️ In the step itself it is never missing, since
-# the tool check at the top requires it for `systemd-analyze verify`.
+# the tool check at the top requires it for `systemd-analyze verify`; that branch is reached only
+# from the smoke test. Run with LC_ALL=C: the "Next elapse:" label it parses is English.
 calendar_check() {
   local an=${1:-systemd-analyze} out rc=0 next
   if ! command -v "$an" >/dev/null 2>&1; then
@@ -254,7 +258,7 @@ calendar_check() {
     return 0
   fi
   log "$an calendar '$DAILY_AT' (raw output follows)"
-  out=$("$an" calendar "$DAILY_AT" 2>&1) || rc=$?
+  out=$(LC_ALL=C "$an" calendar "$DAILY_AT" 2>&1) || rc=$?
   printf '%s\n' "${out:-(no output)}"
   echo "----"
   next=$(sed -n 's/^[[:space:]]*Next elapse:[[:space:]]*//p' <<<"$out" | head -n1)
@@ -266,11 +270,14 @@ calendar_check() {
 
 # timer_snapshot: ONE `systemctl show` of the timer, parsed by key into T_SUB, T_ACTIVE, T_LAST,
 # T_NEXT and T_MONO, the raw output in T_RAW. Returns 1 when systemctl show itself failed. A
-# NextElapseUSecMonotonic of "none" reads 0, not empty.
+# NextElapseUSecMonotonic of "none" reads 0, not empty. LC_ALL=C: the keys are not
+# locale-sensitive, but the realtime next elapse is a timestamp string that next_set gives to
+# date(1) to parse, so it is read in the C locale (⚠️ belief: systemd's timestamp words, such as
+# the weekday, follow the locale).
 timer_snapshot() {
   local line
   T_SUB='' T_ACTIVE='' T_LAST='' T_NEXT='' T_MONO=''
-  T_RAW=$(systemctl show -p SubState -p ActiveState -p LastTriggerUSec -p NextElapseUSecRealtime \
+  T_RAW=$(LC_ALL=C systemctl show -p SubState -p ActiveState -p LastTriggerUSec -p NextElapseUSecRealtime \
             -p NextElapseUSecMonotonic "$TIMER" 2>&1) || return 1
   while IFS= read -r line; do
     case $line in
@@ -283,12 +290,20 @@ timer_snapshot() {
   done <<<"$T_RAW"
 }
 
-# next_set: T_NEXT names a time: not empty, n/a, infinity or 0.
-next_set() { [[ -n $T_NEXT && $T_NEXT != n/a && $T_NEXT != infinity && $T_NEXT != 0 ]]; }
+# next_set: T_NEXT names a time: not empty, n/a, infinity or 0, and date(1) parses it, so a
+# non-time string (never, say) is "not set". systemd ends the timestamp with the local zone's
+# abbreviation, which date knows only for some zones (MST is one), so if the whole string does not
+# parse, it is tried again without that last word (⚠️ belief: the abbreviation is the only part
+# date may not know).
+next_set() {
+  [[ -n $T_NEXT && $T_NEXT != n/a && $T_NEXT != infinity && $T_NEXT != 0 ]] || return 1
+  LC_ALL=C date -d "$T_NEXT" +%s >/dev/null 2>&1 && return 0
+  [[ $T_NEXT == *' '* ]] && LC_ALL=C date -d "${T_NEXT% *}" +%s >/dev/null 2>&1
+}
 
-# timer_check <reads> <pause command>: the active timer's state, decided on SubState, with no
-# wait on anything the timer started. The step calls it with 5 and "sleep 1"; the smoke test
-# passes its own, so the retry is counted in reads, not in seconds.
+# timer_check <reads> <pause command>: the active timer's state, decided on SubState at every
+# read, with no wait on anything the timer started. The step calls it with 5 and "sleep 1"; the
+# smoke test passes its own, so the retry is counted in reads, not in seconds.
 #   - running: the timer has fired adsb-home-update.service and that run has not ended. A timer
 #     enters running only on its own elapse (⚠️ belief, from systemd's source and behavior; not
 #     seen for a by-hand `systemctl start adsb-home-update.service`, which is believed to leave
@@ -297,40 +312,42 @@ next_set() { [[ -n $T_NEXT && $T_NEXT != n/a && $T_NEXT != infinity && $T_NEXT !
 #     empty then), and systemd re-arms it when the run ends. That run may be the opener that
 #     opened the very window this update runs in, waiting for this verify to end, so it is not
 #     waited for.
-#   - waiting with a realtime next elapse: the timer is armed.
-#   - waiting without one: read again, up to <reads> reads in all, <pause> between. ⚠️ Belief,
-#     not seen: a waiting timer with no next elapse can be met at all, briefly, between its start
-#     and its catch-up fire. Still none after the last read: fail.
-#   - anything else (elapsed, dead, failed, ...): fail.
+#   - waiting with a realtime next elapse (next_set): the timer is armed.
+#   - waiting without one: read again, <pause> between, up to <reads> reads in all, and decide
+#     each read afresh, so a timer that fires between reads (running) passes, and one that turns
+#     elapsed, dead or failed fails as that, not as a missing next elapse. ⚠️ Belief, not seen: a
+#     waiting timer with no next elapse can be met at all, briefly, between its start and its
+#     catch-up fire. Still waiting with none at the last read: fail.
+#   - anything else (elapsed, dead, failed, ...): fail, with the snapshot.
 # A failing `systemctl show` is reported as such, never as a missing next elapse.
 timer_check() {
-  local reads=$1 pause=$2 n=1
-  timer_snapshot || die "systemctl show $TIMER failed (a systemctl failure, not a missing next elapse): $T_RAW"
-  log "systemctl show $TIMER (raw output follows)"
-  printf '%s\n' "$T_RAW"
-  echo "----"
-  case $T_SUB in
-    running)
-      pass "$TIMER has fired $SERVICE (LastTriggerUSec=${T_LAST:-?}) and that run has not ended; its next elapse is not readable while it runs, and systemd re-arms it when the run ends (not measured here; the login banner shows the next fire)"
-      ;;
-    waiting)
-      while ! next_set && ((n < reads)); do
-        # shellcheck disable=SC2086  # the pause command's words, on purpose
-        $pause
-        n=$((n + 1))
-        timer_snapshot || die "systemctl show $TIMER failed (a systemctl failure, not a missing next elapse): $T_RAW"
-        log "systemctl show $TIMER, read $n of $reads (raw output follows)"
-        printf '%s\n' "$T_RAW"
-        echo "----"
-      done
-      next_set || die "$TIMER is active but has no realtime next elapse after $n reads (the last snapshot above): $(paste -sd ' ' <<<"$T_RAW")"
-      [[ -n $T_LAST && $T_LAST != n/a && $T_LAST != 0 ]] || T_LAST="none since start"
-      pass "$TIMER is waiting: next elapse $T_NEXT (monotonic: ${T_MONO:-?}, 0 for none); last trigger $T_LAST"
-      ;;
-    *)
-      die "$TIMER is ${T_ACTIVE:-?}, SubState '${T_SUB:-?}', neither waiting nor running (the snapshot above): $(paste -sd ' ' <<<"$T_RAW")"
-      ;;
-  esac
+  local reads=$1 pause=$2 n=0 last
+  while :; do
+    n=$((n + 1))
+    if ((n > 1)); then
+      # shellcheck disable=SC2086  # the pause command's words, on purpose
+      $pause
+    fi
+    timer_snapshot || die "systemctl show $TIMER failed (a systemctl failure, not a missing next elapse): $T_RAW"
+    log "systemctl show $TIMER, read $n of at most $reads (raw output follows)"
+    printf '%s\n' "$T_RAW"
+    echo "----"
+    last=$T_LAST
+    [[ -n $last && $last != n/a && $last != 0 ]] || last=''
+    case $T_SUB in
+      running)
+        pass "$TIMER has fired $SERVICE (LastTriggerUSec=${last:-none}) and that run has not ended; its next elapse is not readable while it runs, and systemd re-arms it when the run ends (not measured here; the login banner shows the next fire). A timer enters running only on its own elapse: belief, not seen for a by-hand service start"
+        return 0 ;;
+      waiting)
+        if next_set; then
+          pass "$TIMER is waiting: next elapse $T_NEXT (monotonic: ${T_MONO:-?}, 0 for none); last trigger ${last:-none since start}"
+          return 0
+        fi
+        ((n < reads)) || die "$TIMER is active but has no realtime next elapse after $n reads (the last snapshot above): $(paste -sd ' ' <<<"$T_RAW")" ;;
+      *)
+        die "$TIMER is ${T_ACTIVE:-?}, SubState '${T_SUB:-?}', neither waiting nor running (the snapshot above): $(paste -sd ' ' <<<"$T_RAW")" ;;
+    esac
+  done
 }
 
 # The install tier (PLAN §9c): both programs are this checkout's and parse; the updater they call
@@ -410,8 +427,8 @@ verify() {
     die "$TIMER is '$ac', not active (waiting), under update.sh; run this step without --verify"
   fi
   calendar_check
-  # Only an active timer's state is decided: an inactive one, warned about by hand above, reads
-  # SubState dead.
+  # Only an active timer's state is decided: an inactive one, warned about by hand above, is
+  # believed to read SubState dead (⚠️ belief, not seen), which timer_check would fail.
   if [[ $ac == active ]]; then
     timer_check 5 "sleep 1"
   fi
