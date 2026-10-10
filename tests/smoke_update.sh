@@ -26,7 +26,7 @@
 set -uo pipefail
 # The number of check cases a full run makes. Bump it when cases are added or removed: a run that
 # makes fewer (a section skipped by an early return, a wait loop that timed out) fails.
-readonly EXPECTED_CHECKS=234
+readonly EXPECTED_CHECKS=240
 ((EUID != 0)) || { echo "refusing to run as root: the sandbox remaps real system paths by sed"; exit 1; }
 # The sandbox is not under systemd; update.sh adds a <N> journal prefix to its marker line when it is.
 unset INVOCATION_ID
@@ -132,6 +132,14 @@ case "\$1 \${2:-}" in
     case "\$3 \${5:-}" in
       "LoadState adsb-pull-window.service") cat "$SB/window-load" 2>/dev/null || echo not-found ;;
       "LoadState adsb-home-update.timer") cat "$SB/home-timer-load" 2>/dev/null || echo not-found ;;
+      # TS: the opener timer as step 70's verify reads it. Each is a queue, one line per call
+      # (a blank line is an empty value), then the default.
+      "SubState adsb-home-update.timer")
+        if [[ -s "$SB/ts-sub" ]]; then head -n1 "$SB/ts-sub"; sed -i 1d "$SB/ts-sub"; else echo waiting; fi ;;
+      "NextElapseUSecRealtime adsb-home-update.timer")
+        if [[ -s "$SB/ts-next" ]]; then head -n1 "$SB/ts-next"; sed -i 1d "$SB/ts-next"; else cat "$SB/ts-next-default" 2>/dev/null; fi ;;
+      "ActiveState adsb-home-update.service")
+        if [[ -s "$SB/ts-svc" ]]; then head -n1 "$SB/ts-svc"; sed -i 1d "$SB/ts-svc"; else echo inactive; fi ;;
       "InvocationID adsb-update.service") cat "$SB/upd-inv" 2>/dev/null || echo ;;
       "ExecMainStatus adsb-update.service") cat "$SB/upd-exit" 2>/dev/null || echo 0 ;;
       "ActiveState adsb-update.service")
@@ -1101,6 +1109,52 @@ check "SEC4 the opener: error (1)" hu_line "^ADSB-HOME-UPDATE error: $SB/home is
 check "SEC4 nothing was written where the link points" [ "$RC/$(find "$SB/elsewhere" -mindepth 1 | wc -l)" = 1/0 ]
 rm -f "$SB/home"; mv "$SB/home.real" "$SB/home"
 echo
+echo "== TS. step 70's verify reads the opener timer after a fire it just caused (seen on the Pi, 2026-10-09)"
+# timer_settled from the real step, with lib.sh's four output helpers, a 4 s bound, and the
+# sandbox's marker path. It runs in a child bash; its exit status is the verdict.
+TSH=$SB/timer-settled.sh
+{
+  echo 'set -euo pipefail'
+  grep -E '^(log|warn|die|pass)\(\) ' "$REAL/setup/lib.sh"
+  printf 'TIMER=adsb-home-update.timer SERVICE=adsb-home-update.service ADSB_WINDOW_MARK=%s\n' "$SB/home/window-opened-by"
+  sed -n '/^timer_settled() {/,/^}/p' "$REAL/setup/steps/70-portable-home-update.sh"
+  echo 'TIMER_SETTLE_BOUND=4'
+  echo 'timer_settled'
+} >"$TSH"
+grep -q '^timer_settled() {' "$TSH" && [ "$(grep -cE '^(log|warn|die|pass)\(\) ' "$TSH")" = 4 ] \
+  || { echo "timer_settled or lib.sh's helpers not extracted"; exit 1; }
+ts() { RC=0; bash "$TSH" >"$SB/out.txt" 2>&1 || RC=$?; }
+ts_reset() { rm -f "$SB/ts-sub" "$SB/ts-next" "$SB/ts-svc" "$SB/home/window-opened-by"; echo "Sat 2026-10-10 04:30:00 MST" >"$SB/ts-next-default"; }
+
+echo "-- TS1. the Pi's case: the fired opener runs for 3 polls with no next elapse, then the timer waits with one"
+ts_reset
+printf 'running\nrunning\nrunning\n' >"$SB/ts-sub"; printf 'activating\nactivating\nactivating\n' >"$SB/ts-svc"; printf '\n\n\n' >"$SB/ts-next"
+ts
+check "TS1 passes (0), naming the next elapse" rc_has 0 "PASS: adsb-home-update.timer is enabled and active, next elapse Sat 2026-10-10 04:30:00 MST" "$SB/out.txt"
+check "TS1 printed the raw state of each poll: 3 running, then waiting" \
+  [ "$(grep -c 'SubState=running; adsb-home-update.service ActiveState=activating; NextElapseUSecRealtime=(empty)' "$SB/out.txt")/$(grep -c 'SubState=waiting' "$SB/out.txt")" = 3/1 ]
+
+echo "-- TS2. waiting, but no next elapse: fails, as before"
+ts_reset; : >"$SB/ts-next-default"
+ts
+check "TS2 fails (1): no next elapse" rc_has 1 "FAIL: adsb-home-update.timer is waiting but has no next elapse" "$SB/out.txt"
+
+echo "-- TS3. the timer's run never ends within the bound (4 s here, 90 on a rig): fails, naming the state"
+ts_reset
+printf 'running\n%.0s' $(seq 1 20) >"$SB/ts-sub"
+ts
+check "TS3 fails (1) after the bound, naming SubState" rc_has 1 "FAIL: adsb-home-update.timer's run was still going after 4 s (SubState=running" "$SB/out.txt"
+
+echo "-- TS4. the timer's service is the opener that opened this update's window (marker present): no wait"
+ts_reset
+printf 'running\n%.0s' $(seq 1 20) >"$SB/ts-sub"; printf 'activating\n%.0s' $(seq 1 20) >"$SB/ts-svc"
+echo adsb-home-update >"$SB/home/window-opened-by"
+t0=$SECONDS; ts; ts_el=$((SECONDS - t0))
+check "TS4 passes (0) at once, saying why the timer is running" \
+  rc_has 0 "PASS: adsb-home-update.timer is active; its service is the opener that opened this update's window" "$SB/out.txt"
+check "TS4 did not wait (took ${ts_el} s)" [ "$ts_el" -lt 2 ]
+ts_reset; rm -f "$SB/ts-next-default"
+
 echo "smoke: $NPASS passed, $NFAIL failed"
 if ((NPASS + NFAIL != EXPECTED_CHECKS)); then
   echo "smoke: $((NPASS + NFAIL)) checks ran, EXPECTED_CHECKS is $EXPECTED_CHECKS"; exit 1

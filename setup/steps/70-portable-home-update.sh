@@ -60,11 +60,14 @@
 # Starting, as 50-updater does for its own timer: the timer is enabled; under update.sh
 # (ADSB_UPDATE_RUN) it is started, or restarted when its file changed, so a rig that receives this
 # step by an ordinary update has its opener without a reboot; by hand the step prints the command
-# instead, and its verify warns rather than fails. ⚠️ Belief, not checked: a timer started after
-# its OnBootSec= has passed may elapse at once. Under update.sh that is harmless by the opener's
-# guards: inside a window it finds the window open; under adsb-update.service it finds that unit
-# running; and under a bootstrap's update.sh, outside any unit, it finds the recording lock held by
-# something other than the writer. Each opens nothing.
+# instead, and its verify warns rather than fails. ✅ Seen on the portable Pi 2026-10-09 19:16:
+# a timer started after its OnBootSec= has passed elapses at once. So a first install under
+# update.sh always fires the opener once, at once. That is harmless by the opener's guards:
+# inside a window it finds the window open (seen then: "ADSB-HOME-UPDATE window-active: the pull
+# window is already deactivating", about 1 s, and ExecCondition= ran, "at home", on systemd
+# 257.13); under adsb-update.service it finds that unit running; and under a bootstrap's update.sh
+# or a by-hand run, outside any unit, it finds the recording lock held by something other than the
+# writer. Each opens nothing. The verify waits for that fire to end (below).
 # ⛔ It never starts or restarts adsb-home-update.service itself: that may be the unit whose window
 #    runs this step, waiting on the update.
 # A unit file changed on disk outside this step (NeedDaemonReload) is reloaded here, and the verify
@@ -241,11 +244,46 @@ install_step() {
 
 # --- verify --------------------------------------------------------------------
 
+# timer_settled: the active timer's next elapse, read through `systemctl show`, after any run it
+# has just fired has ended. ✅ Seen on the portable Pi 2026-10-09: started under update.sh, the
+# timer fired the opener at once, and while that ran, list-timers showed NEXT "-" (273 ms after the
+# fire); a minute later SubState=waiting and NextElapseUSecRealtime=Sat 2026-10-10 04:30:00 MST.
+# So while the timer's service runs (SubState=running, or adsb-home-update.service activating),
+# it polls every second, printing the raw state each time, for up to TIMER_SETTLE_BOUND seconds;
+# then it requires a non-empty NextElapseUSecRealtime. 90 s: a fire under update.sh ends at a
+# guard within seconds (about 1 s seen; window-active, update-running or lock-held), after its
+# ExecCondition=, which nmcli's and python's 10 s timeouts bound at 20 s; 90 s is well above both.
+# ⚠️ One exception, the build's, not in the fix as asked: when the opener's marker exists and its
+# unit is activating, that opener opened the window this update runs in, and it waits for this
+# update to end, so waiting for it here would only run out the bound and fail every home update.
+# Then the timer is running by design and its next elapse is set when the opener finishes (belief,
+# from the Pi's 19:16 reading above, not seen in that case); it passes, saying so.
+TIMER_SETTLE_BOUND=90
+timer_settled() {
+  local sub svc next t0=$SECONDS
+  while :; do
+    sub=$(systemctl show -p SubState --value "$TIMER" 2>/dev/null) || sub=''
+    svc=$(systemctl show -p ActiveState --value "$SERVICE" 2>/dev/null) || svc=''
+    next=$(systemctl show -p NextElapseUSecRealtime --value "$TIMER" 2>/dev/null) || next=''
+    printf '    %s SubState=%s; %s ActiveState=%s; NextElapseUSecRealtime=%s\n' \
+      "$TIMER" "${sub:-?}" "$SERVICE" "${svc:-?}" "${next:-(empty)}"
+    [[ $sub == running || $svc == activating ]] || break
+    if [[ -e $ADSB_WINDOW_MARK && $svc == activating ]]; then
+      pass "$TIMER is active; its service is the opener that opened this update's window ($ADSB_WINDOW_MARK exists), so it runs until this update ends, and its next elapse is set then"
+      return 0
+    fi
+    ((SECONDS - t0 < TIMER_SETTLE_BOUND)) \
+      || die "$TIMER's run was still going after ${TIMER_SETTLE_BOUND} s (SubState=${sub:-?}, $SERVICE ${svc:-?}, above); an opener fired under update.sh ends at a guard in seconds. See journalctl -u $SERVICE"
+    sleep 1
+  done
+  [[ -n $next ]] || die "$TIMER is ${sub:-?} but has no next elapse (NextElapseUSecRealtime is empty, above); its OnCalendar= should always give one"
+  pass "$TIMER is enabled and active, next elapse $next"
+}
+
 # The install tier (PLAN §9c): both programs are this checkout's and parse; the updater they call
 # knows --check; both units match their render, load and need no reload; the timer is enabled, and
 # active with a next elapse under update.sh; update.home_ssid, if set, is a string; and the
-# predicate runs and gives a verdict. ⛔ Never starts the window or the opener, and never
-# is-active of adsb-home-update.service: inside a window it opened, that is the unit waiting on this.
+# predicate runs and gives a verdict. ⛔ Never starts the window or the opener.
 verify() {
   local f src st
   render_tmpfiles
@@ -304,19 +342,12 @@ verify() {
   [[ $load == loaded ]] || die "$WINDOW, which the opener starts, is '$load', not loaded; run setup/steps/60-portable-pull.sh"
   pass "$SERVICE and $TIMER match their render, load, and need no reload; $WINDOW is loaded (not started: a verify never starts it)"
 
-  local en ac listing next
+  local en ac
   en=$(systemctl is-enabled "$TIMER" 2>&1) || true
   ac=$(systemctl is-active "$TIMER" 2>&1) || true
-  log "systemctl list-timers --all $TIMER (raw output follows)"
-  listing=$(systemctl list-timers --all --no-pager --no-legend "$TIMER" 2>&1) || true
-  printf '%s\n' "${listing:-(no output)}"
-  echo "----"
   [[ $en == enabled ]] || die "$TIMER is '$en', not enabled; run this step without --verify"
   if [[ $ac == active ]]; then
-    # The NEXT column: "-" (or "n/a" on older systemd) when nothing is scheduled.
-    next=$(awk -v u="$TIMER" '$0 ~ u { print $1; exit }' <<<"$listing")
-    [[ -n $next && $next != - && $next != n/a ]] || die "$TIMER is active but has no next elapse (above); its OnCalendar= should always give one"
-    pass "$TIMER is enabled and active, with a next elapse"
+    timer_settled
   elif [[ -z ${ADSB_UPDATE_RUN:-} ]]; then
     # By hand the step does not start it (the header); the next boot does.
     warn "$TIMER is enabled but '$ac': it starts at the next boot, or now with: sudo systemctl start $TIMER"
