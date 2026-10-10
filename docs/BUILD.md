@@ -15,7 +15,10 @@ at 2.4 MSPS costs roughly half of one core on a Pi 4.
 
 If you are building both rigs, the natural split is **more RAM → stationary**: it runs `tar1090`,
 an SSD-backed archive, a feeder client and an ACARS decoder together. The portable rig runs a
-decoder, an uploader and (optionally) `rtl_airband`, which is comfortable in 1 GB.
+decoder, ~~an uploader~~ *an archive writer (corrected 2026-10-10: `bin/adsb-writer` records on the
+🎒 portable, and no uploader is written,
+[PLAN.md §9i](PLAN.md#9i-what-is-not-chosen-yet-the-writer-the-extractor-the-uploader))* and
+(optionally) `rtl_airband`, which is comfortable in 1 GB.
 
 ⚠️ **Power is the real constraint, not RAM.** A Pi 4 pulls ~3–5 W idle and more with an SDR
 attached, and it is fussy about undervoltage — a weak supply causes decode dropouts **that look
@@ -35,6 +38,12 @@ These are two machines that happen to share a decoder.
 | **Position** | ⚠️ Changes every session | ✅ Constant — survey once, put it in config |
 | **Network** | ⛔ None | ✅ Yes |
 | **Antenna** | Magnetic-mount whip on a car roof | Collinear (e.g. FlightAware 26") up a mast |
+
+*Added 2026-10-10: the **Job** row is no longer the whole split. Both rigs archive everything, for
+matching to photographs by UTC time (**(Chris)**, 2026-10-03,
+[PLAN.md §9m](PLAN.md#9m--the-portable-rigs-archive-drive)). The 🎒 portable records onto its own
+archive drive, and the data is moved off by a pull from your workstation over your home network
+([§7](#7-software)).*
 
 ### ⭐ The two rigs want opposite things from GPS
 
@@ -60,6 +69,11 @@ auto-restarting, reachable over something like Tailscale — on somebody else's 
 archive, potentially in anything you publish from it. Agree it with them before the antenna goes
 up, not after.
 
+*Added 2026-10-10: Tailscale keys expire, and the 🏠 stationary's pre-ship checklist has key expiry
+disabled before the rig moves
+([PLAN.md §9h](PLAN.md#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away)).
+⚠️ Unverified: that the default expiry is 180 days, a claim from the architecture consultation.*
+
 ---
 
 ## 3. Parts
@@ -74,7 +88,7 @@ Buy the shared core once per rig, then only the additions for the rig you are bu
 |---|---|---|
 | 1 | **Raspberry Pi 4** (3 or Zero 2 W also fine) | See [§1](#1-which-pi) |
 | 2 | **microSD, 32 GB, A2 / high-endurance** | Cheap cards are the usual cause of "it stopped working" |
-| 3 | **1090 MHz SDR** — FlightAware Pro Stick Plus, or RTL-SDR Blog **V4** | ⭐ Best is a stick with a **built-in 1090 filter + LNA**. The V4's triple-tuned front end notches broadcast FM and DAB, which is most of what swamps a generic dongle near a city — but it carries **no 1090 SAW filter**, so a **1090 bandpass** inline is still the ADS-B upgrade. ⛔ A broadcast-AM reject high-pass is *not* that filter: it cuts below ~2 MHz and does nothing at 1090. ⛔ **A V4 needs current drivers — [§4](#4-drivers-first)** |
+| 3 | **1090 MHz SDR** — FlightAware Pro Stick Plus, or RTL-SDR Blog **V4** | ⭐ Best is a stick with a **built-in 1090 filter + LNA**. The V4's triple-tuned front end notches broadcast FM and DAB, which is most of what swamps a generic dongle near a city — but it carries **no 1090 SAW filter**, so a **1090 bandpass** inline is still the ADS-B upgrade. ⛔ A broadcast-AM reject high-pass is *not* that filter: it cuts below ~2 MHz and does nothing at 1090. ⛔ **A V4 needs current drivers — [§4](#4-drivers-first)**. *Added 2026-10-10: ⚠️ counterfeit V4s are sold, Amazon included; the stick first used here was an R820T2 board in a printed V4 case. Its EEPROM strings read the same as a genuine V3's, so the tuner name is the only tell: the hand check in [§8](#8-build-order) step 0. Buy from RTL-SDR Blog or a seller listed on rtl-sdr.com ([PLAN.md §9j](PLAN.md#9j--verified-on-hardware-2026-10-03))* |
 | 4 | **Coax + the right adapter** | ⚠️ Check connectors before ordering — FlightAware antennas are **N-female**, the sticks are **SMA-female**. You want an N-male → SMA-male cable, not a stack of adapters |
 | 5 | **Heatsink case, with a fan** | A Pi 4 throttles under sustained load, and [RADIOS.md](RADIOS.md) gives it real work |
 
@@ -88,6 +102,11 @@ Buy the shared core once per rig, then only the additions for the rig you are bu
 | 9 | **DS3231 RTC module** (I²C breakout, ~$5) | ⛔ Portable only. ⭐ [§6b](#6b-gps-alone-does-not-close-it) — the half of the clock problem GPS does *not* solve. ⚠️ DS3231, **not** DS1307. ⚠️ [§6b](#6b-gps-alone-does-not-close-it): fix the charge path before fitting |
 | 10 | **A bag that fits it all, and short USB extension leads** | Dongles need spacing ([RADIOS.md §5](RADIOS.md#5-what-a-second-dongle-does-to-the-pi)), and a rig you dread packing is a rig you leave at home |
 
+*Added 2026-10-10: and **a USB flash drive for the archive**, at least 8 GB, in a black USB 2 port
+([PLAN.md §9m](PLAN.md#9m--the-portable-rigs-archive-drive)). The 🎒 portable archives everything
+onto it ([§2](#2-two-rigs-not-one)). On a first build the one command formats it as ext4, under the
+strict rule in [§8](#8-build-order); a drive it refuses is formatted by hand.*
+
 ### 3c. 🏠 Stationary additions
 
 | # | Part | Notes |
@@ -98,6 +117,13 @@ Buy the shared core once per rig, then only the additions for the rig you are bu
 | 9 | **Wall power supply — the official 5 V 3 A one** | Not a phone charger. Undervoltage is the same failure as in the field, just permanent |
 | 10 | ⛔ **Not** a GPS, and **not** an RTC | [§2](#2-two-rigs-not-one) — it has a network and a position that never moves |
 
+*Added 2026-10-10, from the remote-site design
+([PLAN.md §9h](PLAN.md#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away)'s
+recovery layers): **a smart plug**, controlled from your phone through the vendor's cloud and
+⛔ deliberately not through Tailscale, so it still works when Tailscale is what broke; and, to boot
+from the USB SSD with no SD card, **a powered hub or a low-draw SSD enclosure**. ℹ️ The stationary
+hardware itself is not ruled yet ([PLAN.md §4](PLAN.md#4-proposed-split-the-stationary-site-across-two-pis)).*
+
 ### 3d. 📻 The second radio — either rig
 
 ⛔ **Do not buy this with the first order.** [§8](#8-build-order) step 5 is deliberate: a second
@@ -106,7 +132,12 @@ destabilizes a working receiver. Ordering it early does not make that step arriv
 puts a dongle in a drawer.
 
 ➡️ *Which* radio goes on *which* rig, and why, is [RADIOS.md](RADIOS.md). This is only the list.
-🎒 Portable is 1090 + airband; 🏠 stationary is 1090 + VDL2. ⛔ Neither rig runs three dongles.
+🎒 Portable is 1090 + airband; 🏠 stationary is 1090 + VDL2. ~~⛔ Neither rig runs three dongles.~~
+*Corrected 2026-10-10: the second radio is a slot, populated per site and possibly more than once,
+not one purchase ([PLAN.md §1](PLAN.md#1-one-base-several-radio-slots)). A stationary site may run
+several; the real limit is CPU, about three radios on a Pi 4
+([PLAN.md §3](PLAN.md#3--cpu-is-the-binding-constraint-not-power)), and each slot goes on only once
+the one before it is boring ([PLAN.md §8](PLAN.md#8-sequencing)).*
 
 | # | Part | Notes |
 |---|---|---|
@@ -147,11 +178,19 @@ you get **no signals, or signals at the wrong frequency** — indistinguishable 
 bad cable, or an empty sky.
 
 ⚠️ **It bites ADS-B specifically**, because `readsb` and `dump1090-fa` link against `librtlsdr`.
-Installing either from `apt` can quietly pull an old one back in and undo the fix.
+~~Installing either from `apt` can quietly pull an old one back in and undo the fix.~~
+*Corrected 2026-10-10: on Raspberry Pi OS trixie the packaged `readsb` links no `librtlsdr` at all.
+It is built without RTL-SDR support and cannot drive the stick, so `10-decoder` builds `readsb` from
+source instead and never installs it from apt. On Debian forky, whose packaged `readsb` depends on
+`librtlsdr0`, the concern applies again
+([PLAN.md §9j](PLAN.md#9j--verified-on-hardware-2026-10-03)). Whether `dump1090-fa` links it is not
+checked here.*
 
 ```bash
 # ⚠️ This takes readsb / dump1090-fa with it — they link against librtlsdr.
 #    That is the point (they get rebuilt against the new one), but do it knowingly.
+# Corrected 2026-10-10: trixie's packaged readsb links no librtlsdr (see the correction above
+#   this block). The readsb the one command (§8) builds from source does link it.
 sudo apt purge '^librtlsdr'        # quote it: ^ is a regex for apt, not for the shell
 # then remove any stale librtlsdr* left behind in /usr/lib and /usr/local/lib
 echo 'blacklist dvb_usb_rtl28xxu' | sudo tee /etc/modprobe.d/blacklist-rtl.conf
@@ -180,9 +219,11 @@ wrong way round and you are back to a silent failure, which is the entire subjec
 ⚠️ **Not verified here:** *which* repo carries R828D support at the revision you actually clone —
 that moves, and a README is not evidence. ✅ The check that settles it is `rtl_test -t` below.
 
-✅ **Verify before trusting it:** `rtl_test -t` should name the tuner as **R828D**. If it says
-R820T2, or reports nothing, the old driver is still in the path and every reading after this point
-is worthless.
+✅ **Verify before trusting it:** `rtl_test -t` should name the tuner as **R828D**. If it ~~says
+R820T2, or~~ reports nothing, the old driver is still in the path and every reading after this point
+is worthless. *Corrected 2026-10-10: struck "says R820T2, or". A stick sold as a V4 that reports an
+R820T2 on a current library may be a counterfeit, not an old driver; the one first used here was
+([PLAN.md §9j](PLAN.md#9j--verified-on-hardware-2026-10-03)).*
 
 ℹ️ None of this applies to a FlightAware Pro Stick — it is an R820T2 device and works with the
 packaged driver.
@@ -337,6 +378,15 @@ stands unchanged.
                                ships on the next network, never in the field
 ```
 
+*Corrected 2026-10-10: the "uploader (yours to write)" line. The uploader is not written, and its
+language is not chosen; once written it ships in this repo, not as something you write
+([PLAN.md §9a](PLAN.md#9a-the-repo-ships-its-own-software-and-the-pi-pulls-it),
+[§9i](PLAN.md#9i-what-is-not-chosen-yet-the-writer-the-extractor-the-uploader)). The 🎒 portable
+runs an archive writer, `bin/adsb-writer`, which records `readsb`'s BEAST stream onto the archive
+drive, with the spool on that drive too. The data is moved off by a pull from your workstation over
+your home network, `tools/pull-archive`, and `uploader.endpoint` stays null
+([PLAN.md §9m](PLAN.md#9m--the-portable-rigs-archive-drive)).*
+
 ⛔ **The portable uploader does not upload in the field.** [§2](#2-two-rigs-not-one) means it
 literally: there is no network out there. It writes numbered batches to `spool_dir` for the whole
 session and ships them the next time the rig sees a network. ➡️ Which is why rule 3 below is not
@@ -359,8 +409,14 @@ screen. ⛔ Nothing in the software should assume it reaches the internet.
   extractor (to write)       → pulls a time window back out of the archive (§9)
 ```
 
-📋 **The uploader, the archive writer and the extractor do not exist here yet.** Four rules worth
-following when you write the first two — the first three apply to any logger, the fourth is
+*Corrected 2026-10-10: the writer and the extractor are written. `bin/adsb-writer` is installed by
+`setup/steps/40-archive-writer.sh`, which is 🎒 portable-only until the 🏠 stationary's archive SSD
+question is decided ([PLAN.md §9m](PLAN.md#9m--the-portable-rigs-archive-drive)), so nothing
+installs it on this rig yet. `tools/adsb-extract` runs on a workstation, on pulled files.*
+
+📋 **~~The uploader, the archive writer and the extractor do not exist here yet.~~** *Corrected
+2026-10-10: the uploader does not exist here yet; the archive writer and the extractor do (above).*
+Four rules worth following when you write the first two — the first three apply to any logger, the fourth is
 specific to a rig with no network:
 
 1. ⛔ Store **every candidate**, never a pick. Narrowing at write time throws away the evidence
@@ -462,6 +518,30 @@ warns, and journald loads it at the next boot
   driver, not [§4](#4-drivers-first)'s from-source build.
 - After its reboot, the checks below: step 0's tuner check, and the ones under the sky.
 
+ℹ️ *Added 2026-10-10: the step scripts the one command runs, from `setup/steps/`. `update.sh` runs
+them in filename order, and on a first build runs `50-updater` first
+([PLAN.md §9b](PLAN.md#9b-one-bash-script-per-build-step)). A 🎒 step asserts the portable role, and
+on the other rig `update.sh` skips it.*
+
+- `00-drivers`: the packaged RTL-SDR driver and the DVB blacklist. Step 0 below.
+- `05-config`: `station.yml` into `/etc`, the `adsb-receiver` user, the `adsb-operator` group, and
+  the recording lock's `tmpfiles.d` entry.
+- `06-journal`: the persistent journal (above).
+- `10-decoder`: `readsb`, built from source at a pinned commit with RTL-SDR support, against the
+  packaged `librtlsdr` 2.0.2, and never installed from apt; and `tar1090`, installed by its own
+  installer from a pinned commit. ⚠️ Its aircraft database, `tar1090-db`, is not pinned. Step 1.
+- `20-portable-clock` 🎒: `gpsd`, `chrony`, the RTC and `bin/clock-preflight`. Step 2.
+- `30-archive-drive` 🎒: mounts the archive drive and installs `bin/archive-preflight`; after the
+  clock step and before the writer. It never formats.
+- `40-archive-writer` 🎒: `bin/adsb-writer` and its unit.
+- `50-updater`: the updater, its timer and the login banner.
+- `60-portable-pull` 🎒: the pull window that `tools/pull-archive` opens, and the sudoers rule that
+  lets it.
+- `70-portable-home-update` 🎒: the home-gated opener, off until `update.home_ssid` is set.
+
+*Steps 3 to 6 below have no script. The 🏠 stationary's clock step, `20-stationary-clock`, is not
+written.*
+
 ℹ️ ~~`10-decoder`, the step that installs `readsb` and `tar1090`, is not in the repo yet
 ([PLAN.md §9m](PLAN.md#9m--the-portable-rigs-archive-drive), R5), so until it is, the command does
 not give you step 1's map.~~ *Corrected 2026-10-05: `10-decoder`, the step that installs `readsb`
@@ -475,7 +555,10 @@ and no script can pass them for you:
 - [ ] `gpsd` has a fix, and `chronyc sources` shows GPS disciplining the clock (step 2).
 - [ ] The Pi still knows the time after a power cycle **with the network unplugged** (step 2).
 
-0. ⛔ **Install the drivers first** ([§4](#4-drivers-first)) and confirm `rtl_test -t` ~~names an
+0. ⛔ ~~**Install the drivers first** ([§4](#4-drivers-first)) and confirm~~ *Corrected 2026-10-10:
+   with the one command, its `00-drivers` installs the drivers, the packaged driver and not
+   [§4](#4-drivers-first)'s from-source build, and this check comes after its reboot ("the order
+   for a first build", above, and the hazard below). Confirm* `rtl_test -t` ~~names an
    **R828D**~~ *opens the stick and names its tuner*. Every step below would otherwise be debugging the wrong thing.
    *Corrected 2026-10-04: an R828D is only what a V4 reports. ~~The step script `00-drivers` fails an
    R828D without its V4 line, and passes any other tuner with a warning
@@ -492,7 +575,8 @@ and no script can pass them for you:
    installs the packaged driver from apt and blacklists the kernel's DVB driver. It does not do
    [§4](#4-drivers-first)'s from-source build. ~~This step's order is not yet rewritten for the one
    command.~~* *Corrected 2026-10-10: the order with the one command is above, under "the order for
-   a first build". This step's own first line is not rewritten.*
+   a first build". ~~This step's own first line is not rewritten.~~* *Corrected 2026-10-10, later:
+   it now carries a correction.*
    ⚠️ *Added 2026-10-05: on a first build, before its reboot, the kernel's DVB driver is still
    loaded, and every close of the stick hands it back to that driver, which re-probes it. That is
    the hazard behind the 2026-10-04 hub drop
@@ -506,14 +590,28 @@ and no script can pass them for you:
    ⛔ *Added 2026-10-04:* **fix the RTC board's charge path before you wire it to the Pi**
    ([§6b](#6b-gps-alone-does-not-close-it)). It is an assembly check: the board charges its cell
    from the moment it is powered, and no script can see it.
+   ℹ️ *Added 2026-10-10: with the one command, this step's script is
+   `setup/steps/20-portable-clock.sh`. Its verify checks only the install tier: `gpsd` has the puck
+   open and NMEA arrives, `chrony` lists the GPS refclock, the RTC reads a time,
+   `systemd-timesyncd` is masked (or absent) and inactive, and `bin/clock-preflight` runs,
+   passing whether or not it finds the clock ready. It never judges the sky, so the three checks
+   above stay yours, under the sky
+   ([PLAN.md §9c](PLAN.md#9c-every-step-ends-in-a-check-of-the-observable-effect)).*
 3. Only then take it out on battery — that is where undervoltage and antenna placement problems
    appear, and you want everything else already known-good.
+   📋 *Added 2026-10-10: 🎒 the archive's pre-field checklist (among its items: power cuts
+   mid-recording, a boot with the drive pulled, a full pull, an update inside the pull window) is in
+   [PLAN.md §9m](PLAN.md#9m--the-portable-rigs-archive-drive), "The pre-field checklist".*
 4. Write the uploader last, against a receiver you already trust.
 5. ⭐ **Add a second radio only after all of the above is boring.** Adding dongles is exactly what
    destabilizes a working rig — see [RADIOS.md](RADIOS.md). ➡️ Order its parts at this point, not
    with the first order: [§3d](#3d--the-second-radio--either-rig).
 6. 🏠 **Then build the stationary rig**, reusing steps 1 and 5 — but ⛔ **not** step 2. Its own
    extra step is the mast, because height is the only thing that materially changes reception.
+   📋 *Added 2026-10-10: before it moves to its remote site, the pre-ship checklist in
+   [PLAN.md §9h](PLAN.md#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away)
+   (a sky check with the real collinear, cold power cuts, a smart-plug power cycle, the WAN unplugged, an update that rolls back, a
+   retention fill, Tailscale key expiry disabled, the heartbeat and an alert received).*
 
 ⚠️ **Receiving ADS-B is legal in the US**; this is a receive-only device and transmits nothing.
 ⛔ **That blanket statement stops being true once an airband dongle is attached**, and receive-only
@@ -524,9 +622,13 @@ is not the whole test abroad. See the jurisdiction table in
 
 ## 9. 🏠 The archive, and feeding
 
-⛔ **This is the stationary rig's job, and it is why that rig exists.** Feeder tiers want high
+⛔ **~~This is the stationary rig's job, and it is why that rig exists.~~** Feeder tiers want high
 monthly uptime and an archive wants no holes — neither of which a receiver that leaves the house
 can deliver.
+*Corrected 2026-10-10: the archive is no longer the 🏠 stationary rig's alone. Both rigs archive
+everything, for matching to photographs by UTC time (**(Chris)**, 2026-10-03,
+[PLAN.md §9m](PLAN.md#9m--the-portable-rigs-archive-drive)); the 🎒 portable records onto its own
+archive drive ([§7](#7-software)).*
 
 **Feeding costs nothing extra.** The decoder is already running. Aggregators generally reward
 feeders with better API allowances than registered non-feeders, and the specific benefit worth
