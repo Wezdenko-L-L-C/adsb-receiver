@@ -25,6 +25,17 @@
 #    moment a human is there to see a writer that did not come back. If the window had already
 #    ended before the close (its 2 h cap), the writer has been recording since then, so any .part
 #    it holds counts.
+# 5. Decodes what this pull moved, after the window is closed so it adds nothing to the recording
+#    gap: tools/adsb-extract --decode (beside this script) over exactly the beast/ files rsync
+#    named as transferred (its --out-format), where they now sit here; never the whole destination,
+#    which grows every pull. spool/ is not decoded (it is not the archive's pcap). PLAN §9m, the
+#    content level of the review. With no python3 here, or nothing moved, it says so and skips. If
+#    --decode exits non-zero it warns loudly, naming the files to look at, but the exit status
+#    stays rsync's: the move succeeded, and a .torn file is an expected outcome of a power cut.
+#    A file with no frames (an outage: events or keepalives only) is --decode's own "!! no
+#    frames" line, which exits 0, so it raises no banner here (Chris, 2026-10-10).
+#    ⚠️ A file rsync found already identical here is deleted from the rig without being named, so
+#    it is not decoded (a rerun after a pull that died part-way).
 # Before the window opens: rsync is on this workstation's PATH and the destination is writable, so
 # a pull that cannot move anything never ends a recording session. ssh sends keepalives
 # (ServerAliveInterval=15, ServerAliveCountMax=4), so a link that died silently ends the ssh in
@@ -56,8 +67,11 @@ rm -f -- "$probe"
 # shellcheck disable=SC2029  # the remote commands are built here, on purpose
 ssh_pi() { ssh "${ssh_opts[@]}" "$host" "$@"; }
 
-# rsync options: a move that neither hangs on a dead link nor fails on the Pi's group.
+# rsync options: a move that neither hangs on a dead link nor fails on the Pi's group. Each file
+# it transfers is named on its own line, prefixed, for step 5.
+moved_prefix='moved: '
 rsync_opts=(-a --no-g --no-o --no-p --remove-source-files --stats --human-readable --timeout=60
+            --out-format="$moved_prefix%n"
             -e "ssh ${ssh_opts[*]}" --exclude '*.part' --exclude 'lost+found')
 # The help text is captured first: under pipefail, `rsync --help | grep -q` can fail when grep
 # exits at its first match while rsync is still writing.
@@ -140,13 +154,30 @@ done
 echo "==> the writer is ${state:-unknown}"
 
 status=0
+moved=()  # the archive files this pull moved, as paths here
 for d in beast spool; do
   if ! ssh_pi test -d "$archive/$d"; then
     echo "==> $archive/$d is not on the rig; skipped"
     continue
   fi
   echo "==> moving $host:$archive/$d/ to $dest/$d/"
-  rsync "${rsync_opts[@]}" "$host:$archive/$d/" "$dest/$d/" || status=$?
+  # Captured, not piped, so rsync's own exit status is kept; its statistics are printed after.
+  out=''
+  out=$(rsync "${rsync_opts[@]}" "$host:$archive/$d/" "$dest/$d/") || status=$?
+  n=0
+  while IFS= read -r line; do
+    case $line in
+      '') ;;  # <<< gives one empty line when rsync printed nothing
+      "$moved_prefix"*/) ;;  # a directory
+      "$moved_prefix"*)
+        n=$((n + 1))
+        name=${line#"$moved_prefix"}
+        if [[ $d == beast && ( $name == *.beast.pcap || $name == *.torn ) ]]; then moved+=("$dest/$d/$name"); fi
+        ;;
+      *) printf '%s\n' "$line" ;;
+    esac
+  done <<<"$out"
+  echo "==> $n file(s) moved from $d/"
 done
 
 # Only with the writer stopped: a prune between the writer's mkdir and its open would kill it.
@@ -154,4 +185,24 @@ echo "==> pruning emptied directories on the rig"
 ssh_pi "st=\$(systemctl is-active $writer); case \$st in inactive|failed) find '$archive/beast' '$archive/spool' -mindepth 1 -type d -empty -delete 2>/dev/null ;; *) echo \"!!  the writer is \$st: not pruning\" >&2 ;; esac; echo 'files left on the drive:' \$(find '$archive/beast' '$archive/spool' -type f 2>/dev/null | wc -l)" || true
 echo "==> the destination now holds $(find "$dest" -type f | wc -l) files, $(du -sh -- "$dest" | cut -f1), in $dest (everything there, not only this pull)"
 close_window
+
+# 5. Decode what moved; never changes the exit status (the header says why).
+extract_tool=$(dirname "$0")/adsb-extract
+if ((${#moved[@]} == 0)); then
+  echo "==> no archive files were moved: nothing to decode"
+elif ! command -v python3 >/dev/null; then
+  echo "!!  python3 is not installed on this workstation: the ${#moved[@]} moved file(s) were not decoded" >&2
+else
+  echo "==> decoding the ${#moved[@]} archive file(s) this pull moved"
+  decode_rc=0
+  python3 "$extract_tool" --decode "${moved[@]}" || decode_rc=$?
+  if ((decode_rc != 0)); then
+    echo "!!  ################################################################" >&2
+    echo "!!  THE DECODE FOUND A PROBLEM (adsb-extract exit $decode_rc): see the '!! FAILS' lines above." >&2
+    echo "!!  A .torn file is expected after a power cut; a CRC-invalid frame, an empty file, or" >&2
+    echo "!!  frames with no valid DF17/18 is not. The files are moved and safe here; nothing on" >&2
+    echo "!!  the rig is affected." >&2
+    echo "!!  ################################################################" >&2
+  fi
+fi
 exit "$status"

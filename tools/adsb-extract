@@ -16,6 +16,36 @@
 #       counter run (a readsb restart resets the counter). The slope is in ppm
 #       against 12 MHz; the residuals are the wall stamp's scatter about the
 #       fit, in ms, which is the per-file latency check.
+#   adsb-extract --decode FILE [FILE ...]
+#       Per file, whether its content decodes (PLAN §9m, the second of the two
+#       levels a pull is reviewed at; --check is the first): records, BEAST
+#       frames, long (type 0x33) frames, DF17/18 frames, how many of those are
+#       CRC-valid, and the distinct addresses among the valid ones; then the
+#       file's note (complete, or torn: ...). Then one totals line: files,
+#       DF17/18 valid/total, and the distinct addresses across the whole set
+#       (not a per-file sum). Counts only: no address is ever printed.
+#       ⚠️ "addresses", not "ICAO addresses": the count is the AA field of
+#       every CRC-valid DF17/18 frame, and in a DF18 with CF≠0 (TIS-B, ADS-R,
+#       non-ICAO ADS-B) that field is not necessarily an ICAO address.
+#       Exits 1 if any file is unreadable, torn, not a pcap or of another
+#       linktype, holds no records at all, has any CRC-invalid DF17/18 frame or
+#       any malformed frame (under 7 bytes after the type, once unescaped), or
+#       has frames but no CRC-valid DF17/18 one; each failing file says which
+#       ("!! FAILS"), and the rest are still read.
+#       A complete file with records but no frames (events only, or readsb's
+#       all-zero keepalives only) is warned about, not failed: "!! no frames",
+#       with its event kinds and counts, so an outage shows (Chris, 2026-10-10;
+#       ✅ seen: 7 such files on 2026-10-05, written while readsb was
+#       disconnected, and the writer writes a file for every interval it is
+#       up). The totals line counts warned files apart from failing ones.
+#       Exits 0 otherwise. ℹ️ --check still exits 0 whatever it finds, a torn
+#       file included.
+#
+# THE DECODE (the hand recipe used for the pulls of 2026-10-05 to 2026-10-10)
+#   A long frame's 14 data bytes, after unescaping, are a 112-bit Mode S
+#   reply. DF = data[0] >> 3. DF17 and DF18 carry the PI field with the parity
+#   not overlaid by an address, so a CRC-24 (generator 0xFFF409) over all 14
+#   bytes leaves residue 0 when the frame is intact. AA = data[1:4].
 #
 # The file format is described in bin/adsb-writer's header: classic pcap,
 # nanosecond stamps, linktype 147; a payload starting 0x1a is a BEAST frame,
@@ -47,6 +77,9 @@ LINKTYPE_USER0 = 147
 MAX_RECORD = 65535
 ESC = 0x1A
 TICKS_PER_S = 12_000_000
+BEAST_LONG = 0x33
+MODES_LONG_BYTES = 14
+CRC24_GENERATOR = 0xFFF409  # x^24 + x^23 + ... + x^10 + x^3 + 1; the x^24 term is implicit
 NAME_RE = re.compile(r"^(\d{8}T\d{6}Z)(?:\.\d+)?\.beast\.pcap(?:(?:\.\d+)?\.torn)?$")
 
 
@@ -83,6 +116,15 @@ def decode_frame(raw):
     """(type, counter, signal, data) from a raw, escaped BEAST frame."""
     body = raw[2:].replace(b"\x1a\x1a", b"\x1a")
     return raw[1], int.from_bytes(body[0:6], "big"), body[6], body[7:]
+
+
+def is_keepalive(typ, counter, sig, data):
+    """readsb's keepalive, from decode_frame's fields.
+    ✅ Verified on the Pi, 2026-10-04 (a read-only 30 s capture of 30005): 5
+    type-0x31 frames, about one every 6 s, every one all zero (counter
+    000000000000, signal 0, data 0000). That is readsb's keepalive, not a Mode
+    A/C reply; only that exact frame matches."""
+    return typ == 0x31 and counter == 0 and sig == 0 and data == b"\x00\x00"
 
 
 def iso_ns(ns):
@@ -195,13 +237,10 @@ def check(path, out=sys.stdout):
     for ts, p in frames:
         typ, counter, sig, data = decode_frame(p)
         if counter == 0:
-            # ✅ Verified on the Pi, 2026-10-04 (a read-only 30 s capture of
-            # 30005): 5 type-0x31 frames, about one every 6 s, every one all
-            # zero (counter 000000000000, signal 0, data 0000). That is readsb's
-            # keepalive, not a Mode A/C reply, and only that exact frame is
-            # dropped. Any other counter-0 frame is unexpected: it stays out of
-            # the fit too, but is counted and reported, not silently dropped.
-            if typ == 0x31 and sig == 0 and data == b"\x00\x00":
+            # Only readsb's keepalive (is_keepalive) is dropped. Any other
+            # counter-0 frame is unexpected: it stays out of the fit too, but is
+            # counted and reported, not silently dropped.
+            if is_keepalive(typ, counter, sig, data):
                 keepalives += 1
             else:
                 zero_other += 1
@@ -230,6 +269,120 @@ def check(path, out=sys.stdout):
     return len(records), note
 
 
+def _crc24_table():
+    table = []
+    for byte in range(256):
+        crc = byte << 16
+        for _ in range(8):
+            crc = ((crc << 1) ^ CRC24_GENERATOR) if crc & 0x800000 else (crc << 1)
+        table.append(crc & 0xFFFFFF)
+    return table
+
+
+CRC24_TABLE = _crc24_table()
+
+
+def crc24(data):
+    """The Mode S CRC: the remainder of data, MSB first, divided by the
+    generator, initial value 0. Over a whole DF17/18 frame, 0 means intact."""
+    crc = 0
+    for b in data:
+        crc = ((crc << 8) & 0xFFFFFF) ^ CRC24_TABLE[(crc >> 16) ^ b]
+    return crc
+
+
+def decode(path):
+    """(stats, addresses, reasons, warning) for one file. reasons is empty
+    when the file passes; otherwise it says why not, one entry per reason.
+    warning is None, or the no-frames line's text."""
+    records, note = read_pcap(path)
+    st = {"records": len(records), "frames": 0, "long": 0, "df1718": 0, "valid": 0, "note": note}
+    addresses = set()
+    kinds = {}
+    keepalives = 0
+    malformed = 0
+    for _ts, p in records:
+        if p[:1] != b"\x1a":
+            k = p.decode("utf-8", "replace").split(" ", 1)[0]
+            kinds[k] = kinds.get(k, 0) + 1
+            continue
+        st["frames"] += 1
+        # Under the 6-byte counter and the signal byte once unescaped (the
+        # count matches replace()'s left-to-right pairs): damaged, and
+        # decode_frame would index past its end. Counted, never decoded.
+        if len(p) - 2 - p.count(b"\x1a\x1a", 2) < 7:
+            malformed += 1
+            continue
+        typ, counter, sig, data = decode_frame(p)  # unescaped: 0x1a 0x1a is one byte
+        if is_keepalive(typ, counter, sig, data):
+            keepalives += 1  # not a frame received
+        if typ != BEAST_LONG or not data:
+            continue
+        st["long"] += 1
+        if data[0] >> 3 not in (17, 18):
+            continue
+        st["df1718"] += 1
+        # A long frame of any other length is damaged: counted, never valid.
+        if len(data) == MODES_LONG_BYTES and crc24(data) == 0:
+            st["valid"] += 1
+            addresses.add(data[1:4])
+    reasons = []
+    warning = None
+    received = st["frames"] - keepalives
+    if note:
+        reasons.append(note)  # torn: ..., not a pcap file ..., or linktype N, not 147
+    if not records:
+        if not note:
+            reasons.append("no records")
+    elif not received:
+        if not note:
+            parts = ["events: " + (", ".join(f"{k} {v}" for k, v in sorted(kinds.items())) or "none")]
+            if keepalives:
+                parts.append(f"keepalives (all-zero 0x31) {keepalives}")
+            warning = "; ".join(parts)
+    elif not st["valid"]:
+        reasons.append("no CRC-valid DF17/18 frames")
+    # ⚠️ A belief, from the hand reviews of 2026-10-05 to 2026-10-10, where
+    # 100% of DF17/18 frames were CRC-valid: readsb forwards only CRC-checked
+    # frames, so an invalid one here means bytes damaged after readsb, on the
+    # way to or on the disk. Not checked against readsb's source.
+    invalid = st["df1718"] - st["valid"]
+    if invalid:
+        reasons.append(f"{invalid} CRC-invalid DF17/18 frame(s)")
+    if malformed:
+        reasons.append(f"{malformed} malformed frame(s)")
+    return st, addresses, reasons, warning
+
+
+def decode_files(paths, out=sys.stdout):
+    """Prints a line per file and a totals line; returns the exit status."""
+    every = set()
+    df1718 = valid = failed = warned = 0
+    for path in paths:
+        try:
+            st, addresses, reasons, warning = decode(path)
+        except OSError as e:  # unreadable, or gone: this file fails, the rest go on
+            failed += 1
+            print(f"{path}: unreadable\n  !! FAILS: unreadable: {e}", file=out)
+            continue
+        every |= addresses
+        df1718 += st["df1718"]
+        valid += st["valid"]
+        print(f"{path}: {st['records']} records, {st['frames']} BEAST frames, {st['long']} long, "
+              f"DF17/18 {st['valid']}/{st['df1718']} CRC-valid, {len(addresses)} addresses; "
+              f"{st['note'] or 'complete'}", file=out)
+        if reasons:
+            failed += 1
+            print(f"  !! FAILS: {'; '.join(reasons)}", file=out)
+        if warning:
+            warned += 1
+            print(f"  !! no frames: {warning}", file=out)
+    print(f"total: {len(paths)} file(s), {failed} failing, {warned} with no frames; "
+          f"DF17/18 {valid}/{df1718} CRC-valid; "
+          f"{len(every)} distinct addresses across the set", file=out)
+    return 1 if failed else 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="adsb-extract",
                                  description="Stage 1: frames and events around a UTC time, or a per-file check.")
@@ -238,14 +391,21 @@ def main(argv=None):
     ap.add_argument("--window", type=float, default=30.0, help="seconds either side of TIME (default 30)")
     ap.add_argument("--csv", help="write the CSV here instead of stdout")
     ap.add_argument("--beast", help="also write the window's frames here, as a plain BEAST stream")
-    ap.add_argument("--check", nargs="+", metavar="FILE", help="check these files instead")
+    per_file = ap.add_mutually_exclusive_group()
+    per_file.add_argument("--check", nargs="+", metavar="FILE", help="check these files instead")
+    per_file.add_argument("--decode", nargs="+", metavar="FILE",
+                          help="decode these files' DF17/18 frames instead; exits 1 if any fails")
     a = ap.parse_args(argv)
+    if (a.check or a.decode) and (a.dir or a.time):
+        ap.error("--check and --decode take files only, not DIR TIME")
+    if a.decode:
+        return decode_files(a.decode, sys.stdout)
     if a.check:
         for path in a.check:
             check(path)
         return 0
     if not a.dir or not a.time:
-        ap.error("give DIR and TIME, or --check FILE")
+        ap.error("give DIR and TIME, or --check FILE, or --decode FILE")
     try:
         t_ns = parse_utc(a.time)
     except ValueError as e:
