@@ -21,6 +21,9 @@
 #     debian/readsb.default at the pin: identical to upstream's apart from the
 #     rendered header comment (the bodies were diffed against the Pi's files
 #     and the pin's debian/ copies on 2026-10-04). `--device 0`, as ran.
+#     ⚠️ Since 2026-10-10 /etc/default/readsb differs from upstream's in
+#     NET_OPTIONS too: readsb's sockets bind to loopback, and its input
+#     listeners are off (Chris, 2026-10-10). Why, in render_readsb.
 #   - A drop-in, /etc/systemd/system/readsb.service.d/adsb-receiver.conf: ours,
 #     not upstream's. systemd's exponential restart backoff: a rig with no
 #     stick backs off from every 15 s toward one attempt every 2 minutes
@@ -112,6 +115,8 @@ BUILD_PKGS=(git ca-certificates gcc make libc6-dev pkg-config libusb-1.0-0-dev
 # unzip appear only in a fallback for a failed git clone (line 112), which it
 # does not install.
 WEB_PKGS=(lighttpd curl jq python3)
+# iproute2: the verify reads readsb's listeners with its `ss` (2026-10-10).
+VERIFY_PKGS=(iproute2)
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
@@ -328,15 +333,45 @@ EOF
   # 📋 Not yet from station.yml: `--device 0` is what ran. Selecting the stick
   #    by its EEPROM serial (dongles.adsb, RADIOS.md §5 rule 2) and, on the
   #    stationary rig, --lat/--lon from position: are follow-ups.
+  # ⛔ NET_OPTIONS: loopback only, and no input listeners (Chris, 2026-10-10).
+  #    Until then this was upstream's line: raw input on 30001 and BEAST input
+  #    on 30004 and 30104, with every listener on all addresses, IPv4 and IPv6
+  #    (seen with `ss -ltn` on the portable, 2026-10-10). Anyone on the same
+  #    network could send readsb frames, and readsb's source at the pin
+  #    forwards network-input frames to the BEAST output like the stick's own
+  #    (net_io.c, outputMessage(): no check of a message's remote flag before
+  #    beast_out). Read in the source, not seen on a rig. The archive writer
+  #    records that BEAST output, so such frames would land in the archive.
+  #    Nothing off the rig needs these sockets: the writer and update.sh's
+  #    readiness probe connect to 127.0.0.1:30005, and tar1090 reads
+  #    /run/readsb from disk. ℹ️ A future feeder or mlat client on the rig
+  #    pushes into readsb's input ports on loopback, so a feeder step would
+  #    reopen one input port, bound to 127.0.0.1; nothing is reopened now.
+  #    - --net-bind-address 127.0.0.1: every listener binds to it. readsb
+  #      resolves it with getaddrinfo(AF_UNSPEC) (anet.c, anetTcpServer()),
+  #      which gives an IPv4 address only, so no [::] listener is expected;
+  #      read in the source, not seen. The verify reads `ss` either way.
+  #    - --net-ri-port and --net-bi-port are removed, not set to 0: their
+  #      default at the pin is "0" (readsb.c), and "0" opens nothing
+  #      (net_io.c, serviceListen()); read in readsb's source at the pin, not
+  #      seen. The verify checks that those ports are closed.
+  #    - 30002 (raw out) and 30003 (SBS out) stay, on loopback. Nothing in
+  #      this repo reads them (2026-10-10); removing them is not ruled.
+  #    ⚠️ Reasoned from this step's code, not yet seen on a rig: a rig with the
+  #    old file gets this one on its next run. install_if_changed's `cmp`
+  #    finds the rendered file different and installs it, and
+  #    readsb_restart_reason's mtime check finds the file newer than the
+  #    running readsb and restarts it. ✅ once the portable re-runs the step.
   cat >"$WORK/readsb.default" <<'EOF'
 # Rendered by setup/steps/10-decoder.sh. Do not edit; a hand edit is reverted
 # on the next run. Change the step instead.
 # Read by readsb.service as EnvironmentFile=. The values are the ones the
-# portable rig ran on 2026-10-03.
+# portable rig ran on 2026-10-03, apart from NET_OPTIONS: since 2026-10-10
+# readsb listens on loopback only, with no input ports. Why, in the step.
 
 RECEIVER_OPTIONS="--device 0 --device-type rtlsdr --gain auto --ppm 0"
 DECODER_OPTIONS="--max-range 450 --write-json-every 1"
-NET_OPTIONS="--net --net-ri-port 30001 --net-ro-port 30002 --net-sbs-port 30003 --net-bi-port 30004,30104 --net-bo-port 30005"
+NET_OPTIONS="--net --net-bind-address 127.0.0.1 --net-ro-port 30002 --net-sbs-port 30003 --net-bo-port 30005"
 JSON_OPTIONS="--json-location-accuracy 2 --range-outline-hours 24"
 EOF
 }
@@ -509,7 +544,7 @@ install_tar1090() {
 
 install_step() {
   refuse_apt_readsb
-  apt_ensure "${BUILD_PKGS[@]}" "${WEB_PKGS[@]}"
+  apt_ensure "${BUILD_PKGS[@]}" "${WEB_PKGS[@]}" "${VERIFY_PKGS[@]}"
   ensure_readsb_user
   build_readsb
   install_readsb_service
@@ -771,6 +806,70 @@ verify() {
 
   # Printed, not judged: an empty sky is not a broken install.
   log "aircraft.json messages: $(json_field "$ac" messages), aircraft: $(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1])).get("aircraft", [])))' "$ac" 2>/dev/null || echo '?') (raw, not judged)"
+
+  # readsb's sockets (render_readsb, ruled 2026-10-10): every listener on its
+  # ports binds to loopback, the input ports are closed, and 127.0.0.1:30005,
+  # the BEAST output the archive writer and update.sh's probe connect to, is
+  # listening and sends data. Read from `ss`, after the streaming checks, so
+  # readsb has been up for some seconds. Judged on the port set, not the owner:
+  # whatever holds one of these ports beyond loopback is the exposure, whether
+  # or not it is readsb.
+  local ss_out laddr addr port seen='' offlo='' inputs='' bo_v4=0 bo_else='' bo_rc bo_fd
+  ss_out=$(ss -ltnH 2>&1) || die "ss -ltnH failed: $ss_out"
+  while read -r _ _ _ laddr _; do
+    [[ -n $laddr ]] || continue
+    port=${laddr##*:}
+    case $port in 30001|30002|30003|30004|30005|30104) ;; *) continue ;; esac
+    seen+="$laddr "
+    # 127.0.0.1:30005, [::1]:30005, 0.0.0.0:30005, [::]:30005, *:30005; an
+    # address may carry a %interface suffix, outside the brackets
+    # ([::1]%lo:30005) or inside them. The suffix goes first, then the
+    # brackets. Fail-closed: any form that does not reduce to exactly
+    # 127.0.0.1 or ::1 counts as beyond loopback.
+    addr=${laddr%:*}
+    addr=${addr%%\%*}
+    addr=${addr#\[}
+    addr=${addr%\]}
+    if [[ $addr != 127.0.0.1 && $addr != ::1 ]]; then
+      offlo+="$laddr "
+    fi
+    if [[ $port == 30005 ]]; then
+      if [[ $addr == 127.0.0.1 ]]; then bo_v4=1; else bo_else+="$laddr "; fi
+    fi
+    case $port in
+      30001|30004|30104) inputs+="$laddr " ;;
+    esac
+  done <<<"$ss_out"
+  log "ss -ltnH, listeners on readsb's ports 30001-30005 and 30104 (raw): ${seen:-(none)}"
+  [[ -z $offlo ]] \
+    || die "listening beyond loopback on readsb's ports: ${offlo% }. /etc/default/readsb binds readsb to 127.0.0.1; run this step without --verify, which rewrites it and restarts readsb. If it is already current, another program holds the port: check: ss -ltnp"
+  [[ -z $inputs ]] \
+    || die "readsb's input ports are open: ${inputs% }. /etc/default/readsb opens none; run this step without --verify, which rewrites it and restarts readsb. If it is already current, check: ss -ltnp"
+  if ((bo_v4 == 0)); then
+    if [[ -n $bo_else ]]; then
+      die "port 30005, readsb's BEAST output, listens only on ${bo_else% }, not on 127.0.0.1, which the archive writer and update.sh connect to; check: /etc/default/readsb's NET_OPTIONS, and systemctl status readsb"
+    fi
+    die "nothing listens on port 30005 at all, readsb's BEAST output, which the archive writer and update.sh connect to on 127.0.0.1; check: systemctl status readsb, and /etc/default/readsb's NET_OPTIONS"
+  fi
+  # The effect, as update.sh's readiness probe sees it (a connect to
+  # 127.0.0.1:30005), plus one byte read: readsb sends a BEAST keepalive about
+  # every 6 s with an empty sky (bin/adsb-writer), so 10 s is enough. Exit 2:
+  # the connect failed; 3: the connection closed before a byte; 124: no byte
+  # within 10 s. The connect is this shell's own, closed right after the read;
+  # the read is `head`, timeout's direct child, so a timeout kills the process
+  # reading the socket and leaves no client connected to readsb.
+  bo_rc=0
+  if { exec {bo_fd}<>/dev/tcp/127.0.0.1/30005; } 2>/dev/null; then
+    timeout 10 head -c 1 <&"$bo_fd" >"$WORK/bo.byte" 2>/dev/null || bo_rc=$?
+    exec {bo_fd}>&-
+    if ((bo_rc == 0)) && [[ ! -s $WORK/bo.byte ]]; then bo_rc=3; fi
+  else
+    bo_rc=2
+  fi
+  log "connect to 127.0.0.1:30005 and read one byte: exit $bo_rc (0 a byte came; 2 no connect; 3 closed with nothing; 124 nothing in 10 s)"
+  ((bo_rc == 0)) \
+    || die "127.0.0.1:30005, readsb's BEAST output, did not send a byte within 10 s of a connect (exit $bo_rc); check: systemctl status readsb"
+  pass "on readsb's ports, nothing listens beyond loopback and no input port is open; 127.0.0.1:30005 accepted a connect and sent a byte within 10 s"
 
   # tar1090: the pinned version is installed, its page is served, and its data
   # path serves readsb's current aircraft.json.
