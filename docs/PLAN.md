@@ -2707,6 +2707,12 @@ multiple-choice question.**
     comment says the same (✅ read in `config/station.stationary.example.yml`: *"THERE IS
     DELIBERATELY NO `uploader:` BLOCK HERE"*).
   - The uploader's language is still not chosen.
+- *Update 2026-10-10 (afternoon): where the receiving end puts the bytes is still undecided, but
+  the store's layout, ruled that afternoon, binds it. Under the mirror rule it must write the same
+  `<host>/<path as on the rig's drive>` layout into the same store as the pull, or there are two
+  stores. The database's later move to the private service's hosting needs the same. See
+  [§9m](#9m--the-portable-rigs-archive-drive), "Update 2026-10-10 (afternoon): where the collected
+  data lives, ruled".*
 
 ### 9j. ✅ Verified on hardware, 2026-10-03
 
@@ -3580,11 +3586,123 @@ architecture consultation's interim of the same day.
     874,652 bytes, equal to its size on the workstation (the store's API search, and `stat`).
   - ⚠️ **Not checked:** the hashes of every file in the store; how the sync client behaves on a
     pull of several GB.
-- 📋 **Still open, for where the collected data lives:**
+- ~~📋 **Still open, for where the collected data lives:**~~ *Ruled 2026-10-10 (afternoon), both
+  items, and issue #29 closes with them; see "Update 2026-10-10 (afternoon): where the collected
+  data lives, ruled", next.*
   - a database: whether, of what (raw files, decoded rows, an index for photo correlation), and
     where it runs. **(Chris), 2026-10-09:** *"we need to put the collected data into a database
     and/or file location"*;
-  - the store's folder layout, which is provisional.
+    *Ruled 2026-10-10 (afternoon): ClickHouse, on the workstation, derived from the store and
+    rebuildable from it (A, next).*
+  - the store's folder layout, ~~which is provisional~~.
+    *Ruled 2026-10-10 (afternoon): the mirror rule, which is the layout the store already holds
+    (B, next).*
+
+**Update 2026-10-10 (afternoon): where the collected data lives, ruled. (Chris), 2026-10-10, about
+15:15 to 15:40, by multiple-choice question,** each question put after an architecture
+consultation. It rules the two items left open above, and closes issue #29.
+
+- **B, the store's layout. Ruled: *"Ratify the mirror rule."***
+  - **The rule:** `<store>/<rig hostname>/<path exactly as on the rig's drive>`. It is keyed by
+    date, and each source keeps the subtree the rig writes it in.
+  - The pull and the future uploader share this one rule. The 🏠 stationary, and later audio,
+    ACARS and VDL2, land under their own host folder, with no new decision about the store.
+  - ⛔ This repo may name the rule and the subtree. It never names the store.
+  - ✅ **It is the layout the store holds today,** seen by Claude at about 15:10 in a listing of
+    the store: the 🎒 portable's folder, `mobile-adsb`, holds `beast/YYYY-MM-DD/<UTC>.beast.pcap`
+    and an empty `spool/`, with 126 `.beast.pcap` files and 1 `.torn`. It came from
+    `tools/pull-archive <ssh-target> <dest>`, with `<dest>` set to the store's folder for that host.
+    ✅ Read in the script: the pull moves the drive's `beast/` and `spool/` to `<dest>/beast/` and
+    `<dest>/spool/` (step 2 of its header, and its loop over the two).
+  - ⚠️ **`spool/` is pulled on purpose, and the rule carries it as it is.** The spool is on the
+    drive so that the pull takes it: "Rejected: the spool on the SD card", above, which is "a
+    second place to pull from", among the drive's rejections and again under "Mounted at the §9i
+    interface path". The ingest (A, below) ignores it.
+  - Rejected, as put to Chris:
+    - **Keyed by session or shoot.** The rig does not know the shoot, so the pull would have to
+      rename files, which breaks the extractor's find by name range (rule (d) in "The writer's
+      rulings (a) to (g)", below).
+    - **Source first, `<store>/beast/<host>/`.** The store's tree diverges from the rig's, and
+      every new source needs a rewrite rule.
+    - **Flat, one folder per host.** About 52,000 files a year in one folder, on a sync client.
+- **A, the database. Ruled: ClickHouse, in one Docker container on the workstation; derived from
+  the store, and rebuildable from it.**
+  - **Chris's first answer,** in free text, to a question offering (1) no database now, (2) a
+    derived index per file, (3) decoded rows in a database, and (4) a database in the private
+    service's hosting: *"3 (in local docker) with a path to 4 when ready. I am fine with 1 but I
+    would want a NoSQL setup like sol. The number of files is going to make this interesting really
+    quickly when multiple stations are collecting data (not just ADS-B data)."* The consultation had
+    recommended (1); his answer overrode it.
+  - Two follow-up questions settled what that left open: "sol" means Solr-like, with the architect
+    to choose the engine; and when and how are for the architect to propose. The architect was
+    consulted again, and then four questions were ruled.
+  - **1. The engine: ClickHouse, in one Docker container on the workstation.**
+    - ℹ️ ClickHouse is SQL, not the NoSQL Chris first named. He chose it knowing that.
+    - The consultation's case, recorded as its reasoning and not verified: Chris's stated reason is
+      volume across stations and sources, which is a columnar time-series problem, not a search
+      problem.
+    - Rejected, as put: **OpenSearch,** the Solr-like choice. It takes 3 to 10 times the disk for
+      numeric rows, and a JVM heap of about 2 GB at rest. ➡️ Held for the day text, ATC transcripts
+      and ACARS, is what gets searched.
+    - Rejected, as put: **TimescaleDB.** A row store, at roughly 13 million rows a day for a busy
+      station, costs several times the disk.
+    - Rejected, as put: **Solr.** The same index cost as OpenSearch, with weaker tooling.
+    - ⚠️ The figures in these rejections are the consultation's, not measured here.
+  - **2. The rows first: the `files` catalog, `events` and `adsb_frames`, now.**
+    - `files`: the path relative to the store, station, source, size, sha256, first and last time,
+      record and frame counts, complete or torn, and `ingested_at`.
+    - `adsb_frames`: DF, address, CRC, signal, counter, and the raw bytes.
+    - These are buildable from what `--decode` already parses. ✅ Read in `decode()` in
+      `tools/adsb-extract`: it reads each record's stamp, tells events from frames, takes each
+      frame's type, counter, signal and bytes, reads the DF and the address field, checks the CRC,
+      and notes a torn file.
+    - **`adsb_positions` comes when stage 2, frames to positions, is written** (R-ext, below).
+      Stage 2 is written once, and the same library serves both the extractor's samples for the
+      private service and the positions ingest. Two decoders would be two truths.
+    - Every row carries station, source, UTC time, the file's path relative to the store, and a
+      byte offset back into its file.
+    - Rejected, as put: **positions now,** which pulls stage 2 forward and delays issue #30, the
+      interface; and **every table at once,** which blocks on sources the 🏠 stationary does not
+      have yet.
+  - **3. When: split around issue #30.**
+    - **Step A,** the compose file, `files`, `events` and `adsb_frames`, is built beside #30, as
+      the workstation half of the interface. The viewer gains the archive's timeline: coverage,
+      gaps and torn files, per station per day.
+    - **Step B,** positions, comes after the field session and before the 🏠 stationary design
+      (issue #33).
+    - No rig code is touched, and nothing in the 🎒 portable's order is displaced.
+    - Rejected, as put: all of it after the 🎒 portable is complete; or all of it now, before #30.
+  - **4. The code's home: a private repository, not this public one,** chosen by Chris on
+    2026-10-10, at about 15:45, by question. It is not named here, because this repository is
+    public.
+    - Rejected, as put: this repo, with the store's path held in a gitignored `.env`. No reason
+      beyond the choice itself is on record here.
+  - **The standing rules the ruling carries,** from the consultation's design, inside the options
+    chosen:
+    - The store is the truth. The database is derived and rebuildable: a schema change drops the
+      tables and re-ingests from the store.
+    - Nothing is written to the database that is not in a file.
+    - Ingest is per file, and idempotent by path plus sha256.
+    - No absolute or workstation path appears in any row.
+    - ⛔ The database is never inside the synced folder, because a sync client and a live database
+      corrupt each other.
+    - ⛔ It never joins with any other database on the workstation.
+    - The private service's pairing does not read the database; samples still travel by its track
+      route.
+    - The ingest prints counts only, never an address or a position, as `--decode` does (✅ read in
+      its header in `tools/adsb-extract`: *"Counts only: no address is ever printed."*). The
+      receiver's own position is data, never schema or a default.
+  - **The path to the private service's hosting ("4 when ready"):** migration is a re-ingest from
+    the store, in the same layout, never a dump and restore. It needs a hosted process with a disk
+    and a credential, and the uploader's receiving end landing files in the same
+    `<host>/<rig path>` layout.
+    - ℹ️ The architect's reading, not checked here: the private service's earlier refusal of
+      storing the archive as blobs was about the raw archive, so a hosted, rebuildable derived
+      store does not contradict it. That refusal is not among this repo's records.
+- ⚠️ **A consequence, not a ruling: where the uploader's receiving end puts the bytes is still
+  undecided.** Under B it must write the same layout into the same store, or there are two stores
+  ([§9i](#9i-what-is-not-chosen-yet-the-writer-the-extractor-the-uploader), "Update 2026-10-10:
+  both rigs get an automatic uploader").
 
 **The pull window. (Chris), 2026-10-04: the pull ends the recording session.** *Narrowed
 2026-10-05, by the ruling of 2026-10-04 (night) at the end of [§9f](#9f-what-updatesh-does): a
@@ -3877,6 +3995,10 @@ this repo.
 it gives per-frame times, as CSV, and a slice of plain BEAST. The default window is t ± 30 s, so the
 CPR even and odd pairs survive. Stage 2, frames to positions, is deferred, and does not block
 recording.
+*Update 2026-10-10 (afternoon): still deferred. When it is written, it is written once: the same
+library serves the extractor's samples for the private service and the database's positions ingest,
+whose `adsb_positions` rows wait on it. See "Update 2026-10-10 (afternoon): where the collected data
+lives, ruled", above.*
 
 **The writer's rulings (a) to (g). (Chris), 2026-10-04,** accepted as a set:
 

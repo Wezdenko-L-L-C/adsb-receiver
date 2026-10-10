@@ -22,10 +22,10 @@ added 2026-10-10, once Chris had approved the list of issues.
    ([§9b](PLAN.md#9b-one-bash-script-per-build-step)).
    **Done when:** every comment PLAN.md names as still owed in code is corrected, among them
    `setup/steps/10-decoder.sh:98–101` and `tools/pull-archive:45`. (#27)
-2. **The unexplained unclean reset of 2026-10-10, about 11:50.**
-   **Hands:** Claude reads the rig; Chris's hands on the hardware.
-   **Done when:** the cause is seen, or a second occurrence's evidence is recorded.
-   [§9f](PLAN.md#9f-what-updatesh-does), "✅ A third boot". (#28)
+2. ~~**The unexplained unclean reset of 2026-10-10, about 11:50.**~~
+   *Moved 2026-10-10 to [Watched](#watched-acted-on-only-when-it-recurs) by Chris's ruling: it
+   waits for an event, so it is not a step in the order. The number is kept so the issues' item
+   numbers still hold.* (#28)
 3. **Where the collected data lives** ("step 6b" in the 2026-10-10 rulings; not BUILD.md §6b). The
    interim pull into the synced folder is the procedure; its trial passed on 2026-10-10. Still open:
    the database question, and the store's layout.
@@ -33,11 +33,21 @@ added 2026-10-10, once Chris had approved the list of issues.
    **Done when:** both open questions are ruled and recorded.
    [§9m](PLAN.md#9m--the-portable-rigs-archive-drive), "Update 2026-10-10: the pull into a synced
    folder". (#29)
+   *Done 2026-10-10: both ruled and recorded, in §9m's "Update 2026-10-10 (afternoon): where the
+   collected data lives, ruled". The database they rule is built in two steps, placed below (4a,
+   6a); their code and issues live in a private repository.*
 4. **The interface:** the field display, with the rig's position and the time for the camera shot;
    a viewer; ATC playback. `readsb`'s GPS receiver position is designed with it: one position
    source, and one ruling on where the position may appear.
    **Hands:** not yet named. **Done when:** not yet stated.
    [§8](PLAN.md#8-sequencing); the proposal in [PLAN.md](PLAN.md) §5. (#30)
+
+   4a. **Database step A, beside the interface:** the catalog, the events and the frame index,
+   in local Docker on the workstation; the interface's archive timeline reads it. *Placed
+   2026-10-10 by Chris's ruling.*
+   **Hands:** not yet named. **Done when:** stated in its issue (in a private repository).
+   [§9m](PLAN.md#9m--the-portable-rigs-archive-drive), "Update 2026-10-10 (afternoon): where the
+   collected data lives, ruled", A.3.
 5. **The 🎒 pre-field checklist.**
    **Hands:** not yet named. **Done when:** every box in it is checked.
    [§9m](PLAN.md#9m--the-portable-rigs-archive-drive), "The pre-field checklist". (#31)
@@ -47,6 +57,13 @@ added 2026-10-10, once Chris had approved the list of issues.
    [§8](PLAN.md#8-sequencing). (no issue of its own: #11 is closed on Chris's word; the checklist's field items are in #31)
 
 ➡️ **The portable is completed.**
+
+   6a. **Database step B: positions,** after the field session and before the 🏠 stationary
+   design (item 8). Frames to positions is written once, for this and for the extractor.
+   *Placed 2026-10-10 by Chris's ruling.*
+   **Hands:** not yet named. **Done when:** stated in its issue (in a private repository).
+   [§9m](PLAN.md#9m--the-portable-rigs-archive-drive), "Update 2026-10-10 (afternoon): where the
+   collected data lives, ruled", A.3.
 
 ## Between the two: not placed by a ruling
 
@@ -82,6 +99,18 @@ added 2026-10-10, once Chris had approved the list of issues.
   second radio only after all of the above is boring."
   **Hands:** not yet named. **Done when:** not yet stated. [§8](PLAN.md#8-sequencing).
   (#12, #21)
+
+## Watched: acted on only when it recurs
+
+*Ruled 2026-10-10 (Chris, by question).*
+
+- **The unexplained unclean reset of 2026-10-10, about 11:50.** The evidence keeps itself: the
+  🎒 portable's journal is persistent, and a torn `.part` is kept as `.torn`. ⚠️ Nothing alerts:
+  a recurrence is seen at a pull (a `.torn` file, which a field session's power-off also leaves)
+  or in `journalctl --list-boots`.
+  **Hands:** Claude reads the rig; Chris's hands on the hardware.
+  **Done when:** the cause is seen, or a second occurrence's evidence is recorded.
+  [§9f](PLAN.md#9f-what-updatesh-does), "✅ A third boot". (#28)
 
 ## Parked
 
