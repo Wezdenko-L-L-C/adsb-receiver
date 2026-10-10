@@ -3239,15 +3239,19 @@ both are required:
   and resolve to ICAO addresses whose count is consistent with what `readsb` tracked at the time.
 - ➡️ (1) does not show (2). `--check` reads the pcap records and fits the BEAST counter; it does not
   parse the Mode S message inside a frame (`check()` in `tools/adsb-extract`, read 2026-10-05).
-- **(2) is not yet a tool.** On 2026-10-05 it was done by hand on the workstation: a 60 s window
+- ~~**(2) is not yet a tool.**~~ *Corrected 2026-10-10: it is, in `2ace345`; see "Update
+  2026-10-10: the tool half is built" below.* On 2026-10-05 it was done by hand on the workstation: a 60 s window
   extracted with `tools/adsb-extract DIR TIME --window 30 --beast`, then a Python parse of about 40
   lines over that BEAST stream, which is not in the tree: the frame framing with its `0x1a` escapes,
   a histogram of downlink formats, the Mode S CRC with polynomial `0xFFF409`, and the ICAO address
   from bytes 1 to 3 of each DF17 or DF18 frame.
-- 📋 **The tool half is owed:** a `--decode` mode in `tools/adsb-extract`, or a check in
+- ~~📋 **The tool half is owed:**~~ *Corrected 2026-10-10: built, in `2ace345`; see "Update
+  2026-10-10: the tool half is built" below.* a `--decode` mode in `tools/adsb-extract`, or a check in
   `tools/pull-archive` after the move, that reports the CRC-valid DF17 and DF18 frames and the
-  distinct ICAO addresses per file, so that every pull ends with a decode verdict. Not yet designed
-  in detail; which of the two homes is not ruled.
+  distinct ICAO addresses per file, so that every pull ends with a decode verdict. ~~Not yet designed
+  in detail; which of the two homes is not ruled.~~ *Corrected 2026-10-10: it was built in both
+  homes. `--decode` is the mode in `tools/adsb-extract`, and `tools/pull-archive` runs it after the
+  move.*
 
 ✅ **Seen 2026-10-05, by the coordinating session on the workstation,** on the six files pulled from
 `mobile-adsb` at 20:21 Arizona time, recorded with the RTL-SDR Blog V3 stick: 2026-10-06 UTC, 02:36Z
@@ -3262,6 +3266,60 @@ to 03:21Z. This is the pull whose journal lines are under the pull window below.
   downlink format: DF0 1,820; DF4 36; DF5 1; DF11 440; DF16 22; DF17 1,203. All 1,203 DF17 frames
   passed the CRC, and none failed. They resolved to 12 distinct ICAO addresses, the busiest with 249
   frames in the minute; `readsb` was tracking 13 to 17 aircraft in that period.
+
+**Update 2026-10-10: the tool half is built, in `2ace345`,** on `main`, committed at 11:58:37
+Arizona time and pushed in the same command, so at about 11:59. CI (`ci`) passed on it, and `stable`
+advanced to `2ace345`. The mechanism below is from
+`tools/adsb-extract`, `tools/pull-archive` and `tests/test_adsb_extract.py`, as read 2026-10-10.
+
+- **`tools/adsb-extract --decode FILE [FILE ...]`** (`decode()` and `decode_files()`). For each
+  file it prints the records, the BEAST frames, the long (type `0x33`) frames, the DF17/18 frames, how
+  many of those are CRC-valid, and the distinct addresses among the valid ones, then `complete` or
+  the file's torn note. Then one totals line: the files, the failing and the no-frames counts, DF17/18
+  valid out of total, and the distinct addresses across the whole set, which is not a per-file sum.
+  It prints counts only, never an address.
+  - The decode is the 2026-10-05 hand recipe above. A long frame's 14 data bytes, once unescaped,
+    are the Mode S reply. DF is the top five bits of the first byte. For a DF17 or DF18, a CRC-24
+    with generator `0xFFF409` (`crc24()`) over all 14 bytes leaves 0 when the frame is intact, and
+    the address is bytes 1 to 3. A DF17/18 long frame of any other length counts as CRC-invalid.
+  - It counts "addresses", not "ICAO addresses": in a DF18 with CF≠0, the address field is not
+    necessarily an ICAO address. ➡️ The tool does not compare its count with what `readsb` tracked
+    at the time, which (2) above asks for.
+  - It exits 1 when any file is unreadable, torn, not a pcap or of another linktype, holds no
+    records, has a CRC-invalid DF17/18 frame or a malformed frame (under 7 bytes after the type,
+    once unescaped), or has frames but no CRC-valid DF17/18 one. Each failing file prints a
+    `!! FAILS` line with its reasons, and the rest of the files are still read. Otherwise it exits 0.
+  - **(Chris), 2026-10-10, about 11:52, by multiple-choice question:** a complete file with records
+    but no frames except `readsb`'s all-zero keepalives (`is_keepalive()`) is warned, not failed.
+    That covers a file of events only, such as an interval with `readsb` disconnected. It prints
+    `!! no frames` with its event kinds and counts, and exits 0. Rejected: failing it, as first
+    built, which would make every outage or quiet interval fail the pull's decode. The question came
+    up because, on the real archive, the first build failed 7 complete files of 2026-10-05
+    (03:05:44Z to 04:00:00Z), written while `readsb` was disconnected. ✅ Seen by Claude, running the
+    tool. The same question's option text set the other rule: frames present but none CRC-valid
+    fails, so a file of short frames only fails. ⚠️ The code review raised that a quiet site could
+    trip that rule. It is left as ruled.
+  - Tests: the known-answer test gives the published DF17 `8D4840D6202CC371C32CE0576098` a CRC of
+    0, and a one-bit flip a nonzero CRC. An unreadable, a torn, an empty, a CRC-invalid, a malformed
+    and a short-frames-only file each have a test that they fail, and the no-frames warning has one
+    too. No test gives `--decode` a non-pcap file or another linktype. 130 tests pass.
+  - Reviewed: `/code-review` at medium, with four fixes applied; `/security-review`, with no
+    findings.
+- **`tools/pull-archive`, step 5 of its header.** It decodes after the window is closed, so the
+  decode adds nothing to the recording gap. It runs `--decode` over exactly the `beast/` files that
+  rsync named as transferred (its `--out-format` lines), where they now sit on the workstation. It
+  never decodes the whole destination, and it does not decode `spool/`. With no `python3`, or nothing
+  moved, it says so and skips. When `--decode` exits non-zero, it prints a loud banner; the pull's exit
+  status stays rsync's. A no-frames file raises no banner, because `--decode` exits 0 on it.
+  - ⚠️ On a rerun after a pull that died part-way, rsync may find a file already identical at the
+    destination. That file is deleted from the rig without being named, so it is not decoded.
+  - 📋 Not yet seen on a real pull: no pull has run with step 5.
+
+✅ **Seen 2026-10-10, by Claude on the workstation, read-only,** with `--decode` on the
+workstation's pulled archive: 106 files, exit 0, 0 failing, 7 with no frames. DF17/18 was
+1,134,485/1,134,485 CRC-valid, with 1,205 distinct addresses across the set. On the 27 files of the
+2026-10-10 hand review it reproduces 287,930/287,930 CRC-valid and 474 distinct addresses across
+those files; the per-file counts sum to 835.
 
 **The pull window. (Chris), 2026-10-04: the pull ends the recording session.** *Narrowed
 2026-10-05, by the ruling of 2026-10-04 (night) at the end of [§9f](#9f-what-updatesh-does): a
