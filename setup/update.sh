@@ -14,6 +14,8 @@
 #   adsb-update --retry              timer mode, but retry a candidate that failed within 24 h
 #   adsb-update --rev <sha>          by hand: apply one commit from a pushed branch (a Pi test
 #                                    before it reaches main); the channel returns at the next run
+#   adsb-update --check              is an update pending? Run by the home-gated opener
+#                                    (bin/adsb-home-update); prints one line, writes nothing
 #   update.sh --bootstrap --role portable|stationary [--set key.path=value]... [--config FILE]
 #             [--no-format]          the first build, run by setup/bootstrap.sh from the worktree
 #                                    of the commit it builds: that commit is the candidate
@@ -88,7 +90,43 @@
 # on this rig, and a damaged `applied`; 2 rolled back; 3 incomplete (first build); 4 not ready (the
 # stationary gate held the update back); 64 bad usage; 128+N (143 SIGTERM, 130 SIGINT, 129 SIGHUP)
 # when a signal arrived before anything changed (nothing recorded then), or during a first build
-# (recorded as incomplete).
+# (recorded as incomplete). --check has its own, below.
+#
+# --check (PLAN §9f's 2026-10-04 (night) update; §9e's 2026-10-05 (a)): no lock, and nothing
+# written: no status.json, no log directory, nothing under /var/lib, no apt heal. It reads
+# station.yml, status.json and `applied` (a dangling `applied` is read through applied-rev, as a
+# run would recover it, but nothing is recreated), fetches, and runs the same resolver a timer run
+# does, then the same 24 h backoff. So "pending" means a timer-mode run in a window would try a
+# candidate. ⚠️ The backoff is the implementer's reading of "pending", not ruled: without it, a
+# window opened inside the backoff would run nothing (rejected option C's gap "for nothing").
+# One line on stdout, "pending: ..." or "not pending: ..."; everything else on stderr.
+#   - An incomplete first build (status.json: result incomplete, candidate_rev) is always pending,
+#     with no fetch, since the pin does not move. Its line is §9e's (a) reason line, from
+#     status.json's result, candidate_rev, failed_steps and finished_at only.
+#   - The 🏠 stationary's gate is not evaluated (it runs the preflights; --check answers the 🎒
+#     portable opener's question).
+#   - Where a timer run would itself fail before any step (no build on the rig; `applied`
+#     dangling with applied-rev unusable, where the run would record failed; the pinned commit
+#     missing from the clone; no clone; no origin/stable; station.yml unreadable), --check says so
+#     on stdout, "not pending: a timer run here would fail too, before any step: <why>", and exits
+#     13: the rig needs a hand, and a window would change nothing.
+#   - A signal ends it at once, with 128+N, its fetch killed: it has written nothing, so there is
+#     nothing to clean up. (Its fetch runs in the background so that `wait` can be interrupted;
+#     that `timeout` passes the signal on to git is GNU timeout's documented behavior, not seen.)
+# Exit codes: 0 pending; 10 not pending (the channel is unchanged, or its tip is under the soak);
+# 11 not pending (the candidate failed within 24 h: the backoff); 12 not pending (the fetch
+# failed); 13 not pending, a timer run would fail (above); 1 could not tell (not root, a tool
+# missing), with an "xx  FAIL:" line on stderr; 64 bad usage; 128+N after a signal.
+#
+# status.json's trigger and opened_by (the same update), read once, when the run takes the lock:
+#   - adsb-pull-window.service active, activating or deactivating: trigger window, and opened_by
+#     adsb-home-update if the opener's marker (/run/adsb-home-update/window-opened-by) exists AND
+#     adsb-home-update.service is activating (the opener is running), else hand (a window started
+#     by hand, by tools/pull-archive, or by setup/bootstrap.sh's (b)). A marker left behind with no
+#     opener running is ignored, so it cannot mislabel a later window;
+#   - no window: both null. `mode` already says timer, rev or bootstrap, and a timer-mode run
+#     cannot tell the timer from `adsb-update` typed by hand, so "timer" there would be a guess.
+#     The implementer's choice, not ruled.
 # A timer run that finds the lock held prints one line holding ADSB-UPDATE-SKIPPED (under systemd
 # it starts with a <N> priority prefix, which the journal turns into the line's priority: warning
 # when the pull window is open, where the writer should have stopped first, PLAN §9m). A by-hand
@@ -113,9 +151,13 @@ readonly KEEP_RUNS=20
 readonly RUN_DIR=/run/adsb-receiver
 readonly LOCK=$RUN_DIR/recording.lock
 readonly REBOOT_FLAG=$RUN_DIR/reboot-required
+# The opener's root-owned directory (lib.sh's ADSB_HOME_DIR), and its marker.
+readonly HOME_DIR=/run/adsb-home-update
+readonly WINDOW_MARK=$HOME_DIR/window-opened-by
 readonly ETC_YML=/etc/adsb-receiver/station.yml
 readonly WRITER_UNIT=adsb-writer.service
 readonly WINDOW_UNIT=adsb-pull-window.service
+readonly HOME_UNIT=adsb-home-update.service
 readonly FIRST_STEP=50-updater
 # The soak's role default, the one difference between the roles' channel (PLAN §9g's 2026-10-05
 # update); update.soak_days in station.yml overrides it. The portable template never carries it.
@@ -125,10 +167,13 @@ readonly PREFLIGHT_TIMEOUT=120
 readonly BACKOFF_SECS=86400   # a failed candidate is skipped this long after its run
 
 readonly RC_FAILED=1 RC_ROLLED_BACK=2 RC_INCOMPLETE=3 RC_NOT_READY=4 RC_USAGE=64
+# --check's "not pending" codes (the header).
+readonly RC_CHECK_NONE=10 RC_CHECK_BACKOFF=11 RC_CHECK_NO_FETCH=12 RC_CHECK_WOULD_FAIL=13
 
 # --- State ---------------------------------------------------------------------
 
-MODE=timer REV_ARG='' ROLE_ARG='' CONFIG_ARG='' NO_FORMAT=0 RETRY=0
+MODE=timer REV_ARG='' ROLE_ARG='' CONFIG_ARG='' NO_FORMAT=0 RETRY=0 CHECK=0
+CHECKING=0 CHECK_CHILD=''   # check_pending under way; its background fetch's PID
 SETS=()
 SELF_WT='' SELF_SHA=''   # the worktree this script runs from, and its commit (--bootstrap only)
 PIN=''             # a timer run finishing an incomplete first build: the bootstrap's commit
@@ -143,6 +188,8 @@ FOUND_NOTES=()     # the foundation scripts' NOTE: lines, kept in status.json's 
 ROLLBACK_RESULT='' ROLLBACK_FAILED_STEP=''
 LEFTOVERS=()       # the candidate's steps the applied tree lacks (a rollback leaves what they made)
 LAST_RESULT='' LAST_CAND='' LAST_FINISHED=0 LAST_FINISHED_TXT=''   # the previous status.json
+LAST_FAILED_STEPS=''   # its failed_steps, joined with ", " (else its failed_step), for --check's line
+TRIGGER='' OPENED_BY=''   # window and adsb-home-update or hand, or both empty (null): the header
 GATE=''            # stationary only: passed / held
 FOUND_RTC=''       # the RTC overlay's outcome, first build only
 FETCH_OK=0 LOCKED=0 TERMINATED=0 TERM_SIG='' STATUS_WRITTEN=0 FLIPPED=0 FAILED_ON_PURPOSE=0
@@ -153,9 +200,17 @@ declare -A INSTALL=() VERIFY=() SECS=()
 
 # --- Output --------------------------------------------------------------------
 
-log()  { printf '==> %s\n' "$*"; }
+# --check's stdout is its one verdict line, so its progress goes to stderr.
+log()  { if [[ $MODE == check ]]; then printf '==> %s\n' "$*" >&2; else printf '==> %s\n' "$*"; fi; }
 warn() { printf '!!  WARNING: %s\n' "$*" >&2; }
-fail() { printf 'xx  FAIL: %s\n' "$*" >&2; FAILED_ON_PURPOSE=1; exit "$RC_FAILED"; }
+# Inside check_pending, a failure is the one a timer run would meet too: --check's exit 13.
+fail() {
+  if ((CHECKING)); then
+    printf 'not pending: a timer run here would fail too, before any step: %s\n' "$*"
+    exit "$RC_CHECK_WOULD_FAIL"
+  fi
+  printf 'xx  FAIL: %s\n' "$*" >&2; FAILED_ON_PURPOSE=1; exit "$RC_FAILED"
+}
 usage_error() { printf 'xx  %s\n' "$*" >&2; printf 'usage: see the header of %s\n' "$0" >&2; exit "$RC_USAGE"; }
 utc_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
@@ -259,6 +314,7 @@ parse_args() {
       --config) [[ -n ${2:-} ]] || usage_error "--config needs a file"; CONFIG_ARG=$2; shift ;;
       --no-format) NO_FORMAT=1 ;;
       --retry) RETRY=1 ;;
+      --check) CHECK=1 ;;
       -h|--help) sed -n '3,/^$/p' "$0"; exit 0 ;;   # the header: line 3 to the first blank line
       *) usage_error "unknown argument: $1" ;;
     esac
@@ -268,7 +324,12 @@ parse_args() {
     [[ -z $ROLE_ARG && -z $CONFIG_ARG && ${#SETS[@]} -eq 0 && $NO_FORMAT -eq 0 ]] \
       || usage_error "--role, --set, --config and --no-format belong to --bootstrap only; the update path takes the role from station.yml"
     [[ -n $REV_ARG ]] && MODE=rev
+    if ((CHECK)); then
+      [[ -z $REV_ARG && $RETRY -eq 0 ]] || usage_error "--check takes no other argument: it asks what a timer run would do"
+      MODE=check
+    fi
   else
+    ((CHECK == 0)) || usage_error "--check does not go with --bootstrap"
     [[ $ROLE_ARG == portable || $ROLE_ARG == stationary ]] \
       || usage_error "--bootstrap needs --role portable or --role stationary"
     # Refused rather than honored: the bootstrap builds the commit it runs from (setup/bootstrap.sh
@@ -488,6 +549,23 @@ writer_start_rule() {
   fi
 }
 
+# window_context: status.json's trigger and opened_by (the header). Called once the lock is taken,
+# so it describes the window this run is inside; the opener removes its marker only after the
+# window's update has finished. The marker's content is not read: its presence, with the opener's
+# unit running, is the record.
+window_context() {
+  local win
+  win=$(systemctl is-active "$WINDOW_UNIT" 2>/dev/null) || true
+  if [[ $win == active || $win == activating || $win == deactivating ]]; then
+    TRIGGER=window OPENED_BY=hand
+    if [[ -e $WINDOW_MARK ]] \
+       && [[ $(systemctl is-active "$HOME_UNIT" 2>/dev/null) == activating ]]; then
+      OPENED_BY=adsb-home-update
+    fi
+  fi
+  return 0
+}
+
 # --- Git -----------------------------------------------------------------------
 
 fetch() {
@@ -657,14 +735,19 @@ try:
     t = calendar.timegm(time.strptime(fin, "%Y-%m-%dT%H:%M:%SZ"))
 except ValueError:
     t = 0
+# The failed steps (a first build's list, else the one failed step) for --check's reason line;
+# newlines inside a name would shift the fields, so they become spaces.
+fs = s.get("failed_steps") or ([s["failed_step"]] if s.get("failed_step") else [])
+fs = ", ".join(str(x).replace("\n", " ") for x in fs if x)
 # One field per line: a tab-separated read would collapse an empty field (tab is IFS
 # whitespace) and shift the rest.
-print(s.get("result") or "", s.get("candidate_rev") or "", t, fin or "-", sep="\n")
+print(s.get("result") or "", s.get("candidate_rev") or "", t, fin or "-", fs, sep="\n")
 PY
   ) || return 0
   local -a f
   mapfile -t f <<<"$out"
   LAST_RESULT=${f[0]:-} LAST_CAND=${f[1]:-} LAST_FINISHED=${f[2]:-0} LAST_FINISHED_TXT=${f[3]:--}
+  LAST_FAILED_STEPS=${f[4]:-}
   [[ $LAST_FINISHED =~ ^[0-9]+$ ]] || LAST_FINISHED=0
 }
 
@@ -917,7 +1000,7 @@ write_status() {
   S_ROLE=$ROLE S_CHANNEL=$CHANNEL S_MODE=$MODE S_STARTED=$STARTED_AT S_RESULT=$RESULT S_EXIT=$code \
   S_CAND=$CAND S_FAILED=$FAILED_STEP S_FAILED_STEPS=$failed_steps S_RB=$ROLLBACK_RESULT \
   S_RB_STEP=$ROLLBACK_FAILED_STEP S_LEFT=$leftovers S_GATE=$GATE S_RTC=$FOUND_RTC S_FNOTES=$fnotes \
-  S_LOG=${RUN_LOGS:+$RUN_LOGS/run.log} S_WRITER=$WRITER_JSON \
+  S_LOG=${RUN_LOGS:+$RUN_LOGS/run.log} S_WRITER=$WRITER_JSON S_TRIGGER=$TRIGGER S_OPENED_BY=$OPENED_BY \
   python3 - <<'PY' || { warn "could not write $STATUS"; return 0; }
 import json, os, socket
 E = os.environ
@@ -966,6 +1049,9 @@ doc = {
     "role": nz(E["S_ROLE"]),
     "channel": nz(E["S_CHANNEL"]),
     "mode": E["S_MODE"],
+    # window, with adsb-home-update or hand; null for a run outside any window (the header).
+    "trigger": nz(E["S_TRIGGER"]),
+    "opened_by": nz(E["S_OPENED_BY"]),
     "started_at": nz(E["S_STARTED"]),
     "finished_at": E["S_NOW"],
     "result": E["S_RESULT"],
@@ -1150,6 +1236,92 @@ recover_applied() {
   finish "$RC_FAILED"
 }
 
+# in_backoff: true when CAND is the candidate status.json records as rolled_back or failed, less
+# than 24 h ago (PLAN §9f's evening update). Sets BACKOFF_MSG. The timer's run and --check both
+# ask it, so --check's "not pending" is the run's "skipped".
+BACKOFF_MSG=''
+in_backoff() {
+  [[ $CAND == "$LAST_CAND" ]] && [[ $LAST_RESULT == rolled_back || $LAST_RESULT == failed ]] || return 1
+  local age=$(( $(date +%s) - LAST_FINISHED ))
+  ((LAST_FINISHED > 0 && age >= 0 && age < BACKOFF_SECS)) || return 1
+  BACKOFF_MSG="$(sha12 "$CAND") was $LAST_RESULT at $LAST_FINISHED_TXT; the timer tries it again $(( (BACKOFF_SECS - age + 3599) / 3600 )) h from now"
+}
+
+# --- --check -------------------------------------------------------------------------
+
+# shellcheck disable=SC2317,SC2329  # invoked by trap (0.9 says SC2317, 0.11 SC2329)
+# check_signal <128+N>: --check's signal handler: kill its fetch, if one runs, and exit.
+check_signal() {
+  [[ -n $CHECK_CHILD ]] && kill "$CHECK_CHILD" 2>/dev/null
+  exit "$1"
+}
+
+# check_pending: --check (the header). The timer run's path up to the point where it would start
+# changing the rig, reading only: no lock, no apt heal, no worktree, no status.json, no log
+# directory. Prints its one verdict line on stdout and exits. Its fail() is exit 13 (above).
+check_pending() {
+  local f rev=''
+  CHECKING=1
+  f=$(station_file) || fail "no station.yml (neither $ETC_YML nor a worktree's); build the rig with setup/bootstrap.sh"
+  ROLE=$(yml_get "$f" station.role) || fail "$f has no station.role"
+  [[ $ROLE == portable || $ROLE == stationary ]] || fail "$f: station.role is '$ROLE'"
+  CHANNEL=$(channel_of "$ROLE")
+  read_last_status
+  # examine_applied's reading, without its repair: a dangling `applied` is read through
+  # applied-rev, from which a run would recreate the worktree (recover_applied).
+  if [[ -e $APPLIED || -L $APPLIED ]]; then
+    OLD_WT=$(readlink -f "$APPLIED") || OLD_WT=''
+    if [[ -n $OLD_WT && -d $OLD_WT && $(git -C "$OLD_WT" rev-parse --show-toplevel 2>/dev/null) == "$OLD_WT" ]]; then
+      OLD_SHA=$(git -C "$OLD_WT" rev-parse --verify --quiet HEAD) || OLD_SHA=''
+    fi
+    if [[ -z $OLD_SHA ]]; then
+      rev=$(head -n1 "$APPLIED_REV" 2>/dev/null) || rev=''
+      if ! [[ $rev =~ ^[0-9a-f]{40}$ ]] || ! git -C "$REPO" cat-file -e "$rev^{commit}" 2>/dev/null; then
+        fail "applied is dangling and applied-rev is unusable: a run would record failed and run no step, so a window would change nothing. Look at $APPLIED and $APPLIED_REV"
+      fi
+      OLD_SHA=$rev
+      log "$APPLIED is dangling or unreadable; applied-rev names $(sha12 "$rev"), whose worktree a run would recreate"
+    fi
+  elif [[ $LAST_RESULT == incomplete && -n $LAST_CAND ]]; then
+    # The pin (examine_applied): every incomplete first build is pending (PLAN §9e's (a)). No fetch:
+    # the pinned run builds that commit whatever the channel says, offline too.
+    git -C "$REPO" cat-file -e "$LAST_CAND^{commit}" 2>/dev/null \
+      || fail "the incomplete first build's commit $(sha12 "$LAST_CAND") is not in the clone; run the bootstrap again (BUILD.md §8)"
+    FIRST_BUILD=1 PIN=$LAST_CAND
+    resolve_candidate
+    # The reason line, worded as ruled (PLAN §9e's 2026-10-05 (a)).
+    printf 'pending: the first build is incomplete at %s; the last run failed %s at %s; the window retries this same commit, and a fix on main does not reach it\n' \
+      "$(sha12 "$CAND")" "${LAST_FAILED_STEPS:-(no step recorded)}" "$LAST_FINISHED_TXT"
+    exit 0
+  else
+    fail "no build on this rig (no $APPLIED, and status.json records no incomplete first build); run the bootstrap (setup/bootstrap.sh)"
+  fi
+  # fetch(), in the background, so that a signal ends the wait at once (check_signal).
+  [[ -d $REPO ]] || fail "no clone at $REPO; build the rig with setup/bootstrap.sh first"
+  GIT_TERMINAL_PROMPT=0 timeout "$FETCH_TIMEOUT" git -C "$REPO" fetch --prune --quiet origin &
+  CHECK_CHILD=$!
+  if wait "$CHECK_CHILD"; then FETCH_OK=1; else FETCH_OK=0; fi
+  CHECK_CHILD=''
+  if ((FETCH_OK == 0)); then
+    printf 'not pending: the fetch failed (no network?), so whether %s moved is unknown\n' "$CHANNEL"
+    exit "$RC_CHECK_NO_FETCH"
+  fi
+  if ! resolve_candidate; then
+    printf 'not pending: %s\n' "$NOTE"
+    exit "$RC_CHECK_NONE"
+  fi
+  if [[ $CAND == "$OLD_SHA" ]]; then
+    printf 'not pending: %s is still %s, which is applied\n' "$CHANNEL" "$(sha12 "$CAND")"
+    exit "$RC_CHECK_NONE"
+  fi
+  if in_backoff; then
+    printf 'not pending: %s\n' "$BACKOFF_MSG"
+    exit "$RC_CHECK_BACKOFF"
+  fi
+  printf "pending: %s's tip %s is the candidate; applied is %s\n" "$CHANNEL" "$(sha12 "$CAND")" "$(sha12 "$OLD_SHA")"
+  exit 0
+}
+
 # --- Main --------------------------------------------------------------------------
 
 main() {
@@ -1160,6 +1332,14 @@ main() {
   for t in git python3 flock lslocks systemctl timeout setsid; do
     command -v "$t" >/dev/null || fail "$t is not installed"
   done
+  if [[ $MODE == check ]]; then
+    # Before the scratch directory, the EXIT trap and the lock: --check writes nothing, so a
+    # signal ends it at once (the header).
+    trap 'check_signal 143' TERM
+    trap 'check_signal 130' INT
+    trap 'check_signal 129' HUP
+    check_pending
+  fi
   WORK=$(mktemp -d)
   trap on_exit EXIT
   trap 'on_signal TERM' TERM
@@ -1188,6 +1368,7 @@ main() {
   fi
 
   take_lock
+  window_context
 
   if [[ $MODE == bootstrap ]]; then
     ROLE=$ROLE_ARG
@@ -1235,13 +1416,9 @@ main() {
   fi
   # The 24 h backoff (PLAN §9f's evening update): a candidate that failed or rolled back is not tried again by
   # the timer until a day after that run; then once a day, until the channel moves.
-  if [[ $MODE == timer ]] && ((RETRY == 0 && FIRST_BUILD == 0)) && [[ $CAND == "$LAST_CAND" ]] \
-     && [[ $LAST_RESULT == rolled_back || $LAST_RESULT == failed ]]; then
-    local age=$(( $(date +%s) - LAST_FINISHED ))
-    if ((LAST_FINISHED > 0 && age >= 0 && age < BACKOFF_SECS)); then
-      log "skipped: $(sha12 "$CAND") was $LAST_RESULT at $LAST_FINISHED_TXT; the timer tries it again $(( (BACKOFF_SECS - age + 3599) / 3600 )) h from now, or run: sudo adsb-update --retry. Nothing was written to the rig's applied state"
-      STAGE=finished; release_lock; writer_start_rule; exit 0
-    fi
+  if [[ $MODE == timer ]] && ((RETRY == 0 && FIRST_BUILD == 0)) && in_backoff; then
+    log "skipped: $BACKOFF_MSG, or run: sudo adsb-update --retry. Nothing was written to the rig's applied state"
+    STAGE=finished; release_lock; writer_start_rule; exit 0
   fi
 
   RESULT=running

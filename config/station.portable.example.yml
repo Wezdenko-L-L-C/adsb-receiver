@@ -99,3 +99,24 @@ uploader:
   #    until you are home. It is on the archive drive (PLAN §9m), not the SD
   #    card: the drive has the room, and it is the one place to pull from.
   spool_dir: /var/lib/adsb-receiver/archive/spool
+
+update:
+  # 🎒 The home-gated window opener (PLAN §9f): at home, and only when an update
+  #    is pending, it opens the pull window, which ends the recording session,
+  #    updates the rig, and starts recording again. It runs about 4 minutes
+  #    after boot and once a day (setup/steps/70-portable-home-update.sh).
+  #    "At home" means the active Wi-Fi network's name (SSID) is this one.
+  # ⭐ Unset or empty means the opener is OFF: it is opt-in. Then a recording rig
+  #    updates only in a pull window opened by hand (tools/pull-archive).
+  # ➡️ Set it by hand, on the rig, in the installed copy:
+  #      sudo nano /etc/adsb-receiver/station.yml
+  #    The opener reads that file at each check, so no step needs to run after.
+  # ⛔ The opener and its check (bin/adsb-at-home) never print or log it: they
+  #    say only "at home", "not at home", "off" or "cannot tell", and nothing
+  #    writes it into status.json.
+  # ⚠️ Quote it ("..."), as a string: an unquoted yes, no, on or off is YAML's
+  #    true or false, and a number is a number; the opener treats anything but
+  #    a string as unset, and step 70's verify refuses it. A hotspot with the
+  #    same name counts as home (PLAN §9f: one bounded gap, fixed by renaming
+  #    the hotspot).
+  home_ssid: ""

@@ -59,7 +59,10 @@ jobs:
         #     on stubbed lsblk, findmnt, blkid and mount (needs bash and python3-yaml);
         #   - test_rtc_config.py: the config.txt reading that decides whether
         #     setup/foundation/rtc-overlay.sh writes the boot partition;
-        #   - test_disk_command_check.py: the disk-command check two steps below.
+        #   - test_disk_command_check.py: the disk-command check two steps below;
+        #   - test_adsb_at_home.py: bin/adsb-at-home, the home-gated opener's predicate, on a
+        #     stubbed nmcli: the "yes:" line, nmcli's terse escaping, and the SSID going nowhere
+        #     (needs bash and python3-yaml).
         # Bytecode goes to the runner's temp directory, not beside the sources.
         run: |
           set -euo pipefail
@@ -127,19 +130,23 @@ jobs:
           fi
           exit "$bad"
 
-      - name: the reboot flag's and the recording lock's paths are the same everywhere
-        # setup/lib.sh's ADSB_REBOOT_FLAG and ADSB_RECORDING_LOCK are the source; the steps and
-        # bootstrap.sh read them from there. update.sh (self-contained, it sources nothing) and the
-        # login banner carry copies, compared here. No other script that runs on a rig may write
-        # the run directory's path at all (comment lines aside), so a sixth copy cannot drift.
+      - name: the run-time paths (reboot flag, recording lock, opener marker, home state) are the same everywhere
+        # setup/lib.sh's ADSB_REBOOT_FLAG, ADSB_RECORDING_LOCK, ADSB_WINDOW_MARK and ADSB_HOME_STATE
+        # are the source; the last two are in the opener's root-owned ADSB_HOME_DIR, not in
+        # ADSB_RUN_DIR, which the writer's user owns. The steps and bootstrap.sh read them from
+        # there (step 70 passes the last three to the opener and its predicate through its unit's
+        # Environment=). update.sh (self-contained, it sources nothing) carries copies of the first
+        # three, and the login banner of the flag, the lock and the home state, compared here. No
+        # other script that runs on a rig may write the run directory's path at all (comment lines
+        # aside), so another copy cannot drift.
         run: |
           set -euo pipefail
           source setup/lib.sh
-          upd=$(bash -c 'eval "$(grep -E "^readonly (RUN_DIR|LOCK|REBOOT_FLAG)=" setup/update.sh)"; printf "%s %s" "$REBOOT_FLAG" "$LOCK"')
-          motd="$(sed -n 's/^FLAG=//p' setup/files/motd-banner.sh) $(sed -n 's/^LOCK=//p' setup/files/motd-banner.sh)"
+          upd=$(bash -c 'eval "$(grep -E "^readonly (RUN_DIR|LOCK|REBOOT_FLAG|HOME_DIR|WINDOW_MARK)=" setup/update.sh)"; printf "%s %s %s" "$REBOOT_FLAG" "$LOCK" "$WINDOW_MARK"')
+          motd="$(sed -n 's/^FLAG=//p' setup/files/motd-banner.sh) $(sed -n 's/^LOCK=//p' setup/files/motd-banner.sh) $(sed -n 's/^HOME_STATE=//p' setup/files/motd-banner.sh)"
           want="$ADSB_REBOOT_FLAG $ADSB_RECORDING_LOCK"
-          if [[ $upd != "$want" || $motd != "$want" ]]; then
-            echo "::error::flag and lock: lib.sh '$want', update.sh '$upd', banner '$motd'"; exit 1
+          if [[ $upd != "$want $ADSB_WINDOW_MARK" || $motd != "$want $ADSB_HOME_STATE" ]]; then
+            echo "::error::flag, lock, marker, home state: lib.sh '$want $ADSB_WINDOW_MARK $ADSB_HOME_STATE', update.sh '$upd', banner (flag, lock, home state) '$motd'"; exit 1
           fi
           bad=0
           for f in setup/steps/*.sh setup/bootstrap.sh setup/foundation/* bin/* tools/*; do

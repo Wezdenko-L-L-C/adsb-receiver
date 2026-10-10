@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#
+# adsb-at-home: is the 🎒 portable rig on its home Wi-Fi? PLAN §9f's 2026-10-04 (night) update,
+# the home-gated window opener. Installed by setup/steps/70-portable-home-update.sh to
+# /usr/local/bin/adsb-at-home (copied, so it runs outside the clone), and run as
+# adsb-home-update.service's ExecCondition=, as root. Takes no arguments.
+#
+# It compares the active Wi-Fi SSID with update.home_ssid in /etc/adsb-receiver/station.yml.
+#   - Unset, null, empty, or not a string (an unquoted yes is YAML's true; a list; a number):
+#     "off". The opener is opt-in. Step 70's verify refuses a set value that is not a string.
+#   - The SSID comes from `nmcli -t -f active,ssid dev wifi list --rescan no`, and only from lines
+#     beginning "yes:". ✅ Seen on the 🎒 portable Pi, 2026-10-05: `nmcli -t -f active,ssid dev
+#     wifi` prints one "yes:" line for the active network, plus "no:" lines, duplicated per band.
+#     ✅ Read on the portable Pi 2026-10-09: `nmcli -t -f active dev wifi list --rescan no` works
+#     there, and printed one "yes" and three "no" lines. ⚠️ The two together, the ssid field with
+#     --rescan no, not seen. --rescan no reads NetworkManager's list as it is and asks for no
+#     scan. In terse mode nmcli escapes ':' as '\:' and '\' as '\\' inside a value (nmcli's
+#     documentation; ⚠️ not seen with such an SSID), so the value is unescaped before the
+#     comparison. More than one "yes:" line (two Wi-Fi devices): at home if any matches.
+#
+# Verdicts and exit codes (ExecCondition= reads 1 to 254 as "skip, not failed", 255 as a failure:
+# systemd's documentation, ⚠️ not seen on the Pi's systemd 257; so never 255):
+#   0  at home
+#   1  not at home: no "yes:" line matches, or there is no Wi-Fi (no nmcli at all, PLAN §9f's
+#      "no Wi-Fi or Ethernet: not at home"); and off, the key unset
+#   2  cannot tell: station.yml unreadable or not YAML, python3 or its yaml module missing, or
+#      nmcli failing or hanging (10 s). The build's own split, not ruled: a broken read is not
+#      "away from home", and step 70's verify fails on it when the key is set.
+# Run by hand it prints one line, "at home", "not at home" or "cannot tell", and nothing on
+# stderr. Run by the unit (ADSB_HOME_STATE set, by step 70's Environment=):
+#   - every verdict but "at home" is the run's one journal line, tagged as the opener's are:
+#     "ADSB-HOME-UPDATE off: ...", "ADSB-HOME-UPDATE not-at-home: ...", "ADSB-HOME-UPDATE
+#     cannot-tell: ...", since the opener does not run then. "At home" stays a plain line: the
+#     opener's line that follows is that decision's;
+#   - it writes the verdict and the time, "<at-home|not-at-home|off|cannot-tell> <UTC>", to that
+#     file, which the login banner reads: the banner runs as the login, and station.yml is root's
+#     alone. It is as of the last check, so possibly stale. The file lives in the opener's own
+#     directory, /run/adsb-home-update (lib.sh's ADSB_HOME_DIR, root:root 0755, step 70's
+#     tmpfiles.d), never in /run/adsb-receiver, which the writer's user owns: there a planted
+#     symlink would turn a root write by name into a write anywhere (security review, 2026-10-09).
+#     Belt and braces, should that directory ever be misconfigured: it writes only if the
+#     directory is a real directory (not a symlink), owned by root and writable by no one else;
+#     otherwise it writes nothing and the verdict becomes cannot-tell (exit 2), naming why. The
+#     write is a new file made by mktemp in that directory (O_EXCL: it never opens an existing
+#     path), then chmod 0644 and a rename over the state file (a rename replaces a symlink there,
+#     it does not follow it).
+#
+# ⛔ It never prints, logs or passes on the SSID or the configured value (PLAN §9f's ⛔ on echoing a
+#    config value). Both reach this script only through command substitution, a pipe, and are
+#    compared in bash itself: neither is ever an argument of a child process, where /proc/<pid>/
+#    cmdline would show it. No `set -x`, and no error text from the tools it runs: a message could
+#    carry either.
+# ⛔ Read-only toward the network stack (PLAN §9h bars writes, not reads). Its one write is the
+#    state file above, under the unit only, in a directory only root may write.
+#
+# What has run on hardware: the nmcli commands above, by hand. This script: nothing.
+
+set -uo pipefail
+export LC_ALL=C
+
+readonly STATION=/etc/adsb-receiver/station.yml
+readonly OWNER_UID=0   # who must own the state's directory: root
+STATE=${ADSB_HOME_STATE:-}
+
+# dir_safe <dir>: a real directory, not a symlink, owned by OWNER_UID and writable by no one else.
+dir_safe() {
+  local st
+  [[ -d $1 && ! -L $1 ]] || return 1
+  st=$(stat -c '%u %a' -- "$1" 2>/dev/null) || return 1
+  [[ ${st% *} == "$OWNER_UID" ]] && (( (8#${st#* } & 8#022) == 0 ))
+}
+
+# verdict <word> <exit> <why>: the one line, the state file under the unit, and the exit.
+verdict() {
+  local word=$1 rc=$2 why=$3 human pre='' dir tmp
+  if [[ $STATE == /* ]]; then
+    dir=${STATE%/*}
+    if ! dir_safe "$dir"; then
+      word=cannot-tell rc=2
+      why="$dir is not a directory owned by root and writable by root alone, so nothing was written and nothing opened (step 70 makes it, through systemd-tmpfiles)"
+    elif tmp=$(mktemp "$dir/.home-update-state.XXXXXX" 2>/dev/null); then
+      # Every error silenced: a failed write leaves the old state, and the temporary file goes.
+      if ! { TZ=UTC0 printf '%s %(%Y-%m-%dT%H:%M:%SZ)T\n' "$word" -1 >"$tmp" \
+             && chmod 0644 "$tmp" && mv -f "$tmp" "$STATE"; } 2>/dev/null; then
+        rm -f -- "$tmp" 2>/dev/null
+      fi
+    fi
+  fi
+  case $word in at-home) human="at home" ;; cannot-tell) human="cannot tell" ;; *) human="not at home" ;; esac
+  if [[ $STATE == /* ]]; then
+    if [[ $word == at-home ]]; then
+      echo "$human"
+    else
+      [[ -n ${INVOCATION_ID:-} ]] && { pre='<5>'; [[ $word == cannot-tell ]] && pre='<4>'; }
+      printf '%sADSB-HOME-UPDATE %s: %s\n' "$pre" "$word" "$why"
+    fi
+  else
+    echo "$human"
+  fi
+  exit "$rc"
+}
+
+command -v python3 >/dev/null 2>&1 || verdict cannot-tell 2 "python3 is missing, so station.yml cannot be read; nothing opened"
+# The configured SSID. The YAML is read in Python; only the value comes back, on stdout. Exit 4:
+# off (no string value); anything else: unreadable.
+rc=0
+want=$(timeout 10 python3 - "$STATION" 2>/dev/null <<'PY'
+import sys
+try:
+    import yaml
+    with open(sys.argv[1]) as fh:
+        doc = yaml.safe_load(fh) or {}
+    v = (doc.get("update") or {}).get("home_ssid") if isinstance(doc, dict) else None
+except Exception:
+    sys.exit(1)
+if not isinstance(v, str) or not v:
+    sys.exit(4)
+sys.stdout.write(v)
+PY
+) || rc=$?
+case $rc in
+  0) ;;
+  4) verdict off 1 "update.home_ssid is not set (or not a string): the opener is off, opt-in (PLAN §9f)" ;;
+  *) verdict cannot-tell 2 "station.yml could not be read (exit $rc); nothing opened" ;;
+esac
+[[ -n $want ]] || verdict off 1 "update.home_ssid is empty: the opener is off, opt-in (PLAN §9f)"
+
+command -v nmcli >/dev/null 2>&1 || verdict not-at-home 1 "no nmcli, so no Wi-Fi: not at home"
+rc=0
+out=$(timeout 10 nmcli -t -f active,ssid dev wifi list --rescan no 2>/dev/null) || rc=$?
+((rc == 0)) || verdict cannot-tell 2 "nmcli exited $rc$( ((rc == 124)) && echo ' (timed out after 10 s)'); nothing opened"
+
+# unescape <terse value>: nmcli's terse escaping undone, in bash: a backslash takes the next
+# character literally. Sets REPLY.
+unescape() {
+  local s=$1 r='' c
+  while [[ -n $s ]]; do
+    c=${s:0:1}
+    if [[ $c == "\\" && ${#s} -ge 2 ]]; then
+      r+=${s:1:1}
+      s=${s:2}
+    else
+      r+=$c
+      s=${s:1}
+    fi
+  done
+  REPLY=$r
+}
+
+while IFS= read -r line; do
+  [[ $line == yes:* ]] || continue
+  unescape "${line#yes:}"
+  [[ $REPLY == "$want" ]] && verdict at-home 0 ""
+done <<<"$out"
+verdict not-at-home 1 "the active Wi-Fi network, if any, is not update.home_ssid; nothing opened"

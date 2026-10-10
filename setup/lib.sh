@@ -20,7 +20,7 @@ ADSB_ETC=/etc/adsb-receiver
 # reading this value from the candidate's own lib.sh.
 ADSB_RC_OTHER_ROLE=100
 
-# The run directory's two paths, written down here once. Steps and bootstrap.sh
+# The run directory's paths, written down here once. Steps and bootstrap.sh
 # read them from here; update.sh and the login banner, which source nothing,
 # carry copies, and CI compares those copies with these values.
 # The reboot flag (PLAN §9f: update.sh never reboots; it records that a reboot is
@@ -31,6 +31,26 @@ ADSB_REBOOT_FLAG=$ADSB_RUN_DIR/reboot-required
 # update.sh while it runs.
 # shellcheck disable=SC2034  # read by the steps and bootstrap.sh
 ADSB_RECORDING_LOCK=$ADSB_RUN_DIR/recording.lock
+# The home-gated opener's own runtime directory (PLAN §9f's 2026-10-04 (night)
+# update), root:root 0755, made by step 70's own tmpfiles.d file. ⛔ Not
+# ADSB_RUN_DIR: that is owned by adsb-receiver, the writer's user, so a
+# compromised writer could plant a symlink there, and a root write by name
+# would follow it (found by a security review, 2026-10-09). Only root writes
+# here. It outlives each run of the oneshot: the banner reads the state between.
+# shellcheck disable=SC2034  # read by step 70
+ADSB_HOME_DIR=/run/adsb-home-update
+# The opener's marker: the opener writes it before it starts the pull window and
+# removes it after; while it exists and the opener's unit is running, update.sh
+# records opened_by: adsb-home-update. Step 70 passes it to the opener through
+# its unit's Environment=; update.sh carries a copy.
+# shellcheck disable=SC2034  # read by step 70
+ADSB_WINDOW_MARK=$ADSB_HOME_DIR/window-opened-by
+# The opener's predicate's last verdict, "<at-home|not-at-home|off|cannot-tell>
+# <UTC time>", world-readable, for the login banner, which runs as the login and
+# so cannot read station.yml. Written by bin/adsb-at-home under its unit (step
+# 70 passes the path in Environment=); the banner carries a copy.
+# shellcheck disable=SC2034  # read by step 70
+ADSB_HOME_STATE=$ADSB_HOME_DIR/home-update-state
 
 # --- Logging -----------------------------------------------------------------
 

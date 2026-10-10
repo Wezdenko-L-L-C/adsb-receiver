@@ -12,7 +12,9 @@
 # repository stands in for the project, with fake steps and foundation scripts that print what
 # they were run with and fail, sleep or hold the recording lock on cue. systemctl is a stub on
 # PATH, so nothing is enabled and nothing reboots; it logs every call, and plays the pull window
-# for the W cases. Each case prints PASS or FAIL, and the exit
+# for the W cases and the HU cases (where its window start runs the sandbox's update.sh). The HU
+# cases also run bin/adsb-at-home and bin/adsb-home-update, remapped the same way, against a stub
+# nmcli. Each case prints PASS or FAIL, and the exit
 # status is the verdict: 0 only if every case passed and exactly EXPECTED_CHECKS cases ran.
 # It refuses to run as root: it is for the workstation and CI, never a rig.
 #
@@ -24,7 +26,7 @@
 set -uo pipefail
 # The number of check cases a full run makes. Bump it when cases are added or removed: a run that
 # makes fewer (a section skipped by an early return, a wait loop that timed out) fails.
-readonly EXPECTED_CHECKS=161
+readonly EXPECTED_CHECKS=234
 ((EUID != 0)) || { echo "refusing to run as root: the sandbox remaps real system paths by sed"; exit 1; }
 # The sandbox is not under systemd; update.sh adds a <N> journal prefix to its marker line when it is.
 unset INVOCATION_ID
@@ -33,7 +35,7 @@ SB=$(mktemp -d) || { echo "mktemp failed"; exit 1; }
 [[ -n $SB && -d $SB ]] || { echo "mktemp gave no sandbox directory: '$SB'"; exit 1; }
 cleanup() { if [[ ${SMOKE_KEEP:-} == 1 ]]; then echo "sandbox kept: $SB"; else rm -rf "${SB:?}"; fi; }
 trap cleanup EXIT
-mkdir -p "$SB"/{opt,var,log,run,etc,src,bin}
+mkdir -p "$SB"/{opt,var,log,run,etc,src,bin,home}; chmod 0755 "$SB/home"
 NPASS=0 NFAIL=0
 ok()   { echo "PASS: $*"; NPASS=$((NPASS+1)); }
 bad()  { echo "FAIL: $*"; NFAIL=$((NFAIL+1)); }
@@ -43,7 +45,7 @@ check() { local d=$1; shift; if "$@"; then ok "$d"; else bad "$d"; fi; }
 # $SB/cgroup, which the window cases write (a process here has no adsb-writer.service cgroup); with
 # no file, no unit is named, as for a holder outside any unit.
 remap_update() {
-  sed -e "s#/opt/adsb-receiver#$SB/opt#; s#^readonly STATE=/var/lib/adsb-receiver#readonly STATE=$SB/var#; s#/var/log/adsb-receiver#$SB/log#; s#^readonly RUN_DIR=/run/adsb-receiver#readonly RUN_DIR=$SB/run#; s#/etc/adsb-receiver/station.yml#$SB/etc/station.yml#" \
+  sed -e "s#/opt/adsb-receiver#$SB/opt#; s#^readonly STATE=/var/lib/adsb-receiver#readonly STATE=$SB/var#; s#/var/log/adsb-receiver#$SB/log#; s#^readonly RUN_DIR=/run/adsb-receiver#readonly RUN_DIR=$SB/run#; s#^readonly HOME_DIR=/run/adsb-home-update#readonly HOME_DIR=$SB/home#; s#/etc/adsb-receiver/station.yml#$SB/etc/station.yml#" \
       -e 's#((EUID == 0)) || {#true || {#' -e 's#^  DEBIAN_FRONTEND=noninteractive dpkg --configure -a \\#  true \\#' \
       -e 's#install -m 0600 -o root -g root #install -m 0600 #' \
       -e "s#\"/proc/\\\$pid/cgroup\"#\"$SB/cgroup\"#" "${UPD_SRC:-$REAL/setup/update.sh}"
@@ -75,6 +77,7 @@ assert_remaps "$U" \
   "STATE"         "readonly STATE=$SB/var"             "readonly STATE=/var/lib/adsb-receiver" \
   "LOG_ROOT"      "readonly LOG_ROOT=$SB/log"          "/var/log/adsb-receiver" \
   "RUN_DIR"       "readonly RUN_DIR=$SB/run"           "readonly RUN_DIR=/run/adsb-receiver" \
+  "HOME_DIR"      "readonly HOME_DIR=$SB/home"         "readonly HOME_DIR=/run/adsb-home-update" \
   "ETC_YML"       "readonly ETC_YML=$SB/etc/station.yml" "/etc/adsb-receiver/station.yml" \
   "root check"    "true || {"                          "((EUID == 0))" \
   "dpkg"          "  true \\"                          "DEBIAN_FRONTEND=noninteractive dpkg --configure -a" \
@@ -96,14 +99,30 @@ assert_remaps "$B" \
 # (list-jobs) are update-jobs' first line, one per call, then none; starting the window fails if
 # window-start-fails exists, and otherwise makes it active (window-active, until a stop) and kills
 # the process group in writer.pid, as its Conflicts= stops the writer, and waits for the lock.
+# For the HU cases adsb-update.service is a small model: run_update gives it a new InvocationID
+# (upd-inv), reads activating, runs the sandbox's update.sh, records its exit (ExecMainStatus,
+# upd-exit) and ends inactive or failed (upd-state, which then wins over update-states). The
+# window's start runs it before returning (window-runs-update), or 2 s after returning, in the
+# background (window-async-update: the start returns before the dispatch). The opener's own unit
+# reads activating while opener-active exists; the opener timer's LoadState is home-timer-load's.
 cat >"$SB/bin/systemctl" <<EOF
 #!/usr/bin/env bash
 echo "\$*" >>"$SB/systemctl.log"
+run_update() {
+  echo "inv-\$RANDOM\$RANDOM" >"$SB/upd-inv"; echo activating >"$SB/upd-state"
+  rc=0; bash "$SB/update.sh" >"$SB/window-update.out" 2>&1 || rc=\$?
+  echo "\$rc" >"$SB/upd-exit"
+  if ((rc == 0)); then echo inactive; else echo failed; fi >"$SB/upd-state"
+}
 case "\$1 \${2:-}" in
+  "is-active adsb-home-update.service")
+    if [[ -e "$SB/opener-active" ]]; then echo activating; else echo inactive; exit 3; fi ;;
   "is-enabled adsb-update.timer") cat "$SB/timer-state" 2>/dev/null || echo disabled ;;
   "is-enabled "*) echo disabled; exit 1 ;;
   "is-active adsb-pull-window.service")
     if [[ -e "$SB/window-active" ]]; then echo active; else echo inactive; exit 3; fi ;;
+  "is-active adsb-update.service")
+    if [[ -e "$SB/update-active" ]]; then echo activating; else echo inactive; exit 3; fi ;;
   "is-active "*) echo inactive; exit 3 ;;
   "list-jobs --no-legend")
     if [[ -s "$SB/update-jobs" ]]; then head -n1 "$SB/update-jobs"; sed -i 1d "$SB/update-jobs"; fi ;;
@@ -112,8 +131,12 @@ case "\$1 \${2:-}" in
   "show -p")
     case "\$3 \${5:-}" in
       "LoadState adsb-pull-window.service") cat "$SB/window-load" 2>/dev/null || echo not-found ;;
+      "LoadState adsb-home-update.timer") cat "$SB/home-timer-load" 2>/dev/null || echo not-found ;;
+      "InvocationID adsb-update.service") cat "$SB/upd-inv" 2>/dev/null || echo ;;
+      "ExecMainStatus adsb-update.service") cat "$SB/upd-exit" 2>/dev/null || echo 0 ;;
       "ActiveState adsb-update.service")
-        if [[ -s "$SB/update-states" ]]; then head -n1 "$SB/update-states"; sed -i 1d "$SB/update-states"; else echo inactive; fi ;;
+        if [[ -s "$SB/upd-state" ]]; then cat "$SB/upd-state"
+        elif [[ -s "$SB/update-states" ]]; then head -n1 "$SB/update-states"; sed -i 1d "$SB/update-states"; else echo inactive; fi ;;
     esac ;;
   "start adsb-pull-window.service")
     [[ -e "$SB/window-start-fails" ]] && { echo "Job for adsb-pull-window.service failed (stub)." >&2; exit 1; }
@@ -126,12 +149,78 @@ case "\$1 \${2:-}" in
     if [[ -f "$SB/writer.pid" ]]; then
       kill -- "-\$(cat "$SB/writer.pid")" 2>/dev/null; rm -f "$SB/writer.pid"
       for _ in \$(seq 1 50); do flock -n "$SB/run/recording.lock" true && break; sleep 0.1; done
+    fi
+    # The HU cases (above). The update's exit status is its unit's, not the window's: the start
+    # succeeds whatever it was.
+    if [[ -e "$SB/window-runs-update" ]]; then run_update
+    elif [[ -e "$SB/window-async-update" ]]; then (sleep 2; run_update) </dev/null >/dev/null 2>&1 &
     fi ;;
   *) exit 0 ;;
 esac
 EOF
 chmod +x "$SB/bin/systemctl"
+# nmcli for the HU cases: prints nmcli.out (terse lines), or fails as with no NetworkManager.
+cat >"$SB/bin/nmcli" <<EOF
+#!/usr/bin/env bash
+echo "\$*" >>"$SB/nmcli.log"
+cat "$SB/nmcli.out" 2>/dev/null || exit 8
+EOF
+chmod +x "$SB/bin/nmcli"
+# git, for CK8: a fetch that hangs while slow-fetch exists; everything else is the real git.
+REAL_GIT=$(command -v git)
+cat >"$SB/bin/git" <<EOF
+#!/usr/bin/env bash
+if [[ -e "$SB/slow-fetch" && " \$* " == *" fetch "* ]]; then exec sleep 30; fi
+exec "$REAL_GIT" "\$@"
+EOF
+chmod +x "$SB/bin/git"
 export PATH=$SB/bin:$PATH
+
+# The home-gated opener and its predicate (the HU cases), remapped like update.sh: the predicate's
+# station.yml, and the opener's root check, status.json, the lock holder's cgroup, its poll (1 s)
+# and its dispatch bound (4 s), and the updater it runs, which becomes a wrapper that logs its
+# arguments and runs the sandbox's update.sh. The paths its unit would pass come from unit_run.
+# The login banner (case BN) gets the sandbox's status.json, run directory and applied link.
+AH=$SB/adsb-at-home
+sed -e "s#^readonly STATION=/etc/adsb-receiver/station.yml#readonly STATION=$SB/etc/station.yml#" \
+    -e "s#^readonly OWNER_UID=0 .*#readonly OWNER_UID=$(id -u)#" \
+  "$REAL/bin/adsb-at-home" >"$AH"
+OP=$SB/adsb-home-update
+sed -e "s#^readonly UPDATER=/usr/local/sbin/adsb-update#readonly UPDATER=$SB/adsb-update#" \
+    -e "s#^readonly STATUS=/var/lib/adsb-receiver/status.json#readonly STATUS=$SB/var/status.json#" \
+    -e 's#^readonly POLL=5$#readonly POLL=1#' -e 's#^readonly DISPATCH_BOUND=600$#readonly DISPATCH_BOUND=4#' \
+    -e "s#\"/proc/\\\$pid/cgroup\"#\"$SB/cgroup\"#" \
+    -e "s#^readonly OWNER_UID=0 .*#readonly OWNER_UID=$(id -u)#" \
+    -e 's#if ((EUID != 0)); then say#if false; then say#' "$REAL/bin/adsb-home-update" >"$OP"
+BN=$SB/motd-banner
+sed -e "s#^STATUS=.*#STATUS=$SB/var/status.json#; s#^WRITER_JSON=.*#WRITER_JSON=$SB/var/writer.json#" \
+    -e "s#^LOCK=.*#LOCK=$SB/run/recording.lock#; s#^FLAG=.*#FLAG=$SB/run/reboot-required#" \
+    -e "s#^HOME_STATE=.*#HOME_STATE=$SB/home/home-update-state#; s#^APPLIED=.*#APPLIED=$SB/opt/applied#" \
+    "$REAL/setup/files/motd-banner.sh" >"$BN"
+cat >"$SB/adsb-update" <<EOF
+#!/usr/bin/env bash
+echo "\$*" >>"$SB/updater.log"
+exec bash "$SB/update.sh" "\$@"
+EOF
+chmod +x "$SB/adsb-update"
+assert_remaps "$AH" \
+  "STATION"       "readonly STATION=$SB/etc/station.yml" "readonly STATION=/etc/adsb-receiver/station.yml" \
+  "OWNER_UID"     "readonly OWNER_UID=$(id -u)"        "readonly OWNER_UID=0"
+# shellcheck disable=SC2016  # $pid is the opener's text, matched literally
+assert_remaps "$OP" \
+  "UPDATER"       "readonly UPDATER=$SB/adsb-update"   "readonly UPDATER=/usr/local/sbin/adsb-update" \
+  "STATUS"        "readonly STATUS=$SB/var/status.json" "readonly STATUS=/var/lib/adsb-receiver/status.json" \
+  "POLL"          "readonly POLL=1"                    "readonly POLL=5" \
+  "DISPATCH"      "readonly DISPATCH_BOUND=4"          "readonly DISPATCH_BOUND=600" \
+  "cgroup"        "\"$SB/cgroup\""                     '"/proc/$pid/cgroup"' \
+  "root check"    "if false; then say"                 "EUID != 0" \
+  "OWNER_UID"     "readonly OWNER_UID=$(id -u)"        "readonly OWNER_UID=0"
+assert_remaps "$BN" \
+  "STATUS"        "STATUS=$SB/var/status.json"         "STATUS=/var/lib/adsb-receiver/status.json" \
+  "LOCK"          "LOCK=$SB/run/recording.lock"        "LOCK=/run/adsb-receiver/recording.lock" \
+  "FLAG"          "FLAG=$SB/run/reboot-required"       "FLAG=/run/adsb-receiver/reboot-required" \
+  "HOME_STATE"    "HOME_STATE=$SB/home/home-update-state" "HOME_STATE=/run/adsb-home-update/home-update-state" \
+  "APPLIED"       "APPLIED=$SB/opt/applied"            "APPLIED=/opt/adsb-receiver/applied"
 
 R=$SB/src/proj; mkdir -p "$R/setup/steps" "$R/setup/foundation" "$R/config"
 cp "$REAL"/config/station.*.example.yml "$R/config/"
@@ -403,7 +492,10 @@ fresh_rig() {
   rm -rf "${SB:?}/opt" "${SB:?}/var" "${SB:?}/log" "${SB:?}/run" "${SB:?}/etc/station.yml"
   mkdir -p "$SB/opt" "$SB/var" "$SB/log" "$SB/run"
   rm -f "$SB/reboot-step" "$SB/fixed-reason" "$SB/cgroup" "$SB/window-load" "$SB/update-states" \
-        "$SB/update-jobs" "$SB/window-active" "$SB/window-start-fails" "$SB/window-applies"
+        "$SB/update-jobs" "$SB/window-active" "$SB/window-start-fails" "$SB/window-applies" \
+        "$SB/update-active" "$SB/window-runs-update" "$SB/window-update.out" "$SB/nmcli.out" \
+        "$SB/nmcli.log" "$SB/updater.log" "$SB/window-async-update" "$SB/upd-inv" "$SB/upd-state" \
+        "$SB/upd-exit" "$SB/opener-active" "$SB/home-timer-load" "$SB/slow-fetch"
   rm -f "$R"/setup/IFAIL-* "$R"/setup/FAIL-* "$R"/setup/SLEEP-* "$R"/setup/HOLD-*
 }
 
@@ -721,6 +813,293 @@ check "W7 no reboot, and the reason names the window's build" \
   lacks_has "FAKE REBOOT" "the pull window's pinned run completed the build at ${W7A:0:12} during this bootstrap, and a bootstrap never reboots once applied exists" "$SB/out.txt"
 check "W7 update.sh applied the bootstrap's commit as an ordinary update (no foundation)" \
   [ "$(S 's["result"]+" "+s["applied_rev"]')/$(grep -c 'foundation marker' "$SB/out.txt")" = "applied $W7B/0" ]
+
+echo "== CK. adsb-update --check: no lock, nothing written, one line on stdout (PLAN §9f, §9e's (a))"
+# snap: what a run that writes would change: the state, log and run directories, and the worktrees.
+snap() { find "$SB/var" "$SB/log" "$SB/run" "$SB/opt/worktrees" -maxdepth 2 -printf '%p %s %T@\n' 2>/dev/null | sort | md5sum; }
+ck() { RC=0; bash "$U" --check >"$SB/ck.out" 2>"$SB/ck.err" || RC=$?; }
+rc_line() { [ "$RC" = "$1" ] && [ "$(wc -l <"$SB/ck.out")" = 1 ] && grep -qxF -- "$2" "$SB/ck.out"; } # <rc> <the one line>
+
+echo "-- CK1. a built rig, the channel unchanged: not pending (10)"
+fresh_rig; echo "# ck" >>"$R/setup/steps/00-a.sh"; commit "ck: built"; CK=$(sha)
+run bash "$B" --role portable --no-reboot
+s0=$(snap); ck
+check "CK1 exit 10, one line: unchanged" rc_line 10 "not pending: stable is still ${CK:0:12}, which is applied"
+check "CK1 wrote nothing" [ "$(snap)" = "$s0" ]
+
+echo "-- CK2. a new commit on stable, with the writer holding the recording lock: pending (0); the lock is not taken"
+echo "# ck2" >>"$R/setup/steps/00-a.sh"; commit "ck2"; CK2=$(sha)
+hold_lock system.slice/adsb-writer.service
+s0=$(snap); ck
+drop_lock
+check "CK2 exit 0, one line: pending" rc_line 0 "pending: stable's tip ${CK2:0:12} is the candidate; applied is ${CK:0:12}"
+check "CK2 wrote nothing" [ "$(snap)" = "$s0" ]
+
+echo "-- CK3. a commit that rolls back: inside its 24 h backoff, not pending (11)"
+touch "$R/setup/FAIL-40-c"; commit "ck3: bad"; CK3=$(sha)
+run bash "$U"
+check "CK3 the timer rolled it back (2)" [ "$RC" = 2 ]
+s0=$(snap); ck
+check "CK3 exit 11, the backoff named" rc_has 11 "^not pending: ${CK3:0:12} was rolled_back at " "$SB/ck.out"
+check "CK3 wrote nothing" [ "$(snap)" = "$s0" ]
+rm -f "$R/setup/FAIL-40-c"; commit "ck3: fixed"
+
+echo "-- CK4. offline: not pending (12)"
+mv "$SB/src/origin.git" "$SB/src/gone.git"; ck; mv "$SB/src/gone.git" "$SB/src/origin.git"
+check "CK4 exit 12, the fetch named" rc_has 12 "^not pending: the fetch failed" "$SB/ck.out"
+
+echo "-- CK8. SIGTERM during --check's fetch (one that hangs): it ends at once, 143, nothing on stdout"
+touch "$SB/slow-fetch"
+t0=$SECONDS
+bash "$U" --check >"$SB/ck.out" 2>"$SB/ck.err" &
+ckpid=$!
+sleep 1.5; kill -TERM "$ckpid"; RC=0; wait "$ckpid" || RC=$?
+ck_el=$((SECONDS - t0))
+rm -f "$SB/slow-fetch"
+check "CK8 exit 143 within 5 s, not after the 30 s fetch (took ${ck_el} s)" [ "$RC/$((ck_el < 5))" = 143/1 ]
+check "CK8 nothing on stdout" [ ! -s "$SB/ck.out" ]
+
+echo "-- CK5. usage; and no build on the rig: a timer run would fail there too (13)"
+run bash "$U" --check --retry; check "CK5 --check --retry: 64" [ "$RC" = 64 ]
+fresh_rig; printf 'station:\n  role: portable\n' >"$SB/etc/station.yml"
+ck
+check "CK5 no build: exit 13, saying a timer run would fail too" \
+  rc_has 13 "^not pending: a timer run here would fail too, before any step: no build on this rig" "$SB/ck.out"
+
+echo "-- CK6. an incomplete first build: pending (0) with the ruled reason line, offline too"
+fresh_rig; touch "$R/setup/IFAIL-40-c"; commit "ck6: 40 fails"; CK6=$(sha)
+run bash "$B" --role portable --no-reboot
+check "CK6 the bootstrap left it incomplete (3)" [ "$RC" = 3 ]
+fin=$(S 's["finished_at"]')
+mv "$SB/src/origin.git" "$SB/src/gone.git"; s0=$(snap); ck; mv "$SB/src/gone.git" "$SB/src/origin.git"
+check "CK6 exit 0, the reason line exactly" rc_line 0 \
+  "pending: the first build is incomplete at ${CK6:0:12}; the last run failed 40-c at $fin; the window retries this same commit, and a fix on main does not reach it"
+check "CK6 wrote nothing" [ "$(snap)" = "$s0" ]
+
+echo "-- CK7. the same incomplete build with a dangling applied: --check and the timer agree that it fails"
+ln -sfn worktrees/nowhere "$SB/opt/applied"
+ck
+check "CK7 --check: 13, naming the dangling applied" \
+  rc_has 13 "^not pending: a timer run here would fail too, before any step: applied is dangling and applied-rev is unusable" "$SB/ck.out"
+run bash "$U"
+check "CK7 the timer run: failed (1), the same reason recorded" \
+  [ "$RC/$(S 's["result"]+"|"+s["failed_step"]')" = "1/failed|applied is dangling and applied-rev is unusable" ]
+rm -f "$SB/opt/applied" "$R/setup/IFAIL-40-c"; commit "ck7: done"
+
+echo "== HU. the home-gated opener (bin/adsb-home-update) behind its predicate (bin/adsb-at-home)"
+# The SSID carries a colon and a backslash, which nmcli's terse output escapes.
+SSID='Sec:ret\Home'
+set_home() { sed -i '/^update:/,$d' "$SB/etc/station.yml"; printf 'update:\n  home_ssid: "Sec:ret\\\\Home"\n' >>"$SB/etc/station.yml"; }
+at_home() { printf 'no:Neighbor\nyes:Sec\\:ret\\\\Home\nno:Neighbor\n' >"$SB/nmcli.out"; }
+# unit_run: as adsb-home-update.service runs them: the ExecCondition=, then, only if it passed,
+# the opener, with the unit's Environment= paths, and its unit reading activating meanwhile. Every
+# output is kept for the SSID checks.
+unit_run() {
+  RC=0
+  {
+    ADSB_HOME_STATE=$SB/home/home-update-state bash "$AH" \
+      && { touch "$SB/opener-active"
+           ADSB_WINDOW_MARK=$SB/home/window-opened-by ADSB_RECORDING_LOCK=$SB/run/recording.lock \
+             ADSB_HOME_STATE=$SB/home/home-update-state bash "$OP"; }
+  } >"$SB/out.txt" 2>&1 || RC=$?
+  rm -f "$SB/opener-active"
+  cat "$SB/out.txt" >>"$SB/hu-all.txt"
+}
+none_fired() { [ ! -s "$SB/updater.log" ] && lacks "^start adsb-pull-window.service$" "$SB/systemctl.log"; }
+# hu_line: the run's one ADSB-HOME-UPDATE line matches, and there is exactly one.
+hu_line() { [ "$(grep -c '^ADSB-HOME-UPDATE ' "$SB/out.txt")" = 1 ] && grep -q -- "$1" "$SB/out.txt"; }
+state_is() { [ "$(cut -d' ' -f1 "$SB/home/home-update-state" 2>/dev/null)" = "$1" ]; }
+: >"$SB/hu-all.txt"
+
+fresh_rig; echo "# hu" >>"$R/setup/steps/00-a.sh"; commit "hu: built"; HU=$(sha)
+run bash "$B" --role portable --no-reboot
+echo "# hu2" >>"$R/setup/steps/00-a.sh"; commit "hu2: pending"; HU2=$(sha)
+at_home; : >"$SB/systemctl.log"
+
+echo "-- HU1. update.home_ssid as the template has it (empty): off, and nothing fires"
+unit_run
+check "HU1 exit 1, one tagged line: off" hu_line "^ADSB-HOME-UPDATE off: update.home_ssid is "
+check "HU1 the opener never ran" [ "$RC/$(wc -l <"$SB/out.txt")" = 1/1 ]
+check "HU1 nothing fired: no --check, no window" none_fired
+check "HU1 nmcli was not even asked" [ ! -s "$SB/nmcli.log" ]
+check "HU1 the banner's state file says off" state_is off
+
+echo "-- HU2. at home, a window already open: the ruled guard, nothing opened"
+set_home; touch "$SB/window-active"
+unit_run
+rm -f "$SB/window-active"
+check "HU2 at home, then window-active (0)" [ "$RC/$(head -n1 "$SB/out.txt")" = "0/at home" ]
+check "HU2 one line: nothing to open" hu_line "^ADSB-HOME-UPDATE window-active: the pull window is already active, so there is nothing to open$"
+check "HU2 no --check ran, no window was started" none_fired
+check "HU2 no marker" [ ! -e "$SB/home/window-opened-by" ]
+check "HU2 the state file says at-home" state_is at-home
+
+echo "-- HU3. at home, adsb-update.service already running: nothing opened"
+touch "$SB/update-active"
+unit_run
+rm -f "$SB/update-active"
+check "HU3 update-running (0)" hu_line "^ADSB-HOME-UPDATE update-running: adsb-update.service is already running, so there is nothing to open$"
+check "HU3 nothing fired" none_fired
+
+echo "-- HU3b. at home, the recording lock held by a login's scope, not the writer: lock-held, nothing opened"
+hold_lock user.slice/user-1000.slice/session-4.scope
+unit_run
+drop_lock; rm -f "$SB/cgroup"
+check "HU3b lock-held (0), naming the holder" hu_line "^ADSB-HOME-UPDATE lock-held: the recording lock is held by session-4.scope, not the writer"
+check "HU3b nothing fired" none_fired
+
+echo "-- HU4. at home, an update pending: the marker, the window, the dispatch, the end, the close"
+touch "$SB/window-runs-update"; : >"$SB/systemctl.log"
+unit_run
+rm -f "$SB/window-runs-update"
+check "HU4 exit 0, one line: opened-applied, carrying --check's line and the outcome" \
+  hu_line "^ADSB-HOME-UPDATE opened-applied: pending: stable's tip ${HU2:0:12} is the candidate; applied is ${HU:0:12}; adsb-update.service ran ([0-9]* s), exit 0, status.json: applied; the window is closed"
+check "HU4 --check ran once" [ "$(cat "$SB/updater.log")" = "--check" ]
+check "HU4 order: InvocationID read, the window started, the dispatch seen, the window stopped" \
+  ascending "$(at 'show -p InvocationID --value adsb-update.service')" "$(at 'start adsb-pull-window.service')" \
+            "$(last 'show -p InvocationID --value adsb-update.service')" "$(at 'stop adsb-pull-window.service')"
+check "HU4 the marker is gone" [ ! -e "$SB/home/window-opened-by" ]
+check "HU4 the window's update applied it, trigger window, opened_by adsb-home-update" \
+  [ "$(S 's["result"]+" "+s["applied_rev"]+" "+s["trigger"]+" "+s["opened_by"]')" = "applied $HU2 window adsb-home-update" ]
+
+echo "-- HU5. at home, nothing pending: not-pending, nothing opened"
+: >"$SB/updater.log"; : >"$SB/systemctl.log"
+unit_run
+check "HU5 not-pending (0), carrying --check's line" \
+  hu_line "^ADSB-HOME-UPDATE not-pending: not pending: stable is still ${HU2:0:12}, which is applied$"
+check "HU5 no window was started" lacks "^start adsb-pull-window.service$" "$SB/systemctl.log"
+
+echo "-- HU6. not at home (a hotspot): one tagged line, nothing fires"
+printf 'yes:Hotspot\nno:Sec\\:ret\\\\Home\n' >"$SB/nmcli.out"; : >"$SB/updater.log"; : >"$SB/systemctl.log"
+unit_run
+check "HU6 not-at-home (1), one tagged line" hu_line "^ADSB-HOME-UPDATE not-at-home: "
+check "HU6 exit 1, the opener never ran" [ "$RC/$(wc -l <"$SB/out.txt")" = 1/1 ]
+check "HU6 nothing fired" none_fired
+at_home
+
+echo "-- HU7. status.json's trigger and opened_by: a window by hand, a stale marker, no window"
+echo "# hu7" >>"$R/setup/steps/00-a.sh"; commit "hu7"
+touch "$SB/window-active"; run bash "$U"; rm -f "$SB/window-active"
+check "HU7 inside a window with no marker: trigger window, opened_by hand" \
+  [ "$RC/$(S 's["trigger"]+" "+s["opened_by"]')" = "0/window hand" ]
+echo "# hu7s" >>"$R/setup/steps/00-a.sh"; commit "hu7s"
+echo adsb-home-update >"$SB/home/window-opened-by"; touch "$SB/window-active"
+run bash "$U"; rm -f "$SB/window-active" "$SB/home/window-opened-by"
+check "HU7 a stale marker with no opener running: opened_by hand" \
+  [ "$RC/$(S 's["trigger"]+" "+s["opened_by"]')" = "0/window hand" ]
+echo "# hu7b" >>"$R/setup/steps/00-a.sh"; commit "hu7b"
+run bash "$U"
+check "HU7 outside any window: both null" [ "$RC/$(S 'str(s["trigger"])+" "+str(s["opened_by"])')" = "0/None None" ]
+
+echo "-- HU10. the window's start returns BEFORE its update is dispatched (asynchronous), the writer recording"
+echo "# hu10" >>"$R/setup/steps/00-a.sh"; commit "hu10"; HU10=$(sha)
+hold_lock system.slice/adsb-writer.service
+touch "$SB/window-async-update"; : >"$SB/systemctl.log"; : >"$SB/updater.log"
+unit_run
+rm -f "$SB/window-async-update"; drop_lock; rm -f "$SB/cgroup"
+check "HU10 opened-applied (0): it waited for the dispatch, then the end" \
+  hu_line "^ADSB-HOME-UPDATE opened-applied: pending: stable's tip ${HU10:0:12} is the candidate; .*exit 0, status.json: applied; the window is closed"
+check "HU10 InvocationID was polled more than once before the dispatch" \
+  [ "$(grep -cxF 'show -p InvocationID --value adsb-update.service' "$SB/systemctl.log")" -gt 2 ]
+check "HU10 the update's record names the opener" [ "$(S 's["applied_rev"]+" "+s["opened_by"]')" = "$HU10 adsb-home-update" ]
+
+echo "-- HU11. the window starts, but no update is ever dispatched: error, not-dispatched, the window closed"
+echo "# hu11" >>"$R/setup/steps/00-a.sh"; commit "hu11"
+: >"$SB/systemctl.log"
+unit_run
+check "HU11 error (1): not dispatched, so no update ran" \
+  hu_line "^ADSB-HOME-UPDATE error: opened the pull window (pending: .*), but adsb-update.service was not dispatched within 4 s, so no update ran; the window is closed"
+check "HU11 exit 1, the window stopped, the marker gone" \
+  [ "$RC/$(grep -cxF 'stop adsb-pull-window.service' "$SB/systemctl.log")/$([ -e "$SB/home/window-opened-by" ] && echo marker)" = "1/1/" ]
+
+# hu_clean: no output, log, state or run file holds the SSID, escaped or not (the fixtures aside).
+hu_clean() {
+  local f files=()
+  for f in "$SB/hu-all.txt" "$SB/systemctl.log" "$SB/updater.log" "$SB/window-update.out" "$SB/var" "$SB/log" "$SB/run" "$SB/home"; do
+    [[ -e $f ]] && files+=("$f")
+  done
+  ! grep -rqF -e "$SSID" -e 'Sec\:ret' "${files[@]}" && [ "$(sort -u "$SB/nmcli.log")" = "-t -f active,ssid dev wifi list --rescan no" ]
+}
+check "HU8 the SSID is in no output, log, status or run file, and never on nmcli's command line" hu_clean
+
+echo "-- HU9. an incomplete first build: the opener's line carries --check's reason line"
+fresh_rig; touch "$R/setup/IFAIL-40-c"; commit "hu9: 40 fails"; HU9=$(sha)
+run bash "$B" --role portable --no-reboot
+fin=$(S 's["finished_at"]')
+set_home; at_home; touch "$SB/window-runs-update"
+unit_run
+rm -f "$SB/window-runs-update"
+check "HU9 opened-incomplete, carrying the reason line" \
+  hu_line "^ADSB-HOME-UPDATE opened-incomplete: pending: the first build is incomplete at ${HU9:0:12}; the last run failed 40-c at $fin; the window retries this same commit, and a fix on main does not reach it; adsb-update.service ran ([0-9]* s), exit 3, status.json: incomplete"
+check "HU9 exit 1: the update is not done" [ "$RC" = 1 ]
+check "HU9 the window's pinned run recorded itself, opened by the opener" \
+  [ "$(S 's["result"]+" "+s["candidate_rev"]+" "+s["opened_by"]')" = "incomplete $HU9 adsb-home-update" ]
+check "HU9 the SSID went nowhere" hu_clean
+
+echo "-- BN. the login banner, with station.yml unreadable to its user: role from status.json, home update from the state file"
+chmod 000 "$SB/etc/station.yml"; echo loaded >"$SB/home-timer-load"
+RC=0; bash "$BN" >"$SB/banner.txt" 2>&1 || RC=$?
+chmod 600 "$SB/etc/station.yml"
+check "BN exit 0, and the trap line names --role portable, from status.json" \
+  rc_has 0 "run the bootstrap again, one command (BUILD.md §8): curl -fsSL .* | sudo bash -s -- --role portable$" "$SB/banner.txt"
+check "BN the first trap line names the pin" grep -q "^  first build: incomplete at ${HU9:0:12}; every home window retries this same commit (the pin)" "$SB/banner.txt"
+check "BN home update: on, at home, with its time" grep -q '^  home update: on; last check: at home (as of 20' "$SB/banner.txt"
+check "BN the window's opener named in the last update line" grep -q "in a pull window opened by adsb-home-update)$" "$SB/banner.txt"
+check "BN no SSID" lacks "Sec" "$SB/banner.txt"
+
+echo "-- HU12. a dangling applied: the opener's line says plainly that a timer run would fail"
+ln -sfn worktrees/nowhere "$SB/opt/applied"; : >"$SB/systemctl.log"
+unit_run
+rm -f "$SB/opt/applied" "$R/setup/IFAIL-40-c"
+check "HU12 run-would-fail (1), the reason named" \
+  hu_line "^ADSB-HOME-UPDATE run-would-fail: not pending: a timer run here would fail too, before any step: applied is dangling and applied-rev is unusable"
+check "HU12 exit 1, nothing opened" [ "$RC/$(grep -c '^start adsb-pull-window.service$' "$SB/systemctl.log")" = 1/0 ]
+
+echo "== SEC. root writes only into the opener's own directory, never through a planted link"
+# A victim file stands for /etc/passwd. On a rig the directory is root:root 0755; here it is the
+# test user's, which both writers' remapped OWNER_UID accepts.
+victim=$SB/victim; printf 'untouched\n' >"$victim"
+fresh_rig; echo "# sec" >>"$R/setup/steps/00-a.sh"; commit "sec: built"
+run bash "$B" --role portable --no-reboot
+set_home; at_home
+echo "# sec2" >>"$R/setup/steps/00-a.sh"; commit "sec2: pending"; SEC2=$(sha)
+
+echo "-- SEC1. links planted at the state file and the marker: replaced, not followed"
+rm -f "$SB/home/home-update-state" "$SB/home/window-opened-by"
+ln -s "$victim" "$SB/home/home-update-state"; ln -s "$victim" "$SB/home/window-opened-by"
+touch "$SB/window-runs-update"; : >"$SB/systemctl.log"
+unit_run
+rm -f "$SB/window-runs-update"
+check "SEC1 the opener still applied the update (0), opened by the opener" \
+  [ "$RC/$(S 's["applied_rev"]+" "+s["opened_by"]')" = "0/$SEC2 adsb-home-update" ]
+check "SEC1 the victim is untouched" [ "$(cat "$victim")" = untouched ]
+check "SEC1 the state file is now a plain file saying at-home, and the marker is gone" \
+  [ "$([ -L "$SB/home/home-update-state" ] && echo link)/$(cut -d' ' -f1 "$SB/home/home-update-state")/$([ -e "$SB/home/window-opened-by" ] || [ -L "$SB/home/window-opened-by" ] && echo marker)" = "/at-home/" ]
+
+echo "-- SEC2. the directory writable by others: the predicate refuses (cannot-tell), writes nothing"
+echo "# sec3" >>"$R/setup/steps/00-a.sh"; commit "sec3: pending"
+rm -f "$SB/home/home-update-state"; chmod 0777 "$SB/home"; : >"$SB/systemctl.log"; : >"$SB/updater.log"
+unit_run
+check "SEC2 cannot-tell (2), naming the directory" hu_line "^ADSB-HOME-UPDATE cannot-tell: $SB/home is not a directory owned by root and writable by root alone"
+check "SEC2 exit 2, nothing written" [ "$RC/$(find "$SB/home" -mindepth 1 | wc -l)" = 2/0 ]
+check "SEC2 nothing fired" none_fired
+echo "-- SEC3. the same directory, the opener run directly: error, the marker not written"
+RC=0
+ADSB_WINDOW_MARK=$SB/home/window-opened-by ADSB_RECORDING_LOCK=$SB/run/recording.lock bash "$OP" >"$SB/out.txt" 2>&1 || RC=$?
+chmod 0755 "$SB/home"
+check "SEC3 error (1): it refuses the directory, and opens nothing" \
+  hu_line "^ADSB-HOME-UPDATE error: $SB/home is not a directory owned by root and writable by root alone, so the marker is not written there and nothing is opened"
+check "SEC3 exit 1, no marker" [ "$RC/$(find "$SB/home" -mindepth 1 | wc -l)" = 1/0 ]
+check "SEC3 no --check, no window" none_fired
+echo "-- SEC4. the directory replaced by a symlink: both refuse, nothing written where it points"
+mv "$SB/home" "$SB/home.real"; mkdir -p "$SB/elsewhere"; ln -s "$SB/elsewhere" "$SB/home"
+unit_run
+check "SEC4 the predicate: cannot-tell (2)" [ "$RC/$(grep -c '^ADSB-HOME-UPDATE cannot-tell: ' "$SB/out.txt")" = 2/1 ]
+RC=0
+ADSB_WINDOW_MARK=$SB/home/window-opened-by ADSB_RECORDING_LOCK=$SB/run/recording.lock bash "$OP" >"$SB/out.txt" 2>&1 || RC=$?
+check "SEC4 the opener: error (1)" hu_line "^ADSB-HOME-UPDATE error: $SB/home is not a directory owned by root"
+check "SEC4 nothing was written where the link points" [ "$RC/$(find "$SB/elsewhere" -mindepth 1 | wc -l)" = 1/0 ]
+rm -f "$SB/home"; mv "$SB/home.real" "$SB/home"
 echo
 echo "smoke: $NPASS passed, $NFAIL failed"
 if ((NPASS + NFAIL != EXPECTED_CHECKS)); then
