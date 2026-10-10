@@ -13,8 +13,9 @@
 #     beginning "yes:". ✅ Seen on the 🎒 portable Pi, 2026-10-05: `nmcli -t -f active,ssid dev
 #     wifi` prints one "yes:" line for the active network, plus "no:" lines, duplicated per band.
 #     ✅ Read on the portable Pi 2026-10-09: `nmcli -t -f active dev wifi list --rescan no` works
-#     there, and printed one "yes" and three "no" lines. ⚠️ The two together, the ssid field with
-#     --rescan no, not seen. --rescan no reads NetworkManager's list as it is and asks for no
+#     there, and printed one "yes" and three "no" lines. ✅ The two together, read on the portable
+#     Pi 2026-10-09 (PLAN §9f's readings): `nmcli -t -f active,ssid dev wifi list --rescan no`
+#     gives exactly one "yes:" line. --rescan no reads NetworkManager's list as it is and asks for no
 #     scan. In terse mode nmcli escapes ':' as '\:' and '\' as '\\' inside a value (nmcli's
 #     documentation; ⚠️ not seen with such an SSID), so the value is unescaped before the
 #     comparison. More than one "yes:" line (two Wi-Fi devices): at home if any matches.

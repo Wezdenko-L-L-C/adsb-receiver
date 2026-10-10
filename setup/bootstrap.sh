@@ -53,8 +53,9 @@
 # tools/pull-archive's close, since that waits on the window's stop with no timeout of its own;
 # above the update's own 40 min TimeoutStartSec=); runs update.sh --bootstrap with the lock
 # free; and closes the window once update.sh returns, before any reboot notice (the stop blocks
-# through the window's ExecStop= wait, and its ExecStopPost= starts the writer: ⚠️ belief, not
-# seen on a Pi). An EXIT trap closes it on every other path; after a signal or a timeout with the
+# through the window's ExecStop= wait: half seen under the opener, ⚠️ not while the update is
+# activating; and its ExecStopPost= starts the writer: seen 2026-10-10 under the opener, not under
+# the bootstrap; PLAN §9e's (b) list). An EXIT trap closes it on every other path; after a signal or a timeout with the
 # window's update still running, that close is --no-block, and the window ends itself once its
 # update finishes (that a --no-block stop is carried through ExecStop= by systemd: ⚠️ belief, not
 # seen on a Pi). If the window cannot be started, the writer is started again here (systemctl
@@ -119,9 +120,9 @@
 # both runs). It runs only on a second bootstrap of an incomplete, recording first build, which has
 # not yet occurred, and no SD is staged to prove it (PLAN §9e, the 2026-10-10 ruling under (b)'s
 # beliefs list). The window unit it starts and stops is shared with the opener, and has run end to
-# end under it (PLAN §9f's record on hardware, 2026-10-10 at 08:45). So its beliefs about systemd,
-# marked "⚠️ belief, not seen on a Pi" in this file, are each marked in PLAN §9e's (b) list as seen under
-# the opener and not under the bootstrap, half seen, or not seen. That the window's update is
+# end under it (PLAN §9f's record on hardware, 2026-10-10 at 08:45). So its beliefs about systemd
+# are each marked, here and in PLAN §9e's (b) list, as seen under the opener and not under the
+# bootstrap, half seen, or "⚠️ belief, not seen on a Pi". That the window's update is
 # activating, or has a queued start job, by the time `systemctl start` of the window returns: seen
 # in effect 2026-10-10 under the opener, not under the bootstrap; the wait checks both, so it does
 # not rest on it.
@@ -209,10 +210,12 @@ open_window() {
 }
 
 # close_window normal|trap: stops the pull window if this run opened it, once; the window's
-# ExecStopPost= then starts the writer (--no-block) (⚠️ belief, not seen on a Pi).
+# ExecStopPost= then starts the writer (--no-block) (seen 2026-10-10 under the opener, not under
+# the bootstrap; PLAN §9e's (b) list).
 #   - normal (main, once update.sh returns): a blocking stop, through the window's
 #     ExecStop=, which waits while adsb-update.service is running (up to 45 min) (that the stop
-#     blocks through ExecStop=: ⚠️ belief, not seen on a Pi).
+#     blocks through ExecStop=: half seen under the opener, returning with the update already
+#     inactive; ⚠️ the stop waiting while the update is activating is not seen; PLAN §9e).
 #   - trap (main's EXIT trap: a signal, the wait's timeout, any other exit while open):
 #     the same, unless the window's update is still running; then --no-block, so a Ctrl-C is not
 #     held for up to 45 min, and systemd carries the stop through: the window ends once that
