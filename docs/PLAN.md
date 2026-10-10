@@ -373,6 +373,12 @@ fail on the other rig's steps.
   - an environment variable, which leaks to children and is invisible in `ps`;
   - a separate `--applies` mode.
 
+**(Chris), 2026-10-09, about 18:35: `/security-review` is standing for every change to the rigs'
+code** (`setup/`, `bin/`, `config/` and `tools/`), before it is pushed. It runs after
+`step-reviewer` and `/code-review`, and replaces neither. The reason recorded with the ruling: the
+rigs run root timers that parse radio and Wi-Fi input anyone nearby can send, and this repo is
+public.
+
 ### 9c. Every step ends in a check of the observable effect
 
 Every step ends in a `verify` that checks **what the step was for, not the setting that claims it**:
@@ -886,13 +892,18 @@ finishes the build.
   the build. Chris chose that route by multiple-choice question. ➡️ ~~Nothing is ruled about
   preventing the trap.~~ *Ruled 2026-10-05, (Chris): the trap is kept, with an exit; see the update
   right below. ~~📋 Not built.~~* *Corrected 2026-10-05: (b), the one-command exit, is built in
-  `94e4f94`, ⚠️ not yet run on a Pi; (a) is still 📋 not built.*
+  `94e4f94`, ⚠️ not yet run on a Pi; ~~(a) is still 📋 not built.~~* *Corrected 2026-10-09: (a) is
+  built, in `f411815`; see "The opener, as built" at the end of §9f.*
 
 **Update 2026-10-05: the pinned first build keeps its daily retry, and gets a one-command exit.
 (Chris), 2026-10-05.** 📋 **Ruled, not built.** Nothing below exists in the tree: no `--check`, no
 reason line, no banner line, ~~and no change to `bootstrap.sh`~~. *Corrected 2026-10-05: (b) is
-✅ built, in `94e4f94`, ⚠️ not yet run on a Pi; how, in "(b), as built" below. (a) is still not
-built: no `--check`, no reason line, no banner line.* Ruled by multiple-choice question,
+✅ built, in `94e4f94`, ⚠️ not yet run on a Pi; how, in "(b), as built" below. ~~(a) is still not
+built: no `--check`, no reason line, no banner line.~~* *Corrected 2026-10-09: (a) is built, in
+`f411815`: `--check` prints the reason line below for an incomplete first build, and the banner
+prints the two lines below while `status.json` says `incomplete` and `applied` does not exist.
+⚠️ Neither has run on a Pi: they show only on an incomplete first build, and the 🎒 portable's
+build is complete. See "The opener, as built" at the end of §9f.* Ruled by multiple-choice question,
 after a check against the rulings already written and then an architecture consultation, whose
 mechanism this is. Chris: *"I have no problem with (a) and (b)."* It answers the ⚠️ trap just above.
 
@@ -988,8 +999,8 @@ mechanism this is. Chris: *"I have no problem with (a) and (b)."* It answers the
     - a unit ended by `RuntimeMaxSec=` reads `failed`;
     - the shutdown cancels a queued start.
 - **Order:** ~~both (a) and (b) are 📋 ruled, not built.~~ (b) is built and reviewed before the opener.
-  *Corrected 2026-10-05: (b) is built (`94e4f94`), ⚠️ not yet run on a Pi; (a) is still 📋 ruled,
-  not built.*
+  *Corrected 2026-10-05: (b) is built (`94e4f94`), ⚠️ not yet run on a Pi; ~~(a) is still 📋 ruled,
+  not built.~~* *Corrected 2026-10-09: (a) is built, in `f411815`, ⚠️ not run on a Pi (above).*
 - Rejected:
   - **P1: `--check` not pending when the pin already failed the same steps.** That is the
     hardware-waiting build's exact signature, and it narrows a ruled contract on a heuristic the
@@ -1028,7 +1039,8 @@ mechanism this is. Chris: *"I have no problem with (a) and (b)."* It answers the
     out the window's pinned run, or the ordering is not what §9m reasons): then the exit is a written
     two-command procedure in BUILD.md §8, and the banner prints both commands.
 - ⚠️ **Not verified:**
-  - nothing of the opener or `--check` exists;
+  - ~~nothing of the opener or `--check` exists;~~ *corrected 2026-10-09: both are built, in
+    `f411815`, and applied on the 🎒 portable; see "The opener, as built" at the end of §9f;*
   - the banner has not run on the Pi;
   - the length of a pinned retry at home is not measured (expected minutes, `readsb` already built
     at its pin);
@@ -1074,8 +1086,9 @@ In order:
 ([§9m](#9m--the-portable-rigs-archive-drive)), so the portable records whenever it is on. With the
 recording lock above, it would never update. **(Chris), 2026-10-04: the pull ends the recording
 session.** *Narrowed 2026-10-05, by the ruling of 2026-10-04 (night) at the end of this section: a
-window ends the recording session; the pull and the home check open one. 📋 The home check is not
-built.* Starting the pull window, `adsb-pull-window.service`, stops the writer and pulls in the
+window ends the recording session; the pull and the home check open one. ~~📋 The home check is not
+built.~~* *Corrected 2026-10-09: the home check is built, in `f411815`, and applied on the 🎒
+portable; see "The opener, as built" at the end of this section.* Starting the pull window, `adsb-pull-window.service`, stops the writer and pulls in the
 same update oneshot the timer runs, ordered after the writer's stop. When the window ends, it starts
 the writer again; after a reboot, the next boot does. The mechanism is in §9m. ~~📋 None of this is
 built.~~ *Corrected 2026-10-04: built, not yet run on hardware. `setup/steps/60-portable-pull.sh`
@@ -1423,7 +1436,10 @@ cgroup v2, which are what these mechanisms assume. Four choices below were ruled
   `ADSB_UPDATE_RUN` and holds the recording lock, so a run the timer fires at once only finds the
   lock held. Run by hand, the step leaves the timer to start at the next boot and prints the
   command to start it now, and its verify warns rather than fails. ⚠️ Belief, not checked: a timer
-  started after its `OnBootSec=` has passed may elapse at once. The verify runs
+  started after its `OnBootSec=` has passed may elapse at once. *Update 2026-10-09:* ✅ *seen once,
+  for `adsb-home-update.timer`, the opener's timer, which step 70 starts the same way: its start
+  under `update.sh` fired it at once, on the 🎒 portable at 19:16 Arizona time (the record is at the
+  end of this section). For `adsb-update.timer` itself it is still not seen.* The verify runs
   `systemd-analyze verify --recursive-errors=no` (systemd 250 and later). The build's own choices,
   after review.
 - **The login banner.** It reads and prints, and changes nothing. It never fails a login: no
@@ -1499,10 +1515,15 @@ cgroup v2, which are what these mechanisms assume. Four choices below were ruled
   - the step-2 success test above.
 
 **Update 2026-10-04 (night), written 2026-10-05: the 🎒 portable updates itself at home, through a
-home-gated window opener, at boot and daily. (Chris), 2026-10-04, about 20:55, option A.** 📋
+home-gated window opener, at boot and daily. (Chris), 2026-10-04, about 20:55, option A.** ~~📋
 **Ruled, not built.** Nothing of the opener exists in the tree: no unit, script, mode, key or field
-below. Ruled by multiple-choice question, after a check against the rulings already written and then
-an architecture consultation, whose design this is.
+below.~~ *Corrected 2026-10-09: built in `f411815`, with step 70's timer verify as ruled on
+2026-10-09 in `eeaeffe`, `9a6c6d9` and `b7d2527`; `main` and `stable` are `b7d2527`, applied on the
+🎒 portable on 2026-10-09 at about 20:13 Arizona time. What the build adds to the text below, and
+the rulings of 2026-10-09, are in the blocks after it: "The opener, as built", the security ruling,
+the timer verify's ruling, and the record on hardware.* Ruled by multiple-choice question, after a
+check against the rulings already written and then an architecture consultation, whose design this
+is.
 
 - ⭐ **Chris's standing statement that drove it:** *"I want automated updates and I am ok with setup
   installs run by me (but not multiple commands - we have been using linux scripts for years to
@@ -1525,11 +1546,14 @@ an architecture consultation, whose design this is.
   - Then `adsb-update --check`, a new mode: no lock, the fetch and the real resolver, and no
     `status.json` written. Exit `0` means an update is pending: ~~`main`~~ *`stable` (corrected
     2026-10-05, (Chris): both rigs follow `stable`, §9g's 2026-10-05 update)* is past `applied`, or the
-    build is incomplete. *Extended 2026-10-05, (Chris), 📋 ruled, not built: the contract stands as
+    build is incomplete. *Extended 2026-10-05, (Chris), ~~📋 ruled, not built~~ built 2026-10-09 in
+    `f411815`: the contract stands as
     written; for an incomplete first build `--check` also prints one reason line, which the
     opener's `ADSB-HOME-UPDATE` line carries; the line and why are at the end of
     [§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic).*
-  - If one is pending, it drops a tmpfs marker, `/run/adsb-receiver/window-opened-by`; starts
+  - If one is pending, it drops a tmpfs marker, ~~`/run/adsb-receiver/window-opened-by`~~
+    *`/run/adsb-home-update/window-opened-by` (corrected 2026-10-09, (Chris), by the security
+    ruling after "The opener, as built" below)*; starts
     `adsb-pull-window.service`; waits for `adsb-update.service` to be dispatched and to finish; stops
     the window, whose `ExecStop=` wait applies as for any closer; and removes the marker.
   - ⚠️ **A required guard: a window already active means there is nothing to open.**
@@ -1577,12 +1601,174 @@ an architecture consultation, whose design this is.
   - that NetworkManager is the stack, and what `nmcli` prints, on Pi OS Lite trixie. *Update
     2026-10-05:* ✅ read on the 🎒 portable Pi: `nmcli -t -f active,ssid dev wifi` prints the
     active SSID in its terse output, as one line beginning `yes:`, plus `no:` lines duplicated per
-    band. ➡️ The predicate must take the `yes:` line;
+    band. ➡️ The predicate must take the `yes:` line; *Update 2026-10-09:* ✅ *the command the
+    predicate runs, `nmcli -t -f active,ssid dev wifi list --rescan no`, gave exactly one `yes:`
+    line on the 🎒 portable Pi (the record on hardware below);*
   - `ExecCondition=` on systemd 257. *Update 2026-10-05: the Pi runs systemd 257.13;
-    `ExecCondition=` on it is still unverified;*
+    ~~`ExecCondition=` on it is still unverified;~~* *Update 2026-10-09:* ✅ *seen on systemd
+    257.13: `ExecCondition=` ran `adsb-at-home`, which said "at home", and the opener ran after it,
+    on 2026-10-09 at 19:16 and on 2026-10-10 at 08:02 (the record on hardware below). The "not at
+    home" and "off" exits skipping the run are not seen;*
   - whether `systemctl start` of the window returns before the update's job is dispatched;
   - the window's `Conflicts=` and `After=` ordering. *Update 2026-10-05: the writer's stop was seen
     before the update's start, at the end of §9e.*
+
+**The opener, as built, 2026-10-09.** Built in `f411815`: step `70-portable-home-update`
+(`setup/steps/70-portable-home-update.sh`), `bin/adsb-at-home`, `bin/adsb-home-update`,
+`adsb-update --check`, `status.json`'s `trigger` and `opened_by`, and the banner's lines, including
+§9e's (a). Step 70's timer verify was then rebuilt to the ruling below, in `eeaeffe`, `9a6c6d9` and
+`b7d2527`. `main` and `stable` are both `b7d2527`. It was applied on the 🎒 portable on 2026-10-09
+at about 20:13 Arizona time (the record on hardware below). What the build adds to the ruled text
+above, from the code:
+
+- **Its own step, portable only,** after `50-updater`, which installs `adsb-update` with `--check`,
+  and `60-portable-pull`, which installs the window. The build's choice, not ruled.
+- **The timer:** `OnBootSec=4min`, as ruled, and `OnCalendar=*-*-* 04:30:00`, in the rig's local
+  time. ⚠️ **04:30 is the implementer's pick, not ruled.** No `Persistent=` and no
+  `RandomizedDelaySec=`.
+- **`adsb-update --check`** takes no lock and writes nothing: no `status.json`, no log directory,
+  nothing under `/var/lib`, no apt heal. It fetches and runs the same resolver a timer run does,
+  then prints one line on stdout, `pending: …` or `not pending: …`. Its exit codes:
+  - `0`: pending;
+  - `10`: not pending (the channel is unchanged, or its tip is under the soak);
+  - `11`: not pending (the candidate failed within 24 h: the backoff);
+  - `12`: not pending (the fetch failed);
+  - `13`: not pending, because a timer run here would fail too, before any step: the rig needs a
+    hand, and a window would change nothing;
+  - `1`: could not tell (not root, a tool missing);
+  - `64`: bad usage;
+  - `128+N`: after a signal.
+
+  An incomplete first build is always pending, with no fetch, and its line is §9e's (a) reason line.
+  ⚠️ **The 24 h backoff inside `--check` is the implementer's reading of "pending", not ruled.**
+  The reason given in `update.sh`'s header: without it, a window opened inside the backoff would
+  run nothing, rejected option C's gap "for nothing".
+- **`status.json`'s `trigger` and `opened_by`** are read once, when the run takes the lock. If
+  `adsb-pull-window.service` is active, activating or deactivating, `trigger` is `window`, and
+  `opened_by` is `adsb-home-update` when the opener's marker exists **and**
+  `adsb-home-update.service` is activating, else `hand`. A marker left behind with no opener
+  running is ignored. With no window, both are null: `mode` already says `timer`, `rev` or
+  `bootstrap`, and a timer-mode run cannot tell the timer from `adsb-update` typed by hand. The
+  implementer's choice, not ruled.
+- **The banner's §9e (a) lines differ from the ruled text in two places,** both noted in
+  `setup/files/motd-banner.sh`: the bootstrap line takes `--role` from `status.json`'s `role`, not
+  from `station.yml`, because the banner runs as the login, which cannot read `station.yml` (a code
+  review's finding, ⚠️ not seen on the Pi); and it prints BUILD.md §8's whole URL rather than
+  "…/setup/bootstrap.sh", so the line can be copied (the implementer's reading, not ruled).
+
+**The opener's runtime directory: a security finding and its ruling. (Chris), 2026-10-09, about
+18:50.** `/security-review` of the opener, before it was pushed, found its root writes landing in
+`/run/adsb-receiver`, which is owned by the writer's user, `adsb-receiver:adsb-operator 0755`
+(✅ read on the Pi, below). A link planted there would let a compromised writer clobber any file as
+root.
+
+- **The ruling:** the opener's files move to a root-owned `/run/adsb-home-update`, made by its own
+  tmpfiles.d file, `/etc/tmpfiles.d/adsb-home-update.conf`, `root:root 0755`. Both writers,
+  `adsb-at-home` (its state file, for the banner) and `adsb-home-update` (its marker), refuse a
+  directory that is not a real directory owned by root and writable by root alone, and never write
+  through a link. Smoke cases SEC1 to SEC4 in `tests/smoke_update.sh` exercise it.
+- *The build's choice, not ruled:* a tmpfiles.d entry rather than `RuntimeDirectory=`, because the
+  directory must outlive each run of the oneshot: the banner reads the state between runs.
+- 📋 **Reported by the same review, not fixed; open:**
+  - `need_reboot` in `setup/lib.sh` appends to `/run/adsb-receiver/reboot-required` as root: a
+    root write into the same writer-owned directory, the same link class. It predates the opener;
+  - the login banner prints `reboot-required` and `status.json`'s lines raw, so a terminal escape
+    in either reaches the login's terminal;
+  - `update.sh`'s `prepare_config` echoes a malformed `--set` value in its error, and passes the
+    `--set` values to `python3` in its arguments, where any process on the Pi can read them.
+
+**Step 70's timer verify. (Chris), 2026-10-09, about 20:00.** Ruled by multiple-choice question, on
+an architecture consultation's recommendation, after the third self-correction on this verify. It
+answers the 19:16 rollback in the record below: the verify of `f411815` read the timer while the
+timer's own install-time fire was running, and found no next elapse. ⚠️ That systemd shows no
+realtime next elapse while a timer is `running` is a belief, not seen in `systemctl show`.
+
+- **Starting the timer under `update.sh` stays**, as for `50-updater`'s timer.
+- **One `systemctl show` snapshot of the timer, decided on `SubState`:**
+  - `running` passes: the timer fired its service, and that run has not ended. One rule covers the
+    install-time fire, a by-hand verify during a 04:30 run, and the home update that the opener
+    itself is running;
+  - `waiting` passes only with a realtime next elapse that `date -d` parses (not empty, `n/a`,
+    `infinity` or `0`). Without one, the snapshot is read again, up to 5 reads, with `SubState`
+    decided afresh at every read;
+  - anything else fails.
+- **Plus `systemd-analyze calendar`** on `DAILY_AT`, the one variable `render_timer` also uses,
+  which must give a next elapse. Both checks run under `LC_ALL=C`.
+- **No wait, and no marker carve-out.**
+- *From the consultation, not the ruling's text:* the `running` pass is not
+  [§9c](#9c-every-step-ends-in-a-check-of-the-observable-effect)'s rejected "verify that passes
+  with a warning when there is no fix". It passes on evidence of the fire, and names the one fact it
+  did not read.
+- Rejected:
+  - **The 90 s wait and the marker carve-out of `0142623`.** It passes on a guess about whose run
+    it is, and its wait kills a by-hand verify that lands in a `--check` phase.
+  - **Gating on the service's state.** Weaker evidence than the timer's own.
+  - **Starting the timer only at the next boot.** Days with no opener.
+  - **Changing the unit's timing.** It moves the race.
+- ➡️ **What would change it,** from the consultation's report:
+  - a timer seen in `running` without having fired, such as a by-hand service start seen to put it
+    there on systemd 257.13: then `running` is not proof of a fire, and that branch must also
+    require `LastTriggerUSec` set and within this boot;
+  - a home update after which the timer does not re-arm: then the re-arm is a real failure mode,
+    and its observer moves to where it is observable, the banner's line and the opener's next run,
+    or a check after `update.sh` releases the lock, not the step's verify;
+  - `systemd-analyze calendar` absent or differently formatted on the Pi: then the `Next elapse:`
+    line is accepted leniently, or the check is dropped and recorded as a belief; the verify does
+    not die on tooling;
+  - the install-time fire under a bootstrap's `update.sh` seen to do more than find the lock held
+    (a `--check` fetch colliding with the bootstrap's, or a window opened): then the timer is
+    started under `update.sh` only while the pull window is active, activating or deactivating,
+    and only enabled otherwise;
+  - a correctly armed timer seen `waiting` with no realtime next elapse for longer than the 5
+    reads: then the bound is wrong, and the check becomes "realtime or monotonic set".
+- ⚠️ **Beliefs it rests on, not seen on a Pi:**
+  - a timer enters `running` only on its own elapse; a by-hand start of the service is believed to
+    leave it `waiting`;
+  - `NextElapseUSecRealtime` is empty while the timer is `running`.
+
+✅ **Verified on hardware, 2026-10-09 and 2026-10-10: the opener on the 🎒 portable, `mobile-adsb`.**
+Read on the Pi over SSH by Claude, or pasted by Chris; Arizona time, which is the Pi's.
+
+- **2026-10-09, 19:16: `f411815` rolled back at step 70's verify.** Starting the timer under
+  `update.sh` fired it at once: its `OnBootSec=` had long passed. The opener ran for about 1 s.
+  `ExecCondition=` on systemd 257.13 ran `adsb-at-home`, which said "at home"; then the opener
+  logged `ADSB-HOME-UPDATE window-active … nothing to open`, because the update's own window was
+  open. The old verify's `list-timers` read, 273 ms later, showed NEXT `-`, mid-run. A minute later
+  `systemctl show` gave `SubState=waiting`, next elapse 04:30. The rollback was ok. *Added
+  2026-10-10:* the order, a fire at the timer's start and then a read 273 ms later, is consistent
+  with the code: `update.sh`'s install pass runs each step without `--verify` (`run_one` adds it
+  only in the verify phase), and step 70 run without `--verify` installs and then runs its own
+  verify, so the timer's start and the verify's read of the timer both ran inside the install
+  pass's one run of step 70. ⚠️ The order is from the reading at the time (commit `0142623`'s
+  message), not re-verified: the 19:16 journal cannot be read again, because the Pi rebooted on
+  2026-10-10 at 07:58 and its journal is volatile (below).
+- **2026-10-09, about 20:13: the fourth pull applied `b7d2527`** (`result: applied`,
+  `channel: stable`, exit `0`). Step 70's install was ok and its verify ok, every check `PASS`:
+  the root-owned directory; the binaries; `--check` known to the installed updater; the units equal
+  to their render; `systemd-analyze calendar` giving a next elapse at 04:30 MST; the timer
+  `waiting` with a next elapse of Sat 04:30 MST; the predicate "at home". The writer was recording
+  again.
+- **Readings, 2026-10-09:**
+  - `nmcli -t -f active,ssid dev wifi list --rescan no` gives exactly one `yes:` line;
+  - the Pi's timezone is `America/Phoenix`;
+  - `/run/adsb-receiver` is `adsb-receiver:adsb-operator 0755`;
+  - `systemctl show` of a waiting timer gives `NextElapseUSecMonotonic=0` when there is no monotonic
+    elapse;
+  - `channel: stable` first appeared in `status.json` at the first applied run, because an
+    unchanged run writes no `status.json`, by design (§9f's `status.json` bullet, its 2026-10-04
+    "as built" correction).
+- **2026-10-10, read over SSH by Claude:** the Pi booted at 07:58:16. `adsb-home-update.timer` fired
+  at 08:02:17, boot plus 4 min 01 s, so `OnBootSec=4min` is seen. `adsb-at-home` printed "at home";
+  the opener logged
+  `ADSB-HOME-UPDATE not-pending: not pending: stable is still b7d252760b31, which is applied`; the
+  service deactivated successfully. Next elapse: Sun 2026-10-11 04:30 MST.
+- ⚠️ **The Pi's journal is volatile:** `journalctl --list-boots` shows only the current boot. So
+  whether the 04:30 run of 2026-10-10 happened is **not verifiable**, and any later "did the opener
+  run" check reads only the current boot. A persistent journal is not built: it is the separate,
+  later step under "Open, ruled to be decided later" above.
+- ⚠️ **No automatic open has happened yet:** nothing has been pending. The open path, the window's
+  start, a new `InvocationID` on `adsb-update.service`, then the outcome, is still a belief, as is
+  `ExecMainStatus` holding the oneshot's exit code.
 
 ### 9g. Channels: portable tracks `main`, stationary tracks `stable`
 
@@ -2693,8 +2879,9 @@ to 03:21Z. This is the pull whose journal lines are under the pull window below.
 
 **The pull window. (Chris), 2026-10-04: the pull ends the recording session.** *Narrowed
 2026-10-05, by the ruling of 2026-10-04 (night) at the end of [§9f](#9f-what-updatesh-does): a
-window ends the recording session; the pull and the home check open one. 📋 The home check is not
-built.* Without this,
+window ends the recording session; the pull and the home check open one. ~~📋 The home check is not
+built.~~* *Corrected 2026-10-09: the home check is built, in `f411815`, and applied on the 🎒
+portable; see "The opener, as built" at the end of §9f.* Without this,
 §9f's recording lock and a portable that is always recording would mean the portable never updates.
 The window is a unit, `adsb-pull-window.service`, rendered by the pull step (below):
 
