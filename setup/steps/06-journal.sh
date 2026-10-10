@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # 06-journal: make the systemd journal persistent, with a size cap. BUILD.md: none yet (no
-# section, no §8 step). The shape is PLAN §9f's "A persistent journal is a separate, small step" (under "Open, ruled to be
-# decided later"); ruled to be built, right after step 5, by Chris on 2026-10-10.
+# section, no §8 step). The shape is PLAN §9f's "A persistent journal is a separate, small step"
+# (under "Open, ruled to be decided later"); ruled to be built, right after step 5, by Chris on
+# 2026-10-10.
 #
 # Shared by both rigs, so it reads no station.yml and asserts no role. It matters most on the 🏠
 # stationary, where a watchdog reboot would otherwise erase its own cause; on the 🎒 portable it
@@ -47,16 +48,22 @@
 #     the service manager holds copies of their descriptors. Read on the 🎒 portable, 2026-10-10
 #     (systemd 257.13): systemd-journald.service has FileDescriptorStoreMax=4224,
 #     FileDescriptorStorePreserve=yes and NFileDescriptorStore=16, so the store is configured; no
-#     restart was seen. ⚠️ That the streams survive the restart is a belief. So the step reads
-#     readsb's and adsb-writer's InvocationID and NRestarts before the restart and again after the
-#     flush, and warns loudly if either changed (a unit not loaded, as on a first build, is
-#     skipped). ⚠️ It sees only a break the unit has already hit: a broken stream fails on the
-#     unit's next write, which may come later. update.sh's own output goes through its tee, which
-#     ignores SIGPIPE (setup/update.sh:235): its journal copy could lose lines, but run.log stays
-#     complete. systemd-journal-flush.service does not Require, BindsTo or PartOf journald (read
+#     restart was seen. ⚠️ That the streams survive the restart is a belief. So the step checks it,
+#     and warns loudly (never dies) on what it finds:
+#       - the mechanism: journald's NFileDescriptorStore before the restart and after the flush (a
+#         fall means streams were dropped; other services' streams come and go, so a small change
+#         is printed, and only a fall is warned);
+#       - each of readsb and adsb-writer that is running: its main process's fd 1 is a unix
+#         socket whose other end, /run/systemd/journal/stdout in `ss -xpn`, is held by the new
+#         journald's PID. This sees a dropped stream before the unit next writes;
+#       - the outcome: their InvocationID and NRestarts, before and after, which catch a unit
+#         that has already died on a broken stream and been restarted.
+#     A unit not loaded, as on a first build, is skipped. update.sh's own output goes through its
+#     tee, which ignores SIGPIPE (setup/update.sh:235): its journal copy could lose lines, but
+#     run.log stays complete. systemd-journal-flush.service does not Require, BindsTo or PartOf journald (read
 #     on the portable, 2026-10-10), so the restart does not reach it.
-#   The restart happens only when the drop-in changed, or journald is not on /var yet; a second run
-#   changes nothing.
+#   The restart happens only when the drop-in changed, or the running journald has no file open
+#   under /var/log/journal/<machine-id>/ (its /proc/<pid>/fd links); a second run changes nothing.
 #
 # ⚠️ A rollback by update.sh to a tree without this step does not run it (it runs the applied tree's
 #    steps); update.sh names it in status.json's rollback.leftovers_possible (setup/update.sh,
@@ -81,7 +88,8 @@ DROPIN=$DROPIN_DIR/60-adsb-receiver-persistent.conf
 STORAGE=persistent
 MAX_USE=200M
 JOURNAL_DIR=/var/log/journal
-# journald's own flag (systemd-journald, server_flush_to_var): written once it has flushed /run to /var.
+# journald's own flag (server_flush_to_var): written once it has flushed /run to /var. Printed by
+# verify as evidence; the restart decision reads the running daemon instead (journald_on_var).
 FLUSHED_FLAG=/run/systemd/journal/flushed
 JOURNALD=systemd-journald.service
 VERIFY_TAG=adsb-06-journal
@@ -115,10 +123,13 @@ machine_id() {
 
 # configured <key>: the last value of <key> in the [Journal] section, as `systemd-analyze cat-config`
 # lists the main file and its drop-ins in precedence order; prints nothing if no file sets it.
-# Each file's "# /path" header resets the section, since a section does not carry across files.
+# Each file's header resets the section, since a section does not carry across files. The header is
+# cat-config's exact shape, "# " and one absolute path with no space (as printed by systemd 259 on
+# the workstation, and in systemd-analyze(1)'s example), so a comment such as "# /var/log/journal is
+# ..." inside a file does not reset it.
 configured() {
   awk -v k="$1" '
-    /^# \// { sec = ""; next }
+    /^# \/[^ ]+$/ { sec = ""; next }
     /^[[:space:]]*[#;]/ { next }
     /^[[:space:]]*\[/ { sec = $0; gsub(/[[:space:]]/, "", sec); next }
     sec == "[Journal]" && match($0, "^[[:space:]]*" k "[[:space:]]*=") {
@@ -135,9 +146,27 @@ read_cat_config() {
 
 MID=$(machine_id)
 
-# on_var: journald has flushed to /var and its system journal is there.
-on_var() {
-  [[ -e $FLUSHED_FLAG && -f $JOURNAL_DIR/$MID/system.journal ]]
+# journald_pid: the running journald's MainPID, or nothing.
+journald_pid() {
+  local pid
+  pid=$(systemctl show -P MainPID "$JOURNALD" 2>/dev/null) || pid=
+  [[ $pid =~ ^[1-9][0-9]*$ ]] && printf '%s\n' "$pid"
+  return 0
+}
+
+# journald_on_var: the running journald has a file open under /var/log/journal/<machine-id>/, read
+# from its /proc/<pid>/fd links. That is the daemon's own state, not a flag file or a file left from
+# an earlier boot. ⚠️ Belief, from the v257 source, not seen on a Pi: journald keeps system.journal
+# open while it writes there (an offlined file stays open; only a rotation or a relinquish closes it,
+# and a rotation opens the next one).
+journald_on_var() {
+  local pid f
+  pid=$(journald_pid)
+  [[ -n $pid ]] || return 1
+  for f in /proc/"$pid"/fd/*; do
+    [[ $(readlink "$f" 2>/dev/null) == "$JOURNAL_DIR/$MID/"* ]] && return 0
+  done
+  return 1
 }
 
 # install_dropin: render, diff, install by rename. Sets CHANGED to 0 or 1.
@@ -172,14 +201,60 @@ unit_mark() {
   printf '%s %s\n' "${inv:-none}" "${nr:-?}"
 }
 
+# fd_store: journald's NFileDescriptorStore, the stream descriptors the service manager holds for it.
+fd_store() {
+  local n
+  n=$(systemctl show -P NFileDescriptorStore "$JOURNALD" 2>/dev/null) || n=
+  printf '%s\n' "${n:-?}"
+}
+
+# stream_held <unit>: the unit's main process has fd 1 on a unix stream socket whose peer is
+# /run/systemd/journal/stdout and is held by the running journald. Prints what it found; returns 1
+# when the stream is not held, 2 when it cannot tell (not running, or fd 1 is not a socket).
+# Read from `ss -xpn`: the journald end is the line whose local address is
+# /run/systemd/journal/stdout and whose peer inode is the unit's socket inode (that shape seen
+# with ss on the workstation; the process column, pid=<journald>, needs root, which this step is).
+stream_held() {
+  local u=$1 pid link ino jpid line
+  pid=$(systemctl show -P MainPID "$u" 2>/dev/null) || pid=
+  [[ $pid =~ ^[1-9][0-9]*$ ]] || { echo "$u: no main process"; return 2; }
+  link=$(readlink "/proc/$pid/fd/1" 2>/dev/null) || link=
+  [[ $link =~ ^socket:\[([0-9]+)\]$ ]] || { echo "$u: fd 1 of PID $pid is '${link:-unreadable}', not a socket"; return 2; }
+  ino=${BASH_REMATCH[1]}
+  command -v ss >/dev/null || { echo "$u: ss is not installed, so its stream cannot be read"; return 2; }
+  jpid=$(journald_pid)
+  line=$(ss -xpn 2>/dev/null | awk -v i="$ino" '$1 == "u_str" && $5 == "/run/systemd/journal/stdout" && $8 == i') || line=
+  if [[ -n $line && -n $jpid && $line == *"pid=$jpid,"* ]]; then
+    echo "$u: fd 1 of PID $pid (socket $ino) is connected to journald (PID $jpid)"
+    return 0
+  fi
+  echo "$u: fd 1 of PID $pid (socket $ino) has no journald end held by PID ${jpid:-?}; ss: ${line:-(no line)}"
+  return 1
+}
+
 # check_streams: compare each loaded stream unit with its mark from before the restart (BEFORE).
 # A changed InvocationID or NRestarts means the unit was restarted across journald's restart: its
 # stream may have broken, and for the writer that ended a recording session. Warned, never fatal:
 # the reason is at the call.
 declare -A BEFORE=()
+FD_BEFORE='?'
 check_streams() {
-  local u now st i
+  local u now st i n_after rc
   sleep 5   # a write that hits a broken stream, and the unit's Restart=, take a moment
+  # The mechanism, directly: the store, then each running unit's own stream. The store also holds
+  # every other service's stream, and those come and go, so a small change is reported, not judged;
+  # a fall by about the number of stream connections means the streams were dropped.
+  n_after=$(fd_store)
+  log "$JOURNALD NFileDescriptorStore: $FD_BEFORE before the restart, $n_after after the flush"
+  if [[ $FD_BEFORE =~ ^[0-9]+$ && $n_after =~ ^[0-9]+$ ]] && ((n_after < FD_BEFORE)); then
+    warn "journald's descriptor store fell from $FD_BEFORE to $n_after across its restart: services' streams into the journal may have been dropped. Check: systemctl show -p NFileDescriptorStore $JOURNALD; journalctl -b -u $JOURNALD"
+  fi
+  for u in "${STREAM_UNITS[@]}"; do
+    [[ -n ${BEFORE[$u]:-} ]] || continue
+    rc=0
+    stream_held "$u" || rc=$?
+    ((rc != 1)) || warn "$u's stdout stream is no longer held by journald: its output is lost until it restarts (see above). Check: journalctl -u $u -n 50; then: sudo systemctl restart $u"
+  done
   for u in "${STREAM_UNITS[@]}"; do
     [[ -n ${BEFORE[$u]:-} ]] || continue
     now=$(unit_mark "$u")
@@ -219,8 +294,8 @@ install_step() {
   [[ $got == "$STORAGE" ]] \
     || die "the configured Storage= (cat-config's last word) is '${got:-unset}', not $STORAGE: a drop-in sorted after ${DROPIN##*/} overrides it. See: systemd-analyze cat-config systemd/journald.conf"
 
-  if ((CHANGED == 0)) && on_var; then
-    log "journald is already writing to $JOURNAL_DIR and the drop-in is unchanged; not restarted"
+  if ((CHANGED == 0)) && journald_on_var; then
+    log "journald (PID $(journald_pid)) has a file open under $JOURNAL_DIR/$MID/ and the drop-in is unchanged; not restarted"
     return 0
   fi
   # See the header: on 257 only a restart loads the drop-in, and only a flush after it moves to /var.
@@ -229,6 +304,7 @@ install_step() {
     BEFORE[$u]=$(unit_mark "$u")
     if [[ -n ${BEFORE[$u]} ]]; then log "$u InvocationID and NRestarts before journald's restart: ${BEFORE[$u]}"; fi
   done
+  FD_BEFORE=$(fd_store)
   unit restart "$JOURNALD"
   log "timeout $FLUSH_BOUND journalctl --flush"
   timeout "$FLUSH_BOUND" journalctl --flush || rc=$?
@@ -247,7 +323,8 @@ install_step() {
 # --- verify --------------------------------------------------------------------
 
 # The install tier (PLAN §9c): not the drop-in, but that journald is writing to disk. The drop-in
-# matches its render; cat-config shows it as the configured last word on Storage= and SystemMaxUse=; and a
+# matches its render; cat-config shows it as the configured last word on Storage= and
+# SystemMaxUse=; the machine directory is root:systemd-journal and setgid; and a
 # message logged now is read back from /var/log/journal/<machine-id>/. ⛔ Never a check across boots:
 # that the journal survives a reboot is a hardware observation, not something a verify can see.
 verify() {
@@ -280,6 +357,14 @@ verify() {
   echo "----"
   [[ -f $JOURNAL_DIR/$mid/system.journal ]] \
     || die "no $JOURNAL_DIR/$mid/system.journal: journald is not writing to disk. Run this step without --verify (it restarts journald and flushes)"
+  # systemd's own tmpfiles rule for it is 2755 root:systemd-journal: the group reads the journal,
+  # and the setgid bit passes the group to what journald creates inside. Install runs that rule.
+  local perm
+  perm=$(stat -c '%U:%G %a' "$JOURNAL_DIR/$mid")
+  if ! [[ ${perm%% *} == root:systemd-journal ]] || ! (( 8#${perm##* } & 02000 )); then
+    die "$JOURNAL_DIR/$mid is '$perm', not root:systemd-journal with the setgid bit (2755): the systemd-journal group cannot read the journal. Run this step without --verify (it runs systemd-tmpfiles --create --prefix $JOURNAL_DIR)"
+  fi
+  pass "$JOURNAL_DIR/$mid is $perm"
 
   # The effect: a line logged now is on disk under /var. --sync waits until journald has written
   # what it has received; a stream line may reach it a moment later, so the read is retried.
