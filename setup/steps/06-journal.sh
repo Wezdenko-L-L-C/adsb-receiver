@@ -49,21 +49,32 @@
 #     (systemd 257.13): systemd-journald.service has FileDescriptorStoreMax=4224,
 #     FileDescriptorStorePreserve=yes and NFileDescriptorStore=16, so the store is configured; no
 #     restart was seen. ⚠️ That the streams survive the restart is a belief. So the step checks it,
-#     and warns loudly (never dies) on what it finds:
-#       - the mechanism: journald's NFileDescriptorStore before the restart and after the flush (a
-#         fall means streams were dropped; other services' streams come and go, so a small change
-#         is printed, and only a fall is warned);
+#     and warns loudly (never dies, even when the flush then fails) on what it finds:
+#       - the mechanism, printed and not judged: journald's NFileDescriptorStore before the restart
+#         and after the flush (it holds every service's streams, and transient services' streams
+#         come and go inside the window, so a change in it proves nothing);
 #       - each of readsb and adsb-writer that is running: its main process's fd 1 is a unix
 #         socket whose other end, /run/systemd/journal/stdout in `ss -xpn`, is held by the new
-#         journald's PID. This sees a dropped stream before the unit next writes;
+#         journald's PID. This sees a dropped stream before the unit next writes; warned;
 #       - the outcome: their InvocationID and NRestarts, before and after, which catch a unit
-#         that has already died on a broken stream and been restarted.
-#     A unit not loaded, as on a first build, is skipped. update.sh's own output goes through its
-#     tee, which ignores SIGPIPE (setup/update.sh:235): its journal copy could lose lines, but
-#     run.log stays complete. systemd-journal-flush.service does not Require, BindsTo or PartOf journald (read
-#     on the portable, 2026-10-10), so the restart does not reach it.
-#   The restart happens only when the drop-in changed, or the running journald has no file open
-#   under /var/log/journal/<machine-id>/ (its /proc/<pid>/fd links); a second run changes nothing.
+#         that has already died on a broken stream and been restarted; warned.
+#     A unit not loaded, as on a first build, or loaded but not active before the restart, is
+#     skipped: one that starts inside the window is not a restart. update.sh's own output goes
+#     through its tee, which ignores SIGPIPE (setup/update.sh:235): its journal copy could lose
+#     lines, but run.log stays complete. systemd-journal-flush.service does not Require, BindsTo or
+#     PartOf journald (read on the portable, 2026-10-10), so the restart does not reach it.
+#   The restart happens only under update.sh (ADSB_UPDATE_RUN is set; ruled by Chris, 2026-10-10),
+#   as 50-updater and 70-portable-home-update start their timers only there: update.sh holds the
+#   recording lock, so no session is recording. Run by hand, no lock is held, and a
+#   restart on a recording rig could drop the writer's stdout stream, which nobody has seen
+#   survive: the step installs the drop-in and runs tmpfiles, warns that journald has not loaded it
+#   yet (at the next boot, or once this boot's flush has run), and prints the command to load it
+#   now; verify then passes on the configuration alone, with a warning, while journald has no file
+#   open under /var/log/journal/<machine-id>/, and runs its disk checks once it has one.
+#   Under update.sh, the restart happens only when the drop-in changed, the running journald has no
+#   file open under /var/log/journal/<machine-id>/ (its /proc/<pid>/fd links), or journald started
+#   before the drop-in was last written (a run that died before its restart); a second run on a rig
+#   whose journald is already on /var with the current drop-in loaded does not restart journald.
 #
 # ⚠️ A rollback by update.sh to a tree without this step does not run it (it runs the applied tree's
 #    steps); update.sh names it in status.json's rollback.leftovers_possible (setup/update.sh,
@@ -79,7 +90,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 parse_args "$@"
 require_root "$@"
 
-for t in systemctl systemd-analyze systemd-tmpfiles systemd-cat journalctl cmp; do
+for t in systemctl systemd-analyze systemd-tmpfiles systemd-cat journalctl busctl cmp; do
   command -v "$t" >/dev/null || die "$t is not installed"
 done
 
@@ -124,12 +135,13 @@ machine_id() {
 # configured <key>: the last value of <key> in the [Journal] section, as `systemd-analyze cat-config`
 # lists the main file and its drop-ins in precedence order; prints nothing if no file sets it.
 # Each file's header resets the section, since a section does not carry across files. The header is
-# cat-config's exact shape, "# " and one absolute path with no space (as printed by systemd 259 on
-# the workstation, and in systemd-analyze(1)'s example), so a comment such as "# /var/log/journal is
-# ..." inside a file does not reset it.
+# cat-config's exact shape, "# " and one absolute path with no space ending in .conf (as printed by
+# systemd 259 on the workstation, and in systemd-analyze(1)'s example: journald.conf and
+# journald.conf.d/NN-name.conf), so a comment such as "# /var/log/journal" inside a file does not
+# reset it.
 configured() {
   awk -v k="$1" '
-    /^# \/[^ ]+$/ { sec = ""; next }
+    /^# \/[^ ]+\.conf$/ { sec = ""; next }
     /^[[:space:]]*[#;]/ { next }
     /^[[:space:]]*\[/ { sec = $0; gsub(/[[:space:]]/, "", sec); next }
     sec == "[Journal]" && match($0, "^[[:space:]]*" k "[[:space:]]*=") {
@@ -167,6 +179,34 @@ journald_on_var() {
     [[ $(readlink "$f" 2>/dev/null) == "$JOURNAL_DIR/$MID/"* ]] && return 0
   done
   return 1
+}
+
+# journald_newer_than_dropin: the running journald's main process started after the drop-in was last
+# written, so it has read it. Both in microseconds of wall-clock time: the start is
+# ExecMainStartTimestamp read raw over D-Bus (systemctl show prints it to the second, and install
+# writes the drop-in and restarts journald within one), the drop-in's the mtime. An empty, zero or
+# unreadable value is logged and returns 1, so journald is restarted. ⚠️ Wall-clock: a clock stepped back between
+# the two makes journald look older. On a rig with no RTC (the stationary may have none; not built,
+# not seen), fake-hwclock can boot journald with a start time earlier than the drop-in's mtime: the
+# next update.sh run then restarts journald under the lock (the stream risk this step limits); verify
+# does not read this, only whether journald is on /var. Bounded: that restart gives journald
+# a start time after the mtime. Seen on the 🎒 portable (RTC), 2026-10-10: ExecMainStartTimestamp
+# matches the start the monotonic clock implies to within milliseconds.
+JOURNALD_BUS_PATH=/org/freedesktop/systemd1/unit/systemd_2djournald_2eservice   # "-" and "." escaped
+journald_newer_than_dropin() {
+  local type start m
+  read -r type start < <(busctl get-property org.freedesktop.systemd1 "$JOURNALD_BUS_PATH" \
+    org.freedesktop.systemd1.Service ExecMainStartTimestamp 2>/dev/null) || true
+  m=$(stat -c '%.6Y' "$DROPIN" 2>/dev/null) || m=
+  if ! [[ ${type:-} == t && ${start:-} =~ ^[1-9][0-9]*$ ]]; then
+    log "journald's ExecMainStartTimestamp read as '${type:-} ${start:-}', not 't <µs>'; treated as older than the drop-in"
+    return 1
+  fi
+  if ! [[ $m =~ ^[0-9]+\.[0-9]{6}$ ]]; then
+    log "$DROPIN's mtime read as '$m', not '<s>.<µs>'; journald treated as older than the drop-in"
+    return 1
+  fi
+  ((start > 10#${m/./}))
 }
 
 # install_dropin: render, diff, install by rename. Sets CHANGED to 0 or 1.
@@ -232,23 +272,26 @@ stream_held() {
   return 1
 }
 
-# check_streams: compare each loaded stream unit with its mark from before the restart (BEFORE).
+# check_streams <when>: compare each stream unit marked before the restart (BEFORE; only the ones
+# that were active then) with its mark now, <when> ("after the flush", or after a failed one).
 # A changed InvocationID or NRestarts means the unit was restarted across journald's restart: its
 # stream may have broken, and for the writer that ended a recording session. Warned, never fatal:
 # the reason is at the call.
 declare -A BEFORE=()
 FD_BEFORE='?'
 check_streams() {
-  local u now st i n_after rc
+  local when=$1 u now st i n_after rc any=0
+  for u in "${STREAM_UNITS[@]}"; do [[ -z ${BEFORE[$u]:-} ]] || any=1; done
+  if ((any == 0)); then
+    log "none of ${STREAM_UNITS[*]} was active before journald's restart; no stream to check"
+    return 0
+  fi
   sleep 5   # a write that hits a broken stream, and the unit's Restart=, take a moment
   # The mechanism, directly: the store, then each running unit's own stream. The store also holds
-  # every other service's stream, and those come and go, so a small change is reported, not judged;
-  # a fall by about the number of stream connections means the streams were dropped.
+  # every other service's stream, and transient services' streams come and go inside the window, so
+  # its count is printed, not judged; the warnings come from the units' own checks below.
   n_after=$(fd_store)
-  log "$JOURNALD NFileDescriptorStore: $FD_BEFORE before the restart, $n_after after the flush"
-  if [[ $FD_BEFORE =~ ^[0-9]+$ && $n_after =~ ^[0-9]+$ ]] && ((n_after < FD_BEFORE)); then
-    warn "journald's descriptor store fell from $FD_BEFORE to $n_after across its restart: services' streams into the journal may have been dropped. Check: systemctl show -p NFileDescriptorStore $JOURNALD; journalctl -b -u $JOURNALD"
-  fi
+  log "$JOURNALD NFileDescriptorStore: $FD_BEFORE before the restart, $n_after $when (printed, not judged)"
   for u in "${STREAM_UNITS[@]}"; do
     [[ -n ${BEFORE[$u]:-} ]] || continue
     rc=0
@@ -258,7 +301,7 @@ check_streams() {
   for u in "${STREAM_UNITS[@]}"; do
     [[ -n ${BEFORE[$u]:-} ]] || continue
     now=$(unit_mark "$u")
-    log "$u InvocationID and NRestarts: before journald's restart ${BEFORE[$u]}; after the flush ${now:-(not loaded)}"
+    log "$u InvocationID and NRestarts: before journald's restart ${BEFORE[$u]}; $when ${now:-(not loaded)}"
     [[ $now == "${BEFORE[$u]}" ]] && continue
     # Changed: give its Restart= up to 30 s to bring it back, then say where it stands.
     st=''
@@ -294,28 +337,42 @@ install_step() {
   [[ $got == "$STORAGE" ]] \
     || die "the configured Storage= (cat-config's last word) is '${got:-unset}', not $STORAGE: a drop-in sorted after ${DROPIN##*/} overrides it. See: systemd-analyze cat-config systemd/journald.conf"
 
-  if ((CHANGED == 0)) && journald_on_var; then
-    log "journald (PID $(journald_pid)) has a file open under $JOURNAL_DIR/$MID/ and the drop-in is unchanged; not restarted"
+  # Skipped only when this run left the drop-in as it was, journald has a file open under /var, and
+  # journald started after the drop-in was last written. The last catches a drop-in written by an
+  # earlier run that died before the restart (as at the die above): unchanged now, but never loaded.
+  if ((CHANGED == 0)) && journald_on_var && journald_newer_than_dropin; then
+    log "journald (PID $(journald_pid)) has a file open under $JOURNAL_DIR/$MID/, started after the drop-in was written, and the drop-in is unchanged; not restarted"
+    return 0
+  fi
+  # See the header: restart only under update.sh, which holds the recording lock.
+  if [[ -z ${ADSB_UPDATE_RUN:-} ]]; then
+    warn "$DROPIN is installed; journald has not loaded it yet, so at the next boot, or once this boot's flush has run (systemd-journal-flush.service). To load it now (on a portable that is recording, do not: the restart may drop the writer's stream into the journal): sudo systemctl restart $JOURNALD && sudo journalctl --flush"
     return 0
   fi
   # See the header: on 257 only a restart loads the drop-in, and only a flush after it moves to /var.
   local u rc=0
   for u in "${STREAM_UNITS[@]}"; do
-    BEFORE[$u]=$(unit_mark "$u")
+    # A unit not running now is not marked: one that starts inside the window is not a restart.
+    BEFORE[$u]=
+    if systemctl is-active --quiet "$u"; then BEFORE[$u]=$(unit_mark "$u"); fi
     if [[ -n ${BEFORE[$u]} ]]; then log "$u InvocationID and NRestarts before journald's restart: ${BEFORE[$u]}"; fi
   done
   FD_BEFORE=$(fd_store)
   unit restart "$JOURNALD"
   log "timeout $FLUSH_BOUND journalctl --flush"
   timeout "$FLUSH_BOUND" journalctl --flush || rc=$?
-  ((rc == 0)) \
-    || die "journalctl --flush failed (exit $rc; 124 is the ${FLUSH_BOUND} s bound): journald was restarted but is still writing to /run, so this boot's journal is still volatile. Re-run this step: it restarts journald and flushes again"
   # PLAN §9c: a verify may interrupt the rig for seconds and must restore it, and may never end a
   # recording session. This is install, not verify, but the rule's reason holds, so the check
   # below warns and does not die. Dying would restore nothing: under update.sh it rolls back, and
   # the rollback re-runs the applied steps, which cannot undo a session already ended; and the
-  # restart happens once per drop-in change, so a die would turn one gap into a failed update.
-  check_streams
+  # restart repeats on every update.sh run while its cause holds (a changed drop-in, journald not on
+  # /var, or journald started before the drop-in was written), so a die would turn one gap into
+  # failed updates. It runs before a failed flush's die too: journald has been restarted either way.
+  local when='after the flush'
+  ((rc == 0)) || when='after the restart (the flush failed)'
+  check_streams "$when"
+  ((rc == 0)) \
+    || die "journalctl --flush failed (exit $rc; 124 is the ${FLUSH_BOUND} s bound): journald was restarted but is still writing to /run, so this boot's journal is still volatile. The next update restarts journald and flushes again; by hand (not on a portable that is recording): sudo systemctl restart $JOURNALD && sudo journalctl --flush"
   # The machine directory is journald's own creation; systemd's rules set its mode and ACLs.
   tmpfiles
 }
@@ -325,7 +382,8 @@ install_step() {
 # The install tier (PLAN §9c): not the drop-in, but that journald is writing to disk. The drop-in
 # matches its render; cat-config shows it as the configured last word on Storage= and
 # SystemMaxUse=; the machine directory is root:systemd-journal and setgid; and a
-# message logged now is read back from /var/log/journal/<machine-id>/. ⛔ Never a check across boots:
+# message logged now is read back from /var/log/journal/<machine-id>/. Run by hand while journald has
+# no file open under /var, it stops after cat-config with a warning (see the header). ⛔ Never a check across boots:
 # that the journal survives a reboot is a hardware observation, not something a verify can see.
 verify() {
   render_dropin
@@ -349,6 +407,16 @@ verify() {
   [[ $maxuse == "$MAX_USE" ]] \
     || die "the configured SystemMaxUse= (cat-config's last word) is '${maxuse:-unset}', not $MAX_USE: a later-sorted drop-in overrides ${DROPIN##*/}; see above"
   pass "configured (cat-config): Storage=$STORAGE and SystemMaxUse=$MAX_USE are the last word"
+
+  # By hand the step does not restart journald (see the header); the next boot loads the drop-in,
+  # and journald is on /var once that boot's flush has run. Only "not on /var" skips the checks
+  # below: once journald has a file open there, the disk read-back is the effect, whatever the
+  # timestamps say (a stepped clock can make a loaded drop-in look newer than journald).
+  if [[ -z ${ADSB_UPDATE_RUN:-} ]] && ! journald_on_var; then
+    warn "journald has no file open under $JOURNAL_DIR/$MID/: it has not loaded $DROPIN yet, so at the next boot, or once this boot's flush has run (systemd-journal-flush.service); or now (not on a portable that is recording) with: sudo systemctl restart $JOURNALD && sudo journalctl --flush"
+    pass "$DROPIN is configured; journald has not loaded it yet (at the next boot, or once the flush has run)"
+    return 0
+  fi
 
   local mid=$MID
   log "ls -la $JOURNAL_DIR $JOURNAL_DIR/$mid; ls $FLUSHED_FLAG (raw output follows)"
