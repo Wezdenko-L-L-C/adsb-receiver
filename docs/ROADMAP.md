@@ -36,11 +36,24 @@ added 2026-10-10, once Chris had approved the list of issues.
    *Done 2026-10-10: both ruled and recorded, in §9m's "Update 2026-10-10 (afternoon): where the
    collected data lives, ruled". The database they rule is built in two steps, placed below (4a,
    6a); their code and issues live in a private repository.*
-4. **The interface:** the field display, with the rig's position and the time for the camera shot;
+4. ~~**The interface:** the field display, with the rig's position and the time for the camera shot;
    a viewer; ATC playback. `readsb`'s GPS receiver position is designed with it: one position
    source, and one ruling on where the position may appear.
-   **Hands:** not yet named. **Done when:** not yet stated.
-   [§8](PLAN.md#8-sequencing); the proposal in [PLAN.md](PLAN.md) §5. (#30)
+   **Hands:** not yet named. **Done when:** not yet stated.~~
+   *Ruled and split 2026-10-10 by Chris
+   ([§5](PLAN.md#5-proposed-the-web-interface-is-three-existing-services-not-a-new-one), "Update
+   2026-10-10: the interface, ruled (#30)"). ATC playback (#36) moved to "📻 After the stationary";
+   it does not gate the portable's completion.* Item 4 is now, in order:
+   1. **readsb's listeners on loopback,** in their own commit, first (ruling 2).
+      **Hands:** implementer, then `step-reviewer`, `/code-review` (medium), `/security-review`;
+      Chris runs step 10. **Done when:** `ss -ltn` on the 🎒 portable shows readsb on loopback only.
+   2. **The field display and the position ruling** (rulings 1, 3, 4, 6, 9, 10).
+      **Hands:** implementer and the same review chain; Chris attaches the panel and runs the step.
+      **Done when:** the slate photographed beside time.gov within 0.3 s; the one-hour power reading
+      with the panel on; the slate's CPU from `ps`. (#30)
+   3. **The viewer:** the live map with the receiver marker at the gated accuracy, :8504 closed,
+      and the archive timeline from 4a (rulings 6, 7, 9, 10). **Hands:** implementer and the same
+      review chain. **Done when:** stated in its issue. (#35)
 
    4a. **Database step A, beside the interface:** the catalog, the events and the frame index,
    in local Docker on the workstation; the interface's archive timeline reads it. *Placed
@@ -99,6 +112,9 @@ added 2026-10-10, once Chris had approved the list of issues.
   second radio only after all of the above is boring."
   **Hands:** not yet named. **Done when:** not yet stated. [§8](PLAN.md#8-sequencing).
   (#12, #21)
+- **ATC playback,** `rtl_airband` to Icecast, once the second radio exists. *Moved here 2026-10-10
+  from item 4 by Chris's ruling; it does not gate the 🎒 portable's completion.*
+  **Done when:** stated in its issue. (#36)
 
 ## Watched: acted on only when it recurs
 

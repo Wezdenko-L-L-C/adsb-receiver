@@ -159,6 +159,9 @@ rejection is overtaken. For the stationary design; see also the open note under
 ## 5. Proposed: the web interface is three existing services, not a new one
 
 **Proposed 2026-08-30. Not decided.**
+*Update 2026-10-10: decided in part. The field display, the receiver's position, readsb's ports,
+:8504 and the split of #30 are ruled in "Update 2026-10-10: the interface, ruled (#30)", at the end
+of this section. `acarshub` and the one-page goal stay proposed and not decided.*
 
 📋 The goal: **one page on the local network** showing aircraft, ACARS/VDL2 messages, and playable
 ATC audio.
@@ -176,10 +179,148 @@ audio" is then a nav bar over three services rather than an application to write
 ⛔ **Rejected: writing a bespoke UI.** It is the most fun option and the least defensible one. Every
 hour spent on it is an hour not spent on the archive writer and the extractor, which do not exist
 and which nothing else in the world provides — whereas a decent ACARS UI already exists.
+*Update 2026-10-10: this reason does not reach the field display ruled at the end of this section:
+the display is a console renderer, not a web UI.*
 
 ⚠️ **Local network only.** These services assume a trusted LAN and none of them should be exposed
 to the internet. Remote access is Tailscale or equivalent, per
 [BUILD.md §2](BUILD.md#2-two-rigs-not-one).
+*Update 2026-10-10: under readsb's upstream defaults the LAN could not be trusted, because a peer on
+it could put frames into the archive. Ruling 2 of "Update 2026-10-10: the interface, ruled (#30)",
+below, closes readsb's sockets to loopback; lighttpd's :80 stays on the LAN, by ruling 7.*
+
+**Update 2026-10-10: the interface, ruled (#30). (Chris), 2026-10-10, by multiple-choice
+question,** each question put after a rejection check and three architecture consultations.
+Rulings 1 to 5 came between about 15:46 and 15:49, rulings 6 to 8 at about 15:51, and rulings 9 to
+11 between about 15:52 and 16:33. The times are read from the subagent journal's stop times, given
+in Arizona time (UTC−7), and from `date`.
+
+- ➡️ **What it decides, and what it does not.** It decides the field display, the receiver's
+  position, readsb's ports, :8504, and the split of #30. None of it touches `acarshub` or the
+  one-page goal above: those stay proposed and not decided.
+- ℹ️ Where Chris overrode a recommendation, he picked an option with no note. For those, this block
+  records the rejected recommendation and the consultation's own reason for it, and no reason for
+  the choice.
+
+1. **The field display: a console renderer on the HDMI port.** Recommended by the consultation.
+   - One stdlib-Python process on tty1: no compositor, no browser.
+   - It shows UTC to tenths of a second, the date, local time and zone, chrony's sync state in
+     words (`UNSYNCED` when not synced), the fix mode, satellites, the fix's age, the position, and
+     the aircraft count.
+   - It is the camera slate: photographed or filmed at the start of a shoot, to measure a camera's
+     clock offset.
+   - Rejected, as put:
+     - **A browser kiosk.** About 600 MB of packages, about 0.3 to 1 W, and a GPU stack.
+     - **A phone page served by the rig.** It needs the hotspot, and puts the page on the LAN.
+     - **A QR or other machine-readable code.** No consumer reads one; the consumer reads a human
+       slate.
+   - ✅ Verified on the 🎒 portable by Claude, 2026-10-10 at about 15:30, read-only: `setfont`,
+     `kbd`, `console-setup`, the Terminus console fonts, `chronyc`, `gpspipe` and python3 are
+     present, so no new packages are needed. No compositor or browser is installed. Both HDMI ports
+     read disconnected.
+   - ➡️ Not a house surface: no stylesheet and no web design system. It is a text console.
+2. **readsb's listeners go to loopback, in their own commit, first.** Recommended by the
+   consultation.
+   - ✅ Seen 2026-10-10 at about 15:28, with `ss -ltn` on the 🎒 portable: readsb's 30001 to 30005
+     and 30104, :80 and :8504 listen on all interfaces. ⚠️ `ss -ltn` names no process; :8504's
+     owner is under ruling 7.
+   - Read in readsb's source at the pin, not seen on a rig: network input is forwarded to the BEAST
+     output, which the writer archives. ➡️ Anyone on the same Wi-Fi could put frames into the
+     archive.
+   - **The fix:** `--net-bind-address 127.0.0.1`, with the input listeners removed. It is the
+     change in step 10 (not yet committed): `NET_OPTIONS` in `setup/steps/10-decoder.sh`, whose
+     comment carries the source reading.
+   - ℹ️ Upstream's own `debian/readsb.default` carries the old line, so the exposure was upstream's
+     default. Read by the implementer at the pin, not re-read here.
+   - ℹ️ A reviewer's note: feeder and mlat clients normally push into readsb's input ports on
+     loopback, so a future feeder step would reopen one input, bound to 127.0.0.1.
+   - Its issue: none until it is pushed (ruling 11).
+3. **Panel power: from the battery bank's second port, not the Pi's USB.** Recommended by the
+   consultation. It keeps the Pi's one USB hub, which carries the stick, the GPS and the drive,
+   clear. No panel model is named.
+4. **The receiver's position on the LAN map: yes.** (Chris's call; no reason given.) tar1090 shows
+   the receiver position, at the accuracy of rulings 6 and 9.
+   - Overrode the recommendation, **physical surfaces only.** The consultation's reason for it: the
+     position would go to every Wi-Fi the rig joins, including a shared field hotspot, and the exact
+     position is already on the HDMI slate, where Chris reads it.
+5. **The viewer and ATC stay in #30.** (Chris's call; no reason given.) "Stay" means they stay as
+   #30's work; ruling 8 then splits that work into three issues.
+   - Overrode the recommendation, **strike the viewer and ATC.** The consultation's reason for it:
+     the viewer beyond tar1090 is database step A's timeline, and ATC has no radio until after the
+     🏠 stationary, so neither has a done-when inside the 🎒 portable's order.
+6. **Accuracy: exact in the field, rounded at home.** (Chris's call; no reason given.) It was the
+   consultation's second option.
+   - At home, `--json-location-accuracy 1`: 2 decimals, about 1 km. Away from home, `2`: exact.
+   - Gated by `bin/adsb-at-home`, whose verdicts are at home, not at home, off, and cannot tell
+     (✅ read in its header). Which verdict gives which accuracy is ruling 9.
+   - ⚠️ Known cost: a readsb restart, and so a gap in decoding, on each change of network.
+   - Overrode the recommendation, **about 1 km everywhere, outline off.** The consultation's reasons
+     for it: one flag and no network logic; no readsb restart on each network change; the home
+     address on no wire; and the exact position on the slate anyway.
+7. **:8504 closes; :80 is the one LAN door.** Recommended by the consultation, and its reason
+   accepted by Chris: :8504 carries the same page and data as :80, so it is a second door to audit
+   for no gain.
+   - ✅ Seen: :8504 serves tar1090's page (its title). Not seen: its owning process. It is most
+     likely lighttpd's second port, from tar1090's installer.
+   - Rejected, as put: **keep both.**
+8. **#30 is split into three, and ATC does not gate "the 🎒 portable is completed".** Recommended
+   by the consultation.
+   - **The field display and the position ruling:** #30, retitled "The field display and the
+     position ruling".
+   - **The viewer:** #35. The live tar1090 map with the receiver marker, plus the archive timeline
+     that database step A provides.
+   - **ATC playback:** #36. `rtl_airband` to Icecast, blocked on the second radio, which comes after
+     the 🏠 stationary ([§8](#8-sequencing)'s ruling of about 12:39). ➡️ It does not gate
+     "completed".
+9. **Fail-safe: exact unless positively at home.** (Chris's call; no reason given.) Rounded only on
+   the verdict "at home"; exact on "not at home", "off" and "cannot tell".
+   - Overrode the recommendation, **rounded unless positively not at home.** The consultation's
+     reason for it: a broken or disabled check would then never put the home address on the wire.
+   - ⚠️ **A consequence, accepted with the ruling, not a ruling of its own: a broken or disabled
+     check puts the exact position on whatever network the rig is on, including the home
+     network.** "Off" is the verdict when `update.home_ssid` is not set (✅ read in
+     `bin/adsb-at-home`), so a rig with the home check left off is exact at home too.
+10. **The range outline: on in the field only,** following the same gate as the exact position.
+    (Chris's call; no reason given.)
+    - Overrode the recommendation, **outline off.** The consultation's reason for it: the 🎒
+      portable's 24-hour outline spans sites, so it means nothing, and its points are exact
+      geometry around the true center, which would undo the rounding at home.
+    - Reasoned, not built or seen: by the gate's construction, the outline is on only under the
+      verdicts that also give the exact position, so whenever the position is rounded the outline
+      is off. ➡️ The second half of that reason does not apply at home.
+11. **Issues.** The viewer and ATC get public issues, #35 and #36, and #30 is retitled. The ports
+    fix is tracked without a public issue until it is pushed. No reason is on record.
+
+**The one position source, and the surface rule,** from the consultation's design, inside the
+options chosen:
+
+- gpsd on loopback is the one position source on the 🎒 portable. The writer, the field display
+  and readsb each read it. readsb reads it by `--net-connector 127.0.0.1,2947,gpsd_in`, which
+  readsb's help text documents and does not mark experimental (a documentation lookup; not read
+  here).
+- The position leaves the rig only in the archive file and in readsb's JSON, at the ruled
+  accuracy. The slate shows it on the rig's own screen.
+- Every other component reads gpsd and prints nothing: `status.json`, the journal, the login
+  banner, the database ingest's output and this public repo all stay forbidden to the position.
+- The writer's rule stays the writer's own (✅ `bin/adsb-writer:48`: *"The position goes into the
+  archive file and nowhere else: never to stderr (the journal), never to the status file."*).
+- 🏠 **Not ruled for the stationary.** The consultation kept a fixed `--lat/--lon` as the 🏠
+  stationary's follow-up, as step 10's comment already has it; it is open for #33.
+
+**The work within #30, in order:**
+
+1. The ports commit.
+2. The field display: a renderer in `bin/` and a new step, through the implementer, the step
+   reviewer, `/code-review` and `/security-review`; Chris runs the step. Its measurements: one photo
+   of the slate beside time.gov, within 0.3 s; a one-hour power reading with the panel on, which
+   closes the reading [BUILD.md §5](BUILD.md#5-power-portable-only) still owes; and the slate's
+   CPU, from `ps`.
+3. The live viewer: one new readsb flag, `--net-connector`, plus gating two that already exist,
+   `--json-location-accuracy` and `--range-outline-hours`; and :8504 removed. ✅ Both existing
+   flags are in the defaults file step 10 renders, at `2` and `24`. They are inert today only
+   because readsb has no location ([§9j](#9j--verified-on-hardware-2026-10-03)).
+4. The timeline: with database step A.
+5. ATC: blocked.
 
 ---
 
@@ -253,6 +394,11 @@ the current order. The reasons stay in this file.
   session. ➡️ **The second radio comes after the 🏠 stationary.** ℹ️ Chris added: *"the portable
   has been running the battery for the last three days worth of sessions so it could be outside"*.
   That is his statement; Claude has not seen those sessions.
+  *Corrected 2026-10-10: by ruling 8 of
+  [§5](#5-proposed-the-web-interface-is-three-existing-services-not-a-new-one), "Update
+  2026-10-10: the interface, ruled (#30)", ATC playback does not gate "the 🎒 portable is
+  completed". Its issue is #36, blocked on the second radio. The viewer is #35; whether the viewer
+  gates completion was not ruled. The field display and the position ruling are #30.*
 - **The uploader is not part of the portable's completion.** It is the first step of the 🏠
   stationary work ([§9i](#9i-what-is-not-chosen-yet-the-writer-the-extractor-the-uploader)'s
   2026-10-10 update).
@@ -2930,6 +3076,11 @@ PLAN was pending; this is that record.
   apt package is installed.
 - **The unit and `/etc/default/readsb`** are rendered from upstream's `debian/` files at the pin,
   identical to them apart from the rendered header comment (the bodies were diffed on 2026-10-04).
+  *Corrected 2026-10-10: still true for the unit; true only in part for `/etc/default/readsb`. Its
+  `NET_OPTIONS` differs from upstream's in the change in step 10 (not yet committed): loopback only,
+  with no input listeners, as read in the working tree's `setup/steps/10-decoder.sh`. See
+  [§5](#5-proposed-the-web-interface-is-three-existing-services-not-a-new-one), "Update
+  2026-10-10: the interface, ruled (#30)", ruling 2.*
 - **`tar1090`** is at `3.14.1823` (`e784ee5ae82948f41efe3ef5c235ade0943ab8ff`), installed by its own
   `install.sh` from the pinned checkout, and served by `lighttpd`. ⚠️ **`tar1090-db`, the aircraft
   database, is not pinned.** Accepted, (Chris) 2026-10-04: it is lookup data, not code.
@@ -2962,6 +3113,10 @@ then merged to `main` (`42b5115`, CI green), and `stable` advanced.
   aircraft, −14.2 / −38.6 dBFS. ⚠️ The noise figure is an autogain artifact, two minutes after a
   restart, not a comparison of the sticks. Range is not comparable, because `readsb` has no receiver
   location configured.
+  *Update 2026-10-10: still true. On the 🎒 portable, `readsb` is ruled to read its location from
+  gpsd on loopback (`--net-connector 127.0.0.1,2947,gpsd_in`), at the gated accuracy; not built.
+  See [§5](#5-proposed-the-web-interface-is-three-existing-services-not-a-new-one), "Update
+  2026-10-10: the interface, ruled (#30)".*
 
 **Update 2026-10-10: no genuine V4; the portable runs on a genuine V3. (Chris), 2026-10-10, about
 12:35, in chat:** *"A genuine V4 is not available - we are running on a genuine V3 for the mobile."*
@@ -3996,6 +4151,11 @@ the writer falling behind.
 a `position` event from `gpsd` is written at start and at each rotation. **Why:** the extractor's
 "what was overhead" needs it, and the portable moves every shoot. ⚠️ The archive files never enter
 this repo.
+*Update 2026-10-10: R-pos stands, and the writer's rule stays its own. gpsd on loopback is now ruled
+the one position source on the 🎒 portable: readsb and the field display read it too, and readsb's
+JSON carries the position at the gated accuracy. See
+[§5](#5-proposed-the-web-interface-is-three-existing-services-not-a-new-one), "Update 2026-10-10:
+the interface, ruled (#30)".*
 
 **R-ext, the extractor. (Chris), 2026-10-04: stage 1 is built with the writer.** Given a UTC window,
 it gives per-frame times, as CSV, and a slice of plain BEAST. The default window is t ± 30 s, so the
