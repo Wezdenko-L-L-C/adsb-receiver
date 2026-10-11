@@ -3,14 +3,13 @@
 How to build a pair of Raspberry Pi ADS-B receivers, one that travels and one that stays put, and
 the software that runs them.
 
-This is a **build guide that ships its own software**. ~~⚠️ The software is not written yet; see
-[Status](#status).~~ *Corrected 2026-10-10: the software is written. One command,
+This is a **build guide that ships its own software**. One command,
 [`setup/bootstrap.sh`](setup/bootstrap.sh), builds a rig by running the step scripts
-`setup/steps/00`–`70` through [`setup/update.sh`](setup/update.sh), which then keeps it current;
+`setup/steps/00`–`80` through [`setup/update.sh`](setup/update.sh), which then keeps it current;
 [`bin/`](bin/) holds what runs on the rig, and [`tools/pull-archive`](tools/pull-archive) and
 [`tools/adsb-extract`](tools/adsb-extract) run on a workstation. The 🎒 portable rig is built from
 it (first bootstrapped 2026-10-04) and running, updating itself from the `stable` branch. The 🏠
-stationary rig is not built yet.* The guide exists because most ADS-B instructions stop at
+stationary rig is not built yet. The guide exists because most ADS-B instructions stop at
 "it decodes aircraft" — and the failures that cost real time happen after that point, silently, in
 ways that look like a bad antenna.
 
@@ -88,7 +87,7 @@ Presents as "ADS-B stopped working for no reason."
 | [`config/station.portable.example.yml`](config/station.portable.example.yml) | 🎒 Template for the per-station settings that must **not** be committed |
 | [`config/station.stationary.example.yml`](config/station.stationary.example.yml) | 🏠 The same, for the rig that stays put |
 | [`setup/`](setup/) | *Added 2026-10-10.* The build: [`bootstrap.sh`](setup/bootstrap.sh), the one command, and [`update.sh`](setup/update.sh), which runs the step scripts in `setup/steps/` and keeps the rig current. [BUILD.md §8](docs/BUILD.md#8-build-order) |
-| [`bin/`](bin/) | *Added 2026-10-10.* What runs on the rig: the archive writer `adsb-writer`, the clock and archive preflights, and the 🎒 portable's home-update opener |
+| [`bin/`](bin/) | *Added 2026-10-10.* What runs on the rig: the archive writer `adsb-writer`, the clock and archive preflights, the 🎒 portable's home-update opener, `adsb-at-home`, which tells whether the 🎒 portable is on its home Wi-Fi, and `adsb-slate`, the camera slate on the 🎒 portable's HDMI console (step 80) |
 | [`tools/`](tools/) | *Added 2026-10-10.* What runs on your workstation: `pull-archive`, which moves the 🎒 portable's archive off it, and `adsb-extract`, which reads a time window back out of the pulled files |
 
 ⭐ **Two templates, one per rig, and they are not two copies of one file.** Each holds only what
@@ -108,7 +107,7 @@ not written; where that is true the docs say so rather than pretending otherwise
 *Corrected 2026-10-10: the archive writer, [`bin/adsb-writer`](bin/adsb-writer), and the extractor,
 [`tools/adsb-extract`](tools/adsb-extract), are written, and the writer records on the 🎒 portable.
 📋 The uploader is not written, and its language is not chosen
-([PLAN.md §9i](docs/PLAN.md#9i-what-is-not-chosen-yet-the-writer-the-extractor-the-uploader)).*
+([PLAN.md §9i](docs/PLAN.md#9i-what-is-not-chosen-yet-the-uploader)).*
 
 ~~⚠️ **Nothing here has been confirmed against a built rig yet.**~~ *Corrected 2026-10-10: the 🎒
 portable is built from this repo and running; what has been verified on it is recorded in

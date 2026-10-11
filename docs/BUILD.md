@@ -17,7 +17,7 @@ If you are building both rigs, the natural split is **more RAM → stationary**:
 an SSD-backed archive, a feeder client and an ACARS decoder together. The portable rig runs a
 decoder, ~~an uploader~~ *an archive writer (corrected 2026-10-10: `bin/adsb-writer` records on the
 🎒 portable, and no uploader is written,
-[PLAN.md §9i](PLAN.md#9i-what-is-not-chosen-yet-the-writer-the-extractor-the-uploader))* and
+[PLAN.md §9i](PLAN.md#9i-what-is-not-chosen-yet-the-uploader))* and
 (optionally) `rtl_airband`, which is comfortable in 1 GB.
 
 ⚠️ **Power is the real constraint, not RAM.** A Pi 4 pulls ~3–5 W idle and more with an SDR
@@ -405,7 +405,7 @@ stands unchanged.
 *Corrected 2026-10-10: the "uploader (yours to write)" line. The uploader is not written, and its
 language is not chosen; once written it ships in this repo, not as something you write
 ([PLAN.md §9a](PLAN.md#9a-the-repo-ships-its-own-software-and-the-pi-pulls-it),
-[§9i](PLAN.md#9i-what-is-not-chosen-yet-the-writer-the-extractor-the-uploader)). The 🎒 portable
+[§9i](PLAN.md#9i-what-is-not-chosen-yet-the-uploader)). The 🎒 portable
 runs an archive writer, `bin/adsb-writer`, which records `readsb`'s BEAST stream onto the archive
 drive, with the spool on that drive too. The data is moved off by a pull from your workstation over
 your home network, `tools/pull-archive`, ~~and `uploader.endpoint` stays null~~
@@ -423,7 +423,7 @@ the 🎒 portable at home ([§8](#8-build-order) step 4). Until it lands, the pu
 comes off, and `uploader.endpoint` is null. For the two rigs here a null endpoint is therefore
 interim. Whether it stays a valid setting once the uploader exists, as the paragraph above says, is
 for the uploader's design and is not ruled
-([PLAN.md §9i](PLAN.md#9i-what-is-not-chosen-yet-the-writer-the-extractor-the-uploader)).*
+([PLAN.md §9i](PLAN.md#9i-what-is-not-chosen-yet-the-uploader)).*
 
 ℹ️ **The wifi in the [§5](#5-power-portable-only) power budget is a local link, not a route out.**
 A phone hotspot or the Pi's own AP, so you can check a headless rig is alive without carrying a
@@ -474,9 +474,13 @@ rules apply to the uploader, still to be written ([ROADMAP.md](ROADMAP.md) item 
 
 *Added 2026-10-10: **the 🎒 portable is completed first** (**(Chris)**, 2026-10-10). "Completed"
 means the stale-sweep fixes; where the collected data lives; the interface, which is the field
-display showing the rig's position and the time for the camera shot, a viewer, and ATC playback;
-the 🎒 pre-field checklist ([PLAN.md §9m](PLAN.md#9m--the-portable-rigs-archive-drive), "The
-pre-field checklist"); and a field session. The interface comes before the 🏠 stationary's design
+display showing the rig's position and the time for the camera shot, and a viewer; the 🎒
+pre-field checklist ([PLAN.md §9m](PLAN.md#9m--the-portable-rigs-archive-drive), "The pre-field
+checklist"); and a field session. ATC playback does not gate it (**(Chris)**, 2026-10-10,
+[PLAN.md §5](PLAN.md#5-proposed-the-web-interface-is-three-existing-services-not-a-new-one),
+"Update 2026-10-10: the interface, ruled (#30)", ruling 8): it comes after the 🏠 stationary, in
+[ROADMAP.md](ROADMAP.md)'s "After the stationary". Whether the viewer gates completion is not
+ruled ([PLAN.md §8](PLAN.md#8-sequencing)). The interface comes before the 🏠 stationary's design
 (**(Chris)**, 2026-10-10: his aim, the remote rig done sooner). The uploader is not part of
 "completed": it is the first step of the stationary work (step 4 below). The second radio comes
 after the stationary (step 5 below). ➡️ Where steps 4–6 below differ from this, this holds, and the

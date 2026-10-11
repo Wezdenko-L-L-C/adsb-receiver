@@ -12,25 +12,29 @@ added 2026-10-10, once Chris had approved the list of issues.
 
 *Ruled 2026-10-10 ([PLAN.md §8](PLAN.md#8-sequencing)).*
 
-1. **Sweep fixes: stale comments in the code and the config templates,** including the code-side
+1. ~~**Sweep fixes: stale comments in the code and the config templates,** including the code-side
    corrections the 2026-10-10 rulings bring
    ([§9j](PLAN.md#9j--verified-on-hardware-2026-10-03),
-   [§9i](PLAN.md#9i-what-is-not-chosen-yet-the-writer-the-extractor-the-uploader),
+   [§9i](PLAN.md#9i-what-is-not-chosen-yet-the-uploader),
    [§9m](PLAN.md#9m--the-portable-rigs-archive-drive)).
    **Hands:** implementer. Before it is pushed, rig code goes through `step-reviewer` (for any
    `setup/steps/*.sh` or `setup/lib.sh`), then `/code-review` (medium), then `/security-review`
    ([§9b](PLAN.md#9b-one-bash-script-per-build-step)).
    **Done when:** every comment PLAN.md names as still owed in code is corrected, among them
-   `setup/steps/10-decoder.sh:98–101` and `tools/pull-archive:45`. (#27)
+   the BUILD.md §4 pointer in `setup/steps/10-decoder.sh` and the comment on the only copy in
+   `tools/pull-archive`.~~ (#27)
+   *Done 2026-10-11: the code comments and config templates in `cd913dd`, recorded in PLAN and
+   BUILD in `0728e07`; the rest, the comments PLAN §5 lists as lagging, in `7e5dd45`; and the
+   slate's comments on the `setfont` re-run, marked as beliefs, in `543b75f`.*
 2. ~~**The unexplained unclean reset of 2026-10-10, about 11:50.**~~
    *Moved 2026-10-10 to [Watched](#watched-acted-on-only-when-it-recurs) by Chris's ruling: it
    waits for an event, so it is not a step in the order. The number is kept so the issues' item
    numbers still hold.* (#28)
 3. **Where the collected data lives** ("step 6b" in the 2026-10-10 rulings; not BUILD.md §6b). The
-   interim pull into the synced folder is the procedure; its trial passed on 2026-10-10. Still open:
-   the database question, and the store's layout.
-   **Hands:** rejection-checker, then fable-architect, then Chris by question, then documenter.
-   **Done when:** both open questions are ruled and recorded.
+   interim pull into the synced folder is the procedure; its trial passed on 2026-10-10. The two
+   questions it left open were the database question and the store's layout.
+   ~~**Hands:** rejection-checker, then fable-architect, then Chris by question, then documenter.
+   **Done when:** both open questions are ruled and recorded.~~
    [§9m](PLAN.md#9m--the-portable-rigs-archive-drive), "Update 2026-10-10: the pull into a synced
    folder". (#29)
    *Done 2026-10-10: both ruled and recorded, in §9m's "Update 2026-10-10 (afternoon): where the
@@ -51,7 +55,8 @@ added 2026-10-10, once Chris had approved the list of issues.
       step 10 by Chris, and `ss -ltn` then showed listeners on loopback only (PLAN §5, ruling 2's
       "✅ Seen" bullet).*
    2. **The field display and the position ruling** (rulings 1, 3, 4, 6, 9, 10).
-      **Hands:** implementer and the same review chain; Chris attaches the panel and runs the step.
+      **Hands:** implementer and the same review chain; Chris opens a pull window
+      (`tools/pull-archive`), whose update applies the step, and attaches the panel.
       ~~**Done when:** the slate photographed beside time.gov within 0.3 s; the one-hour power reading
       with the panel on; the slate's CPU from `ps`.~~
       *Changed 2026-10-10 by Chris's ruling (PLAN §5, "The work within #30, in order", item 2's
@@ -59,6 +64,8 @@ added 2026-10-10, once Chris had approved the list of issues.
       by filming both; the same check in the field state (Wi-Fi off, the rig on the GPS, a phone
       reference on cellular); the one-hour power reading with the panel on; the slate's CPU from
       `ps`. (#30)
+      *Built 2026-10-10 as `ed40944` and run on the 🎒 portable with no panel; the done-when's
+      measurements are still owed (PLAN §5, "The work within #30, in order", item 2).*
    3. **The viewer:** the live map with the receiver marker at the gated accuracy, :8504 closed,
       and the archive timeline from 4a (rulings 6, 7, 9, 10). **Hands:** implementer and the same
       review chain. **Done when:** stated in its issue. (#35)
@@ -98,7 +105,7 @@ added 2026-10-10, once Chris had approved the list of issues.
    the receiving end, in a private service outside this repo, whose hosting gates the remote
    deploy.
    **Hands:** not yet named. **Done when:** the uploader is proven on the 🎒 portable at home.
-   [§9i](PLAN.md#9i-what-is-not-chosen-yet-the-writer-the-extractor-the-uploader), "Update
+   [§9i](PLAN.md#9i-what-is-not-chosen-yet-the-uploader), "Update
    2026-10-10: both rigs get an automatic uploader". (#1)
 8. **The stationary design,** in one fable-architect session. Its carry list is the open notes
    PLAN.md leaves for the stationary design

@@ -40,11 +40,10 @@ argument-hint: NN-name
 ## Hold to these too (CI cannot see them)
 
 - ⛔ No `--role` flag. No "tested on" header. No `yq` (not on the image; use `station_get`).
-- ⛔ Not an `install-all.sh`, and nothing that chains steps. ~~The first build is by hand because
-  BUILD.md §8 has human gates (§9e, §9l).~~ *Corrected 2026-10-10: the first build is one command
+- ⛔ Not an `install-all.sh`, and nothing that chains steps. The first build is one command
   (PLAN §9e's 2026-10-04 evening update): `setup/bootstrap.sh` runs `setup/update.sh --bootstrap`,
   the one orchestrator, which runs every step in order. A step still chains nothing. BUILD.md §8's
-  human gates (a sky check, a power cycle with the network unplugged) stay human.*
+  human gates (a sky check, a power cycle with the network unplugged) stay human.
 - ⚠️ A comment that states a belief says it is a belief, as `00-drivers.sh` does for the udev
   re-trigger. Never describe the intended end state as the current one.
 
