@@ -35,7 +35,8 @@
 #   It sizes itself to the console it finds (TIOCGWINSZ), checked every second
 #   and on SIGWINCH, and lays out again when the size changes. With
 #   --exit-on-resize (the unit passes it) it then exits, so systemd restarts
-#   it and re-runs the unit's setfont, which needs root.
+#   it and re-runs the unit's setfont, which needs root. ⚠️ Belief, not seen:
+#   the restart and setfont on a resize; the panel test (#30) settles it.
 #   Seen on the 🎒 portable 2026-10-10, read-only: with no panel attached,
 #   both HDMI connectors read disconnected and there is no
 #   /sys/class/graphics/fb0. Then tty1 is an 80x25 console whose screen
