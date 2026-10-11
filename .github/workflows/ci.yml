@@ -62,7 +62,10 @@ jobs:
         #   - test_disk_command_check.py: the disk-command check two steps below;
         #   - test_adsb_at_home.py: bin/adsb-at-home, the home-gated opener's predicate, on a
         #     stubbed nmcli: the "yes:" line, nmcli's terse escaping, and the SSID going nowhere
-        #     (needs bash and python3-yaml).
+        #     (needs bash and python3-yaml);
+        #   - test_adsb_slate.py: bin/adsb-slate, the field display: chronyc, gpsd and readsb
+        #     parsing, the big digits' width, the tenths' truncation, and the position never
+        #     reaching stderr (made-up coordinates only).
         # Bytecode goes to the runner's temp directory, not beside the sources.
         run: |
           set -euo pipefail

@@ -1,0 +1,906 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+#
+# adsb-slate: the 🎒 portable's field display, a camera slate on the HDMI
+# console. PLAN §5, "Update 2026-10-10: the interface, ruled (#30)", ruling 1.
+# Installed by setup/steps/80-portable-slate.sh to /usr/local/bin/adsb-slate
+# (copied, so it runs outside the clone), and run by adsb-slate.service on
+# tty1, unprivileged. Python 3, standard library only: no compositor, no
+# browser, no curses.
+#
+# WHAT IT SHOWS
+#   - UTC to tenths of a second in large digits drawn from reverse-video
+#     spaces (so no font glyph is needed), sized to the console's width: it is
+#     read from a photograph, to measure a camera's clock offset.
+#   - One plain line, "UTC YYYY-MM-DD HH:MM:SS.t". The step's verify reads it
+#     from /dev/vcs1, so its format is an interface.
+#   - The date, local time and zone (the system's), chrony's sync state in
+#     words, gpsd's fix mode, satellites used, the fix's age and the position,
+#     and the count of aircraft readsb has heard in the last 60 s.
+#   - A source that is missing or stale shows a word (NO GPSD, GPS STALE,
+#     NO READSB, READSB STALE, CHRONY?), never an old value as a current one.
+#     The clock's word claims no more than chrony knows: SYNCED, COARSE,
+#     HOLDOVER or UNSYNCED (see clock_state).
+#
+# TIME
+#   It wakes on each 100 ms boundary of the realtime clock, reads the clock
+#   again, and writes at once. The tenth shown is truncated, never rounded: a
+#   tenth is shown only once it has begun. Only the cells that changed are
+#   written: the time every tick, the rest when the second changes. Every 10 s
+#   the whole screen is written again, over itself, empty rows included, and
+#   the last row (never written, so nothing scrolls) is erased in place, to
+#   heal anything a kernel, boot or getty message wrote anywhere on it.
+#
+# THE CONSOLE
+#   It sizes itself to the console it finds (TIOCGWINSZ), checked every second
+#   and on SIGWINCH, and lays out again when the size changes. With
+#   --exit-on-resize (the unit passes it) it then exits, so systemd restarts
+#   it and re-runs the unit's setfont, which needs root.
+#   Seen on the 🎒 portable 2026-10-10, read-only: with no panel attached,
+#   both HDMI connectors read disconnected and there is no
+#   /sys/class/graphics/fb0. Then tty1 is an 80x25 console whose screen
+#   buffer is written: recorded by Chris on the 🎒 portable 2026-10-10 (sudo
+#   cat /dev/vcs1, no panel): 80x25, the buffer is written; to be recorded in
+#   PLAN §5 with this step. That was getty's output; this program's writes
+#   take the same path, not yet seen for the slate itself. At 80x25 plan()
+#   gives digits one cell per unit (47x7) above the UTC line and the status.
+#   ⚠️ Belief, not seen: DRM's fbdev setup waits for
+#   the first hotplug, and fbcon then takes tty1 over at the panel's mode,
+#   with its default font, so a panel plugged in after boot shows up here as
+#   a size change.
+#
+# ⛔ The position goes to the screen and nowhere else: never to stderr (the
+#    journal), never into an exception message or traceback, never to a file.
+#    Same rule as bin/adsb-writer. Every error this program logs is its
+#    exception's type name only, never its message: a message could quote a
+#    gpsd line, position and all. The unit's stdout is the console; stderr is
+#    the journal.
+
+import argparse
+import calendar
+import fcntl
+import json
+import math
+import os
+import re
+import signal
+import socket
+import struct
+import subprocess
+import sys
+import termios
+import threading
+import time
+
+VERSION = "0.1.0"
+
+GPSD_ADDR = ("127.0.0.1", 2947)
+AIRCRAFT_JSON = "/run/readsb/aircraft.json"
+
+TICK_NS = 100_000_000
+SECOND_NS = 1_000_000_000
+REPAINT_S = 10            # the whole screen, rewritten over itself
+SIZE_CHECK_S = 1.0
+POLL_S = 2.0              # chronyc and aircraft.json
+CHRONYC_TIMEOUT_S = 2.0
+GPSD_RETRY_S = 2.0
+# Older than these, a source's last value is not shown as current.
+TPV_STALE_S = 3.0         # gpsd sends a TPV every second while it has a device
+SKY_STALE_S = 15.0
+CHRONY_STALE_S = 3 * POLL_S
+READSB_STALE_S = 5.0      # readsb rewrites aircraft.json every second
+# Gap-filled: readsb stamps `now` from the same system clock, so a `now` more
+# than this ahead of it is not a current reading either.
+READSB_AHEAD_S = 2.0
+AIRCRAFT_SEEN_S = 60.0
+
+# One cell of a big digit: drawn as a reverse-video space. Text is sanitized
+# to printable ASCII, so this character can never come from a source.
+PIX = "█"
+ESC = "\x1b["
+# setterm's escapes, from console_codes(4): blank timeout 0, powerdown 0;
+# cursor hidden; autowrap off, so the last column never scrolls the screen.
+SETUP = ESC + "9;0]" + ESC + "14;0]" + ESC + "?25l" + ESC + "?7l" + ESC + "0m"
+# RESTORE puts back the cursor and autowrap, and deliberately not blanking or
+# powerdown: those are console-wide, and the portable's own default is already
+# no blanking (consoleblank 0, seen by Claude on the 🎒 portable 2026-10-10,
+# read-only), so the escapes above leave the rig as it was.
+RESTORE = ESC + "0m" + ESC + "?7h" + ESC + "?25h"
+CLEAR = ESC + "H" + ESC + "2J"
+
+MARGIN = 2
+
+# --- Logging: type names only --------------------------------------------------
+
+
+def log(msg):
+    print(f"adsb-slate: {msg}", file=sys.stderr, flush=True)
+
+
+def log_error(where, exc):
+    """⛔ The exception's type only, never its message (see the header)."""
+    log(f"{where}: {type(exc).__name__}")
+
+
+def excepthook(exc_type, exc, tb):
+    # Replaces Python's traceback printer: a traceback quotes the message.
+    log(f"fatal: {getattr(exc_type, '__name__', 'exception')}")
+
+
+def thread_excepthook(args):
+    log(f"thread {getattr(args.thread, 'name', '?')}: {getattr(args.exc_type, '__name__', 'exception')}")
+
+
+# --- Pure helpers (tested in tests/test_adsb_slate.py) -----------------------------
+
+
+def next_tick_delay(now_ns):
+    """Seconds from now_ns to the next 100 ms boundary of the realtime clock:
+    in (0, 0.1]. Exactly on a boundary, the next one."""
+    return (TICK_NS - now_ns % TICK_NS) / 1e9
+
+
+def format_utc(now_ns):
+    """'YYYY-MM-DD HH:MM:SS.t', the tenth truncated: never one not yet begun."""
+    sec, rem = divmod(now_ns, SECOND_NS)
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(sec)) + f".{rem // TICK_NS}"
+
+
+def big_clock_text(now_ns):
+    """'HH:MM:SS.t' for the big digits, from the same truncation."""
+    return format_utc(now_ns)[11:]
+
+
+_PRINTABLE = re.compile(r"[^\x20-\x7e]")
+
+
+def sanitize(s):
+    """Printable ASCII only: nothing from a source can reach the console as an
+    escape sequence, or as the big digits' cell character."""
+    return _PRINTABLE.sub("?", str(s))
+
+
+def parse_tracking(text):
+    """chronyc -n -c tracking's CSV -> dict, or None if it is not that.
+    The fields (0-indexed here), as chrony 4.x prints them: 0 ref id, 1 ref
+    name, 2 stratum, 3 ref time (epoch s), 4 system time, 5 last offset, 6 RMS
+    offset, 7 frequency, 8 residual frequency, 9 skew, 10 root delay, 11 root
+    dispersion, 12 update interval, 13 leap status. Seen on the 🎒 portable
+    2026-10-10, read-only: ref time an epoch, update interval 1044.3 s (an NTP
+    server over Wi-Fi), leap "Normal".
+    System time's sign, seen on the 🎒 portable 2026-10-10, read-only, side by
+    side: the text form said "0.001049243 seconds fast of NTP time" while the
+    CSV field read -0.001049242. ➡️ Negative means the system clock is FAST."""
+    line = text.strip().splitlines()[0] if text.strip() else ""
+    f = line.split(",")
+    if len(f) < 14:
+        return None
+    leap = f[13].strip()
+    try:
+        ref_time, offset, root_delay, root_disp, interval = (
+            float(f[3]), float(f[4]), float(f[10]), float(f[11]), float(f[12]))
+    except ValueError:
+        return None
+    # float() accepts "nan" and "inf", and a NaN bound compares false against
+    # every threshold, so it would read SYNCED. Non-finite is unparsed: CHRONY?.
+    if not all(map(math.isfinite, (ref_time, offset, root_delay, root_disp, interval))):
+        return None
+    return {
+        "ref": sanitize(f[1].strip()) or sanitize(f[0].strip()),
+        "stratum": f[2].strip(),
+        "ref_time": ref_time,
+        "offset_s": offset,
+        "interval_s": interval,
+        # chronyc(1), "tracking" (read 2026-10-10, chrony 4.8's man page on a
+        # workstation): "clock_error <= |system_time_offset| + root_dispersion
+        # + (0.5 * root_delay)".
+        "bound_s": abs(offset) + root_disp + 0.5 * root_delay,
+        "leap": leap,
+        # chronyc(1) lists four leap statuses: Normal, Insert second, Delete
+        # second, Not synchronised. Only the last is unsynchronized.
+        "synced": leap in ("Normal", "Insert second", "Delete second"),
+    }
+
+
+# Gap-filled thresholds (the implementer's, not ruled), for a slate whose
+# tenths are photographed against time.gov to within 0.3 s:
+#   - SYNCED needs chrony's error bound within 20 ms: a fifth of a tenth, so
+#     the tenth shown is the true one except within 20 ms of its edge.
+#     Larger, the word is COARSE and the bound is shown.
+#   - SYNCED also needs chrony's last update to be recent: no older than two
+#     update intervals plus 64 s, i.e. it has not missed two updates in a row.
+#     Older, the word is HOLDOVER: the clock runs on its last estimate.
+#     ⚠️ Belief, not read: chrony's reported root dispersion grows with the
+#     time since that update, so the bound alone might already catch this.
+BOUND_OK_S = 0.020
+HOLDOVER_SLACK_S = 64.0
+# The states whose system clock has a known bound, so a fix's age can be shown.
+CLOCK_BOUNDED = ("SYNCED", "COARSE", "HOLDOVER")
+
+
+def offset_words(off):
+    """chrony's system time as words: '0.004 ms fast', '0.004 ms slow'."""
+    if off < 0:
+        return f"{-off * 1000:.3f} ms fast"
+    if off > 0:
+        return f"{off * 1000:.3f} ms slow"
+    return "0.000 ms off"
+
+
+def clock_state(tracking, fresh, now_s):
+    """(state, the CLOCK line's text). The state, also the text's first word, is
+    SYNCED, COARSE, HOLDOVER, UNSYNCED or CHRONY?. The step's verify reads it."""
+    if tracking is None or not fresh:
+        return "CHRONY?", "CHRONY?"
+    if not tracking["synced"]:
+        return "UNSYNCED", "UNSYNCED"
+    ref = tracking["ref"] or "?"
+    bound = f"error <= {tracking['bound_s'] * 1000:.3f} ms"
+    clock = f"system clock {offset_words(tracking['offset_s'])}"
+    since = now_s - tracking["ref_time"]
+    if since > 2 * tracking["interval_s"] + HOLDOVER_SLACK_S:
+        return "HOLDOVER", f"HOLDOVER {ref}   last update {since:.0f} s ago   {bound}"
+    if tracking["bound_s"] > BOUND_OK_S:
+        return "COARSE", f"COARSE {ref}   {bound}   {clock}"
+    return "SYNCED", f"SYNCED {ref}   {bound}   {clock}"
+
+
+# Matched whole (fullmatch): `$` would also match before a trailing newline.
+_NUM = re.compile(r"-?\d+(\.\d+)?([eE][-+]?\d+)?")
+
+
+def num_text(v):
+    """A number from gpsd, as the text gpsd sent (its JSON is read with
+    parse_float=str, so nothing is rounded), or None."""
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        return str(v)
+    # A float here is not gpsd's text: json reads NaN and Infinity as floats
+    # whatever parse_float says, so a float is refused.
+    if isinstance(v, str) and _NUM.fullmatch(v):
+        return v
+    return None
+
+
+def finite_number(v):
+    """v as a float if it is a finite JSON number (not a bool), else None."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    v = float(v)
+    return v if math.isfinite(v) else None
+
+
+def parse_iso_utc(s):
+    """gpsd's 'YYYY-MM-DDTHH:MM:SS[.fff]Z' -> epoch seconds (float), or None."""
+    if not isinstance(s, str):
+        return None
+    m = re.fullmatch(r"(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)(\.\d+)?Z", s)
+    if not m:
+        return None
+    y, mo, d, h, mi, se = (int(x) for x in m.groups()[:6])
+    try:
+        base = calendar.timegm((y, mo, d, h, mi, se, 0, 0, 0))
+    except (ValueError, OverflowError):
+        return None
+    return base + (float(m.group(7)) if m.group(7) else 0.0)
+
+
+def parse_gpsd_line(line):
+    """One line of gpsd's JSON -> ('TPV', dict), ('SKY', dict) or None.
+    ⛔ The TPV dict holds the position; it is for the screen only."""
+    try:
+        obj = json.loads(line, parse_float=str)
+    except (ValueError, UnicodeDecodeError, RecursionError):
+        return None
+    if not isinstance(obj, dict):
+        return None
+    cls = obj.get("class")
+    if cls == "TPV":
+        mode = obj.get("mode", 0)
+        if isinstance(mode, bool) or not isinstance(mode, int):
+            mode = 0
+        alt = obj.get("altMSL", obj.get("alt", obj.get("altHAE")))
+        return "TPV", {
+            "mode": mode,
+            "time": parse_iso_utc(obj.get("time")),
+            "lat": num_text(obj.get("lat")),
+            "lon": num_text(obj.get("lon")),
+            "alt": num_text(alt),
+        }
+    if cls == "SKY":
+        used = obj.get("uSat")
+        seen = obj.get("nSat")
+        sats = obj.get("satellites")
+        if isinstance(sats, list):
+            if not isinstance(used, int) or isinstance(used, bool):
+                used = sum(1 for s in sats if isinstance(s, dict) and s.get("used") is True)
+            if not isinstance(seen, int) or isinstance(seen, bool):
+                seen = len(sats)
+        used = used if isinstance(used, int) and not isinstance(used, bool) else None
+        seen = seen if isinstance(seen, int) and not isinstance(seen, bool) else None
+        if used is None and seen is None:
+            # A SKY with neither (gpsd sends some with only DOPs) says nothing
+            # about the count: it does not replace the last one.
+            return None
+        return "SKY", {"used": used, "seen": seen}
+    return None
+
+
+def count_aircraft(obj, max_seen=AIRCRAFT_SEEN_S):
+    """readsb's aircraft.json -> (aircraft heard in the last max_seen s, its 'now'),
+    or None if it is not that."""
+    if not isinstance(obj, dict):
+        return None
+    now = finite_number(obj.get("now"))
+    ac = obj.get("aircraft")
+    if now is None or not isinstance(ac, list):
+        return None
+    n = 0
+    for a in ac:
+        if not isinstance(a, dict):
+            continue
+        seen = finite_number(a.get("seen"))
+        if seen is not None and 0 <= seen <= max_seen:
+            n += 1
+    return n, now
+
+
+def fix_word(mode):
+    return {2: "2D FIX", 3: "3D FIX"}.get(mode, "NO FIX")
+
+
+# --- Big digits ---------------------------------------------------------------------
+
+# 5x7 digits, 1-wide colon and point. One string per row; '#' is lit.
+GLYPHS = {
+    "0": [".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."],
+    "1": ["..#..", ".##..", "..#..", "..#..", "..#..", "..#..", ".###."],
+    "2": [".###.", "#...#", "....#", "...#.", "..#..", ".#...", "#####"],
+    "3": ["#####", "...#.", "..#..", "...#.", "....#", "#...#", ".###."],
+    "4": ["...#.", "..##.", ".#.#.", "#..#.", "#####", "...#.", "...#."],
+    "5": ["#####", "#....", "####.", "....#", "....#", "#...#", ".###."],
+    "6": ["..##.", ".#...", "#....", "####.", "#...#", "#...#", ".###."],
+    "7": ["#####", "....#", "...#.", "..#..", ".#...", ".#...", ".#..."],
+    "8": [".###.", "#...#", "#...#", ".###.", "#...#", "#...#", ".###."],
+    "9": [".###.", "#...#", "#...#", ".####", "....#", "...#.", ".##.."],
+    ":": [".", ".", "#", ".", "#", ".", "."],
+    ".": [".", ".", ".", ".", ".", ".", "#"],
+}
+GLYPH_ROWS = 7
+GAP_UNITS = 1
+
+
+def big_units(text):
+    """Width of the text in glyph units, gaps included."""
+    return sum(len(GLYPHS[c][0]) for c in text) + GAP_UNITS * (len(text) - 1)
+
+
+# Every clock text has the same width: 7 digits, 2 colons, 1 point.
+CLOCK_UNITS = big_units("00:00:00.0")
+
+
+def render_big(text, sx, sy):
+    """The text as rows of PIX and spaces, each unit sx columns by sy rows."""
+    rows = []
+    for r in range(GLYPH_ROWS):
+        parts = []
+        for i, c in enumerate(text):
+            if i:
+                parts.append(" " * (GAP_UNITS * sx))
+            parts.append("".join((PIX if b == "#" else " ") * sx for b in GLYPHS[c][r]))
+        line = "".join(parts)
+        rows.extend([line] * sy)
+    return rows
+
+
+# --- Layout ---------------------------------------------------------------------------
+
+STATUS_LINES = 6   # DATE, CLOCK, GPS, POS, AIRCRAFT, and the UTC line above them
+
+
+def plan(cols, rows):
+    """Where everything goes on a cols x rows console: a dict with sx, sy (0 when
+    there is no room for big digits), big_top, big_left, utc_row, status_top.
+    The last row is left empty: nothing is ever written there."""
+    usable = max(rows - 1, 1)
+    small = STATUS_LINES          # the UTC line, then five status lines
+    sx = max((cols - 2) // CLOCK_UNITS, 0)
+    # Cells are about twice as tall as wide (16x32 and 8x16 fonts), so sy of
+    # about 3/4 sx gives units a little taller than wide.
+    sy = max(1, (3 * sx + 2) // 4) if sx else 0
+    # Top margin, digits, a blank row, then the small lines.
+    while sy and 1 + GLYPH_ROWS * sy + 1 + small > usable:
+        sy -= 1
+    if sy == 0:
+        sx = 0
+    big_w = CLOCK_UNITS * sx
+    big_top = 1
+    if sx:
+        utc_row = big_top + GLYPH_ROWS * sy + 1
+    else:
+        # No room for the digits: the small lines only, from the top.
+        utc_row = 1 if usable > small else 0
+    return {
+        "cols": cols, "rows": rows, "sx": sx, "sy": sy,
+        "big_top": big_top, "big_left": max((cols - big_w) // 2, 0),
+        "utc_row": utc_row, "status_top": utc_row + 1,
+    }
+
+
+def blank_rows(p):
+    """Every row but the last, blank. Each frame starts from these, so a repaint
+    rewrites every cell a renderer may write, the empty ones included."""
+    return {r: " " * p["cols"] for r in range(max(p["rows"] - 1, 0))}
+
+
+def repaint(frame, p):
+    """The whole screen written over itself: setterm's escapes, every row of the
+    frame (all but the last; see blank_rows), then the last row erased in place
+    (EL, ESC[2K: no character is written there, so nothing can scroll). This is
+    what removes a kernel or getty line from anywhere on the slate."""
+    return SETUP + diff({}, frame) + f"{ESC}{p['rows']};1H{ESC}2K"
+
+
+def fit(s, cols):
+    """A row of exactly cols cells: the text after the left margin, cut or padded."""
+    return (" " * MARGIN + s)[:cols].ljust(cols)
+
+
+def time_rows(now_ns, p):
+    """{row: text} for the big digits and the UTC line."""
+    out = {}
+    if p["sx"]:
+        for i, line in enumerate(render_big(big_clock_text(now_ns), p["sx"], p["sy"])):
+            out[p["big_top"] + i] = (" " * p["big_left"] + line)[:p["cols"]].ljust(p["cols"])
+    out[p["utc_row"]] = fit("UTC " + format_utc(now_ns), p["cols"])
+    return out
+
+
+# A fix's age is the system clock minus the fix's GPS time. Gap-filled: past
+# 60 s a fix that gpsd reports as fresh is not plausible, so no number is shown.
+FIX_AGE_MAX_S = 60.0
+
+
+def fix_age_words(tpv, state, now_s):
+    """'FIX AGE 0.4 s', or a word where a number would mislead: with no fix, with
+    the system clock unbounded (UNSYNCED, CHRONY?), negative, or implausible."""
+    if tpv["mode"] < 2 or tpv["time"] is None:
+        return "FIX AGE -"
+    if state not in CLOCK_BOUNDED:
+        return "FIX AGE ? (clock unsynced)" if state == "UNSYNCED" else "FIX AGE ? (clock unknown)"
+    age = now_s - tpv["time"]
+    if age < 0:
+        return "FIX AGE ? (fix after clock)"
+    if age > FIX_AGE_MAX_S:
+        return "FIX AGE ? (implausible)"
+    return f"FIX AGE {age:.1f} s"
+
+
+def status_lines(now_ns, snap, tz=None):
+    """The five status lines, from one snapshot of the sources (see Sources.snapshot).
+    tz: a time.struct_time for local time (tests pass one); else time.localtime."""
+    sec = now_ns // SECOND_NS
+    utc = time.gmtime(sec)
+    loc = tz if tz is not None else time.localtime(sec)
+    zone = sanitize(loc.tm_zone or "")
+    off = loc.tm_gmtoff
+    off_txt = "" if off is None else "UTC{}{:02d}:{:02d}".format(
+        "-" if off < 0 else "+", abs(off) // 3600, abs(off) % 3600 // 60)
+    date_line = (f"DATE {time.strftime('%a %Y-%m-%d', utc)} UTC    "
+                 f"LOCAL {time.strftime('%a %Y-%m-%d %H:%M:%S', loc)} {zone} {off_txt}").rstrip()
+
+    now_s = now_ns / 1e9
+    state, clock_text = clock_state(snap.get("tracking"), snap.get("tracking_fresh", False), now_s)
+    clock_line = "CLOCK " + clock_text
+    if not snap.get("gpsd_connected"):
+        gps_line, pos_line = "GPS NO GPSD", "POS NO GPSD"
+    elif snap.get("tpv") is None or not snap.get("tpv_fresh"):
+        gps_line, pos_line = "GPS STALE (no report from gpsd)", "POS GPS STALE"
+    else:
+        tpv = snap["tpv"]
+        sky = snap.get("sky") if snap.get("sky_fresh") else None
+        if sky is None:
+            sats = "SATS ?"
+        else:
+            used = "?" if sky["used"] is None else str(sky["used"])
+            seen = "?" if sky["seen"] is None else str(sky["seen"])
+            sats = f"SATS {used} used of {seen}"
+        age = fix_age_words(tpv, state, now_s)
+        gps_line = f"GPS {fix_word(tpv['mode'])}   {sats}   {age}"
+        if tpv["mode"] >= 2 and tpv["lat"] is not None and tpv["lon"] is not None:
+            alt = f"   ALT {tpv['alt']} m" if tpv["alt"] is not None else ""
+            pos_line = f"POS {tpv['lat']} {tpv['lon']}{alt}"
+        else:
+            pos_line = "POS NO FIX"
+
+    ac = snap.get("aircraft")
+    if ac == "missing":
+        ac_line = "AIRCRAFT NO READSB"
+    elif ac == "unreadable":
+        # The file is there but this process cannot read it: a permission or
+        # sandbox problem on the rig, not readsb's.
+        ac_line = "AIRCRAFT READSB UNREADABLE (see the journal)"
+    elif ac is None:
+        ac_line = "AIRCRAFT READSB?"
+    else:
+        n, json_now = ac
+        if now_s - json_now > READSB_STALE_S:
+            ac_line = "AIRCRAFT READSB STALE"
+        elif json_now - now_s > READSB_AHEAD_S:
+            ac_line = "AIRCRAFT READSB ? (its time is ahead of the clock)"
+        else:
+            ac_line = f"AIRCRAFT {n} heard in the last {int(AIRCRAFT_SEEN_S)} s"
+    return [sanitize(x) for x in (date_line, clock_line, gps_line, pos_line, ac_line)]
+
+
+def status_rows(now_ns, snap, p, tz=None):
+    """{row: text} for the status lines. Never raises: on any error, one line
+    saying so, and the type name to the journal."""
+    try:
+        lines = status_lines(now_ns, snap, tz)
+    except Exception as e:  # noqa: BLE001 - the screen must keep running
+        log_error("status", e)
+        lines = ["STATUS ERROR (see the journal)"]
+    out = {}
+    for i, line in enumerate(lines):
+        r = p["status_top"] + i
+        if r < p["rows"] - 1:
+            out[r] = fit(line, p["cols"])
+    return out
+
+
+# --- Drawing ----------------------------------------------------------------------------
+
+
+def paint(text):
+    """A row's cells -> what to write: runs of PIX become reverse-video spaces."""
+    out = []
+    i, n = 0, len(text)
+    while i < n:
+        j = i
+        if text[i] == PIX:
+            while j < n and text[j] == PIX:
+                j += 1
+            out.append(ESC + "7m" + " " * (j - i) + ESC + "27m")
+        else:
+            while j < n and text[j] != PIX:
+                j += 1
+            out.append(text[i:j])
+        i = j
+    return "".join(out)
+
+
+def diff(old, new):
+    """The escape sequences that turn screen `old` into `new`, both {row: text}
+    with every text exactly the console's width. Only the span from the first
+    to the last changed cell of each row is written. A row in old but not new
+    is blanked."""
+    out = []
+    for r in sorted(set(old) | set(new)):
+        a = old.get(r)
+        b = new.get(r)
+        if b is None:
+            b = " " * len(a)
+        if a == b:
+            continue
+        if a is None or len(a) != len(b):
+            i, j = 0, len(b) - 1
+        else:
+            i = 0
+            while a[i] == b[i]:
+                i += 1
+            j = len(b) - 1
+            while a[j] == b[j]:
+                j -= 1
+        out.append(f"{ESC}{r + 1};{i + 1}H" + paint(b[i:j + 1]))
+    return "".join(out)
+
+
+def console_size(fd):
+    """(cols, rows) from TIOCGWINSZ, or None."""
+    try:
+        rows, cols, _, _ = struct.unpack("HHHH", fcntl.ioctl(fd, termios.TIOCGWINSZ, b"\0" * 8))
+    except OSError:
+        return None
+    if rows <= 0 or cols <= 0:
+        return None
+    return cols, rows
+
+
+# --- The sources ----------------------------------------------------------------------------
+
+
+class Sources:
+    """The latest value from each source, with the monotonic time it arrived.
+    Each field is replaced whole (one assignment), so the drawing thread reads a
+    consistent value without a lock."""
+
+    def __init__(self, clock=time.monotonic):
+        self.clock = clock
+        self.gpsd_connected = False
+        self.tpv = None          # (arrived, dict)
+        self.sky = None          # (arrived, dict)
+        self.tracking = None     # (arrived, dict or None)
+        self.aircraft = None     # "missing", None, or (count, json now)
+
+    def snapshot(self):
+        now = self.clock()
+        tpv, sky, tr = self.tpv, self.sky, self.tracking
+        return {
+            "gpsd_connected": self.gpsd_connected,
+            "tpv": tpv[1] if tpv else None,
+            "tpv_fresh": bool(tpv) and now - tpv[0] <= TPV_STALE_S,
+            "sky": sky[1] if sky else None,
+            "sky_fresh": bool(sky) and now - sky[0] <= SKY_STALE_S,
+            "tracking": tr[1] if tr else None,
+            "tracking_fresh": bool(tr) and now - tr[0] <= CHRONY_STALE_S,
+            "aircraft": self.aircraft,
+        }
+
+    def take_gpsd_line(self, line):
+        got = parse_gpsd_line(line)
+        if got is None:
+            return
+        kind, info = got
+        if kind == "TPV":
+            self.tpv = (self.clock(), info)
+        else:
+            self.sky = (self.clock(), info)
+
+
+def gpsd_loop(src, addr, stop):
+    """Holds a WATCH open on gpsd, the rig's one position source (PLAN §5, "The
+    one position source"), and reconnects every GPSD_RETRY_S when it cannot."""
+    last_err = None
+    while not stop.is_set():
+        try:
+            with socket.create_connection(addr, timeout=GPSD_RETRY_S) as s:
+                s.sendall(b'?WATCH={"enable":true,"json":true}\n')
+                s.settimeout(1.0)
+                src.gpsd_connected = True
+                if last_err is not None:
+                    log("gpsd: connected")
+                    last_err = None
+                buf = b""
+                while not stop.is_set():
+                    try:
+                        chunk = s.recv(65536)
+                    except socket.timeout:
+                        continue
+                    if not chunk:
+                        raise ConnectionResetError
+                    buf += chunk
+                    while b"\n" in buf:
+                        line, buf = buf.split(b"\n", 1)
+                        src.take_gpsd_line(line)
+                    if len(buf) > 1 << 20:   # a line no gpsd sends: drop it
+                        buf = b""
+        except Exception as e:  # noqa: BLE001 - logged by type, then retried
+            src.gpsd_connected = False
+            name = type(e).__name__
+            if name != last_err:
+                log(f"gpsd: {name}; retrying every {GPSD_RETRY_S:g} s")
+                last_err = name
+        src.gpsd_connected = False
+        stop.wait(GPSD_RETRY_S)
+
+
+def read_tracking():
+    """chronyc's tracking as a dict, or None. -n: no name lookups, which could
+    block with no network. Seen on the 🎒 portable 2026-10-10, read-only:
+    `chronyc -n -c tracking` answers as the unprivileged login user. ⚠️ Not
+    seen: that it answers under the unit's dynamic user and sandbox; with no
+    answer the slate shows CHRONY?."""
+    try:
+        r = subprocess.run(["chronyc", "-n", "-c", "tracking"], capture_output=True,
+                           text=True, timeout=CHRONYC_TIMEOUT_S)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode != 0:
+        return None
+    return parse_tracking(r.stdout)
+
+
+_last_aircraft_error = None
+
+
+def read_aircraft(path):
+    """'missing' if there is no file, 'unreadable' if it cannot be read (its
+    error type logged once per change), None if it does not parse, else
+    (count, now)."""
+    global _last_aircraft_error
+    try:
+        with open(path, "rb") as fh:
+            obj = json.load(fh)
+    except FileNotFoundError:
+        return "missing"
+    except OSError as e:
+        if type(e).__name__ != _last_aircraft_error:
+            log_error(f"reading {path}", e)
+            _last_aircraft_error = type(e).__name__
+        return "unreadable"
+    except (ValueError, RecursionError):
+        return None
+    _last_aircraft_error = None
+    return count_aircraft(obj)
+
+
+def poll_loop(src, aircraft_path, stop):
+    while not stop.is_set():
+        try:
+            ac = read_aircraft(aircraft_path)
+            # A file that does not parse keeps the last good reading, which
+            # carries its own `now`: past READSB_STALE_S it shows as stale.
+            # ⚠️ Belief, not read in readsb's source: readsb replaces the file
+            # by rename, so a torn read is not expected anyway.
+            if ac is not None or src.aircraft in ("missing", "unreadable"):
+                src.aircraft = ac
+            t = read_tracking()
+            src.tracking = (src.clock(), t) if t is not None else src.tracking
+        except Exception as e:  # noqa: BLE001
+            log_error("poll", e)
+        stop.wait(POLL_S)
+
+
+# --- The console ------------------------------------------------------------------------------
+
+
+class Console:
+    def __init__(self, fd):
+        self.fd = fd
+        self.saved = None
+
+    def write(self, s):
+        data = s.encode("ascii", "replace")
+        while data:
+            n = os.write(self.fd, data)
+            data = data[n:]
+
+    def quiet(self):
+        """No echo, no line editing, no XON/XOFF: a keyboard on the Pi can neither
+        print onto the slate nor stop its output (Ctrl-S)."""
+        try:
+            attrs = termios.tcgetattr(self.fd)
+        except termios.error:
+            return
+        self.saved = [list(a) if isinstance(a, list) else a for a in attrs]
+        attrs[0] &= ~(termios.IXON | termios.IXOFF)
+        attrs[3] &= ~(termios.ECHO | termios.ICANON)
+        try:
+            termios.tcsetattr(self.fd, termios.TCSANOW, attrs)
+        except termios.error:
+            pass
+
+    def restore(self):
+        if self.saved is not None:
+            try:
+                termios.tcsetattr(self.fd, termios.TCSANOW, self.saved)
+            except termios.error:
+                pass
+
+
+def run(console, src, stop, exit_on_resize, clock_ns=time.time_ns, sleep=time.sleep):
+    """The drawing loop. Returns the exit status."""
+    fd = console.fd
+    size = console_size(fd) or (80, 25)
+    p = plan(*size)
+    log(f"start {VERSION}: console {size[0]}x{size[1]}, digits {p['sx']}x{p['sy']} cells per unit")
+    console.write(SETUP + CLEAR)
+    blanks = blank_rows(p)
+    screen = {}
+    status = {}
+    last_sec = None
+    last_repaint = None
+    last_size_check = time.monotonic()
+    while not stop.is_set():
+        sleep(next_tick_delay(clock_ns()))
+        if stop.is_set():
+            break
+        mono = time.monotonic()
+        if mono - last_size_check >= SIZE_CHECK_S or stop.winch:
+            stop.winch = False
+            last_size_check = mono
+            new = console_size(fd)
+            if new is not None and new != size:
+                log(f"console resized: {size[0]}x{size[1]} -> {new[0]}x{new[1]}")
+                size = new
+                p = plan(*size)
+                blanks = blank_rows(p)
+                console.write(SETUP + CLEAR)
+                screen, last_sec = {}, None
+                if exit_on_resize:
+                    # systemd restarts the unit, whose ExecStartPre sets the font again.
+                    log("exiting so the unit re-applies the console font")
+                    return 0
+        # The time shown is read here, just before it is written.
+        now_ns = clock_ns()
+        sec = now_ns // SECOND_NS
+        frame = dict(blanks)
+        frame.update(time_rows(now_ns, p))
+        if sec != last_sec:
+            status = status_rows(now_ns, src.snapshot(), p)
+            last_sec = sec
+        frame.update(status)
+        if last_repaint is None or mono - last_repaint >= REPAINT_S:
+            out = repaint(frame, p)
+            last_repaint = mono
+        else:
+            out = diff(screen, frame)
+        if out:
+            console.write(out)
+        screen = frame
+    return 0
+
+
+class Stop(threading.Event):
+    winch = False
+
+    def handler(self, signum, _frame):
+        self.set()
+
+    def on_winch(self, signum, _frame):
+        self.winch = True
+
+
+def parse_hostport(s):
+    host, _, port = s.rpartition(":")
+    if not host or not port.isdigit():
+        raise argparse.ArgumentTypeError("expected HOST:PORT")
+    return host, int(port)
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(
+        prog="adsb-slate",
+        description="The portable rig's field display on the console: UTC to tenths, chrony, "
+                    "gpsd and readsb (PLAN §5, ruling 1).")
+    ap.add_argument("--version", action="version", version=f"adsb-slate {VERSION}")
+    ap.add_argument("--gpsd", type=parse_hostport, default=GPSD_ADDR, metavar="HOST:PORT",
+                    help="gpsd (default 127.0.0.1:2947)")
+    ap.add_argument("--aircraft", default=AIRCRAFT_JSON,
+                    help="readsb's aircraft.json (default %(default)s)")
+    ap.add_argument("--exit-on-resize", action="store_true",
+                    help="exit when the console's size changes, so the unit restarts it and "
+                         "re-applies the font")
+    a = ap.parse_args(argv)
+
+    sys.excepthook = excepthook
+    threading.excepthook = thread_excepthook
+    fd = sys.stdout.fileno()
+    if not os.isatty(fd):
+        log("stdout is not a terminal; run it on a console (the unit runs it on tty1)")
+        return 2
+
+    stop = Stop()
+    signal.signal(signal.SIGTERM, stop.handler)
+    signal.signal(signal.SIGINT, stop.handler)
+    signal.signal(signal.SIGHUP, stop.handler)
+    signal.signal(signal.SIGWINCH, stop.on_winch)
+
+    src = Sources()
+    threading.Thread(target=gpsd_loop, args=(src, a.gpsd, stop), name="gpsd", daemon=True).start()
+    threading.Thread(target=poll_loop, args=(src, a.aircraft, stop), name="poll", daemon=True).start()
+
+    console = Console(fd)
+    console.quiet()
+    rc = 1
+    try:
+        rc = run(console, src, stop, a.exit_on_resize)
+    except Exception as e:  # noqa: BLE001
+        log_error("fatal", e)
+        rc = 1
+    finally:
+        # Never leave a frozen clock on the screen: a photograph of it would be wrong.
+        try:
+            console.write(CLEAR + RESTORE + "adsb-slate stopped\r\n")
+        except OSError:
+            pass
+        console.restore()
+        stop.set()
+    log(f"exit {rc}")
+    return rc
+
+
+if __name__ == "__main__":
+    sys.exit(main())
