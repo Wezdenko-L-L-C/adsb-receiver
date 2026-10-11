@@ -244,8 +244,15 @@ in Arizona time (UTC−7), and from `date`.
        is COARSE. A fix older than 60 s shows a word, not its age. readsb's `now` more than 2 s
        ahead of the system clock is not shown as current.*
      - *The surface rule, as built: the renderer logs exception type names only, never a message,
-       and the step's verify prints only the UTC line and the clock's word from the screen, never
-       the screen itself.*
+       and ~~the step's verify prints only the UTC line and the clock's word from the screen, never
+       the screen itself~~.* *Corrected 2026-10-10 (fable-architect's finding, checked by Claude in
+       the verify's `read_screen`): from the screen, the step's verify prints the UTC line and the
+       clock's word, and nothing else. Beside them it prints the device it read and the system
+       clock at each read.*
+     - *Nothing in the code names an HDMI port: the renderer writes tty1, and the kernel decides
+       which connector shows it (fable-architect's finding, reasoned). ✅ Claude grepped
+       `bin/adsb-slate` and the step: "HDMI" appears only in comments that describe the console
+       and the disconnected reads.*
 2. **readsb's listeners go to loopback, in their own commit, first.** Recommended by the
    consultation.
    - ✅ Seen 2026-10-10 at about 15:28, with `ss -ltn` on the 🎒 portable: readsb's 30001 to 30005
@@ -421,8 +428,12 @@ options chosen:
      installed the binary and the unit, enabled the unit, and started it ("That stops
      getty@tty1.service"). Its verify passed twice, in the install pass and in the full verify
      pass: the renderer is the unit's main process, as a dynamic uid, with NoNewPrivs 1;
-     `/dev/vcsu1` showed the UTC line, with `screen minus system -0.04 s` on each read; and the
+     `/dev/vcsu1` showed the UTC line, with `screen minus system -0.04 s` ~~on each read~~; and the
      clock's word on the screen was SYNCED. The update's result: "applied; exit 0".*
+     *Corrected 2026-10-10 (fable-architect's finding, reasoned): the same value on both reads is
+     one measurement, not two. The two reads are 1.2 s apart, an exact multiple of the 100 ms tick,
+     so they land at the same phase of it. With the tenth truncated, a healthy value lies in
+     (−0.1, 0], and −0.04 bounds the write latency only to under 40 ms.*
      - *The slate's journal: `setfont: ERROR kdfontop.c:212 put_font_kdfontop: Unable to load such
        font with such kernel version`, which the unit's `-` prefix tolerates; then "start 0.1.0:
        console 80x25, digits 1x1 cells per unit". NRestarts 0. `getty@tty1` inactive. ➡️ The
@@ -437,13 +448,89 @@ options chosen:
      163 ticks (CLK_TCK 100) over a 60 s window at about 19:10 to 19:11, about 0.89 s per 60 s, or
      about 1.5 % of one of the Pi's four cores. ⚠️ With the panel on, fbcon draws the glyphs in the
      write path, which may raise it: the done-when's CPU reading is still owed with the panel on.*
-   - *Still owed for #30's done-when, unchanged: the photo of the slate beside time.gov, within
+   - *Still owed for #30's done-when, ~~unchanged~~: the photo of the slate beside time.gov, within
      0.3 s; the one-hour power reading with the panel on; and the slate's CPU with the panel on.*
+     *Changed 2026-10-10 by Chris's ruling (ruling 3 of the 19:27 rulings below): a second
+     measurement is added, in the field state. The photo is taken by filming (ruling 2 there).*
    - *⚠️ Still beliefs in the code, not seen: DRM's fbdev setup deferred to the first hotplug, with
      fbcon then taking tty1, and the renderer's exit on the resize re-running `setfont`;
      `TTYVTDisallocate=` clearing the console after a SIGKILL; and systemd opening `TTYPath=`
      before it drops privileges, which works in effect: the renderer was seen running as a dynamic
      uid and writing tty1.*
+
+   *Update 2026-10-10: four rulings by Chris, by multiple-choice question; the stamp of his answers
+   is 19:27 Arizona time.* They came after a fable-architect review, which stopped at about 19:24,
+   and a rejection check, which found that none of the items re-derives a refusal; it noted the
+   done-when's "photo" wording and ruling 1's "photographed or filmed". Each ruling is the option
+   Claude recommended. Where no other reason was given, the option's wording is the reason.
+   1. **Add, then push both.** This record is added, then `5cd6a09` and the commit carrying this
+      record are pushed together. No reason is on record beyond the option's wording.
+      - Rejected, as put: **Push `5cd6a09` only**, with fable-architect's notes going to the
+        pick-up block; and **Hold both**.
+   2. **The 0.3 s check is filmed beside time.gov.** Its option text: "Film both at 30 or 60 fps and
+      read the slate's tenths in the frame where time.gov's second changes. Ruling 1 already says
+      'photographed or filmed', so the done-when's wording stands."
+      - Rejected, as put: **Still, tenths reference**: one photo beside a reference that shows
+        tenths, a phone app disciplined by GPS or NTP. **Still beside time.gov**, as written: it
+        proves about 1 s unless time.gov shows tenths.
+      - ⚠️ Not checked by anyone: that time.gov shows whole seconds only. Claude's question said
+        "likely".
+      - fable-architect's advice, reasoned, not ruled (F4): the slate shows the floor of a 0.1 s
+        interval, so a reading is reduced by adding about 0.05 s or by carrying the interval; a
+        burst or film avoids a torn digit.
+   3. **A second measurement joins #30's done-when.** Its option text: "Add it — Both measurements
+      become #30's done-when." The field state: Wi-Fi off, the rig on the GPS, a phone reference on
+      cellular. The reason, as put: the home measurement proves the display chain; the field one is
+      what a shoot relies on.
+      - Rejected, as put: **Home only**, with the field state checked at the field session (#31).
+      - ➡️ *Changed 2026-10-10 by Chris's ruling:* item 2's measurements are now the slate photographed
+        beside time.gov within 0.3 s, at home, by filming both (ruling 2); the same check in the
+        field state; the one-hour
+        power reading with the panel on; and the slate's CPU with the panel on.
+   4. **The lagging code comments ride with the next rig-code change,** not a comment-only change
+      now. Its option text: "Next rig-code change — They ride along with the change after the panel
+      test (the clock word, maybe getty@tty2), through the three reviews once. PLAN lists them
+      meanwhile, so nobody re-records them."
+      - Rejected, as put: **Now**.
+      - The comments, each line checked by Claude in the tree at `5cd6a09`:
+        - `bin/adsb-slate:43–45`, `setup/steps/80-portable-slate.sh:53–56` and `:361–363`: "to be
+          recorded in PLAN §5", and the slate's own writes "not yet seen". Both are now recorded,
+          and seen, in this item's run above.
+        - `setup/steps/80-portable-slate.sh:61` and `:155–157`: `setfont` failing with no
+          framebuffer is called a belief. It is now seen, in the slate's journal above.
+        - `bin/adsb-slate:692–694`: chronyc answering under the unit's dynamic user and sandbox is
+          "not seen". SYNCED on the screen means chronyc answered there: fable-architect's and
+          Claude's inference from the code path, not seen directly.
+        - `setup/steps/80-portable-slate.sh:11`: "BUILD.md has no section for it yet".
+          [BUILD.md §8](BUILD.md#8-build-order)'s list of step scripts now names it.
+
+   **fable-architect's findings, 2026-10-10, recorded beside these rulings.** Reasoned unless marked
+   read; none of them is a ruling.
+   - **The field clock word (F1).** Step 20 renders `refclock SHM 0 refid GPS offset 0.203 delay
+     0.2` (✅ read by Claude at `setup/steps/20-portable-clock.sh:208`; its comment at 206–207 says
+     half the delay counts in chrony's error bound, so the puck is treated as "good to about +/-0.1
+     s"). The slate's SYNCED needs a bound within 20 ms (`BOUND_OK_S = 0.020`, read at
+     `bin/adsb-slate:215`). Reasoned: with the GPS selected, the root delay is about 0.2 s, so the
+     bound is at least 0.1 s and the word is COARSE. SYNCED appears only when chrony has chosen an
+     NTP server, as it had at home today. ⚠️ Unverified link: that chrony reports a refclock's
+     configured delay as the tracking root delay. The check is `chronyc tracking` with Wi-Fi off.
+     - The number shown is right. It is consistent with
+       [§9m](#9m--the-portable-rigs-archive-drive)'s R2, where NMEA-disciplined chrony is good to
+       about 0.1 s and "a requirement tighter than about 0.3 s, which means PPS first" is what would
+       change it. Only the word's tone misleads.
+     - Advice, not ruled: do not raise the threshold, because SYNCED would then claim 20 ms. After
+       the panel test, one question to Chris: keep COARSE, or a word that names the source, with
+       the bound.
+   - **What the first plug-in will prove, and what it will not (F5).** It proves that fb0 appears on
+     hotplug, and the path from a resize to a restart to `setfont`. The journal would show a resize
+     line, a restart, then a new console size: 120x33 with no `kdfontop` error, or 240x67 with it.
+     Both work: the digits never depended on the font. It does not prove a boot with the panel
+     attached, an unplug and replug, or `TTYVTDisallocate=` after a SIGKILL. ⚠️ If no fb0 appears,
+     the fallback is the firmware's `hdmi_force_hotplug`, and `/boot/firmware` is on
+     [§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away)'s denylist: that
+     would need a ruling.
+   - **tty2's login (F7).** Advice, not ruled: the Alt-F2 and Alt-F1 keyboard test at the panel
+     settles it; a static `getty@tty2` only if that test fails.
 3. The live viewer: one new readsb flag, `--net-connector`, plus gating two that already exist,
    `--json-location-accuracy` and `--range-outline-hours`; and :8504 removed. ✅ Both existing
    flags are in the defaults file step 10 renders, at `2` and `24`. They are inert today only

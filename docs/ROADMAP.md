@@ -52,8 +52,13 @@ added 2026-10-10, once Chris had approved the list of issues.
       "✅ Seen" bullet).*
    2. **The field display and the position ruling** (rulings 1, 3, 4, 6, 9, 10).
       **Hands:** implementer and the same review chain; Chris attaches the panel and runs the step.
-      **Done when:** the slate photographed beside time.gov within 0.3 s; the one-hour power reading
-      with the panel on; the slate's CPU from `ps`. (#30)
+      ~~**Done when:** the slate photographed beside time.gov within 0.3 s; the one-hour power reading
+      with the panel on; the slate's CPU from `ps`.~~
+      *Changed 2026-10-10 by Chris's ruling (PLAN §5, "The work within #30, in order", item 2's
+      19:27 rulings):* **Done when:** the slate photographed beside time.gov within 0.3 s, at home,
+      by filming both; the same check in the field state (Wi-Fi off, the rig on the GPS, a phone
+      reference on cellular); the one-hour power reading with the panel on; the slate's CPU from
+      `ps`. (#30)
    3. **The viewer:** the live map with the receiver marker at the gated accuracy, :8504 closed,
       and the archive timeline from 4a (rulings 6, 7, 9, 10). **Hands:** implementer and the same
       review chain. **Done when:** stated in its issue. (#35)
