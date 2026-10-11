@@ -1103,6 +1103,10 @@ recommendation every time, and that choice is the decision.
         clear and trains the reader to skip the banner; **a Pi-model condition on the overlay**,
         which guards the wrong hazard and needs a model table; and **refusing to write the overlay**
         (keeping the human gate), which guards nothing, because the board charges anyway.
+      - *Added 2026-10-11: on the 🎒 portable the check is done. The diode is removed
+        (**(Chris)**, 2026-10-11). It is his word; Claude has not seen the board, and, as this ruling
+        says, nothing on the rig can confirm it.
+        [BUILD.md §6b](BUILD.md#6b-gps-alone-does-not-close-it) carries the same note.*
   - **`setup/foundation/format-archive.sh`**, under a strict rule:
     - If any device already carries the label `adsb-archive`, it formats nothing, and step 30 mounts
       that device.

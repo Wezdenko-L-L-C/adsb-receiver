@@ -98,7 +98,7 @@ Buy the shared core once per rig, then only the additions for the rig you are bu
 |---|---|---|
 | 6 | **Magnetic-mount 1090 whip** | For a car roof. ⛔ A 26" collinear is the wrong antenna to carry and the wrong one to mount in a hurry. ⚠️ These are usually **MCX** — check the bundled MCX→SMA adapter presents **SMA male**, since the dongle's connector is SMA female |
 | 7 | **USB-C power bank, genuine 5 V 3 A** | See [§5](#5-power-portable-only). ⚠️ Undervoltage looks like bad reception |
-| 8 | **USB GNSS receiver** — ⭐ **GlobalSat BU-353N5** | ⛔ Portable only. ⭐ Magnetic mount on a ~1.5 m lead, so the antenna goes where the sky is — which a HAT cannot do. [§6c](#6c-which-gnss-puck) for why the N5 over the older S4 |
+| 8 | **USB GNSS receiver** — ⭐ **GlobalSat BU-353N5** | ⛔ Portable only. ⭐ Magnetic mount on a ~1.5 m lead, so the antenna goes where the sky is — which a HAT cannot do. [§6c](#6c-which-gnss-puck) for why the N5 over the older S4. *Added 2026-10-11: ⚠️ the 🎒 portable carries a GlobalSat **BU-353N**, not this N5. Both of its labels read BU-353N, with no N5 and no IP rating (photographed by Chris, 2026-10-11). [§6c](#6c-which-gnss-puck)'s case for the N5 does not describe the puck on the rig. This note records what is fitted; what to buy is not ruled.* |
 | 9 | **DS3231 RTC module** (I²C breakout, ~$5) | ⛔ Portable only. ⭐ [§6b](#6b-gps-alone-does-not-close-it) — the half of the clock problem GPS does *not* solve. ⚠️ DS3231, **not** DS1307. ⚠️ [§6b](#6b-gps-alone-does-not-close-it): fix the charge path before fitting |
 | 10 | **A bag that fits it all, and short USB extension leads** | Dongles need spacing ([RADIOS.md §5](RADIOS.md#5-what-a-second-dongle-does-to-the-pi)), and a rig you dread packing is a rig you leave at home |
 
@@ -332,6 +332,11 @@ prints a reminder when it adds the overlay.*
 - fit a **LIR2032** (rechargeable, what the board expects), **or**
 - **remove R5** (or the 1N4148), after which a CR2032 is safe.
 
+*Added 2026-10-11: on the 🎒 portable this is done. The diode is removed (**(Chris)**, 2026-10-11);
+Claude has not seen the board. No script can check it, as the correction above says, and
+[PLAN.md §9e](PLAN.md#9e-the-first-build-is-by-hand-after-that-updates-are-automatic) records the
+2026-10-04 ruling that made it a hardware-assembly step.*
+
 ℹ️ Wire it to the Pi's **3.3 V** pin, not 5 V — the Pi's I²C is 3.3 V logic anyway, and it makes
 the charging circuit less aggressive if you have not removed it. ℹ️ The AT24C32 EEPROM on the same
 board appears at a second I²C address and is harmless.
@@ -360,6 +365,19 @@ partial sky: buildings, perimeter fencing, and your own vehicle block a chunk of
 constellations instead of one is exactly what recovers a lock in that situation, and lock time is
 time you cannot start recording. IPX6 matters more than it sounds for something living on a car
 roof in a hot, dry climate.
+
+*Added 2026-10-11: ⚠️ the 🎒 portable's puck is a GlobalSat **BU-353N**, not the N5. Its top label
+reads "BU-353N" and its bottom label "Model No:BU-353N", with no N5 and no IP rating on either
+(photographed by Chris, 2026-10-11). The N5 column of the table above, its IPX6 row included, and
+the multi-constellation paragraph describe a receiver that is not on the rig.*
+- *Water: the puck on the rig has no stated water rating. Chris noted it is a car-dashboard model.*
+- *Constellations: read over read-only SSH on 2026-10-11 at about 13:27Z. All 40 NMEA lines from
+  `gpspipe -r` came from the GP talker (`$GPGGA`, `$GPGSA`, `$GPGSV`, `$GPRMC`), none from GN, GA,
+  GB or GL, and gpsd's SKY report listed satellites with gnssid values 0 and 1 only (11 seen, 8
+  used, a 3D fix). Claude's reading, not checked against gpsd's documentation: gnssid 0 is GPS and
+  1 is SBAS, so the puck tracks GPS, plus SBAS, only.*
+- *Chipset: not stated here. Reseller listings conflict on the BU-353N's chipset.*
+- *This note records what is fitted. Whether to buy a different puck is not ruled.*
 
 ⚠️ **Bench check before trusting it:** the USB bridge is a **Prolific PL2303GC**. Linux support for
 newer PL2303 variants arrived around kernel 5.13 — current Raspberry Pi OS is well clear, but an
