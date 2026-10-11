@@ -350,18 +350,18 @@ EOF
   #    - --net-bind-address 127.0.0.1: every listener binds to it. readsb
   #      resolves it with getaddrinfo(AF_UNSPEC) (anet.c, anetTcpServer()),
   #      which gives an IPv4 address only, so no [::] listener is expected;
-  #      read in the source, not seen. The verify reads `ss` either way.
+  #      read in the source. The verify reads `ss` either way.
   #    - --net-ri-port and --net-bi-port are removed, not set to 0: their
   #      default at the pin is "0" (readsb.c), and "0" opens nothing
-  #      (net_io.c, serviceListen()); read in readsb's source at the pin, not
-  #      seen. The verify checks that those ports are closed.
+  #      (net_io.c, serviceListen()); read in readsb's source at the pin. The
+  #      verify checks that those ports are closed.
   #    - 30002 (raw out) and 30003 (SBS out) stay, on loopback. Nothing in
   #      this repo reads them (2026-10-10); removing them is not ruled.
-  #    ⚠️ Reasoned from this step's code, not yet seen on a rig: a rig with the
-  #    old file gets this one on its next run. install_if_changed's `cmp`
-  #    finds the rendered file different and installs it, and
-  #    readsb_restart_reason's mtime check finds the file newer than the
-  #    running readsb and restarts it. ✅ once the portable re-runs the step.
+  #    A rig with the old file gets this one on its next run:
+  #    install_if_changed finds it changed and installs it, and
+  #    readsb_restart_reason's mtime check finds it newer than the running
+  #    readsb and restarts it. What a rig showed when it did is recorded in
+  #    PLAN §5, #30's ruling 2, not here (§9c).
   cat >"$WORK/readsb.default" <<'EOF'
 # Rendered by setup/steps/10-decoder.sh. Do not edit; a hand edit is reverted
 # on the next run. Change the step instead.

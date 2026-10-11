@@ -224,17 +224,38 @@ in Arizona time (UTC−7), and from `date`.
    - ✅ Seen 2026-10-10 at about 15:28, with `ss -ltn` on the 🎒 portable: readsb's 30001 to 30005
      and 30104, :80 and :8504 listen on all interfaces. ⚠️ `ss -ltn` names no process; :8504's
      owner is under ruling 7.
+   - ✅ Seen 2026-10-10 after the fix below, by Claude, read-only, on the 🎒 portable only. The 🏠
+     stationary is not built, so no other rig carried the old line. The rig's own update applied
+     `f104aa7` at 17:34:43 Arizona time. Its journal: "/etc/default/readsb changed; installed",
+     then "restarting readsb: /etc/default/readsb changed after readsb (PID 1124) started", and
+     readsb at its restart listed 30002, 30005 and 30003 as its ports. `ss -ltn` then showed
+     listeners on 127.0.0.1:30002, 30003 and 30005 only: no 30001, 30004 or 30104, and no `[::]` on
+     those ports. :80 and :8504 still listen on all interfaces. ⚠️ `ss -ltn` names no process: that
+     those three are readsb's rests on the port numbers, on readsb's own journal line, and on
+     Chris's `sudo ss -ltnp`. Recorded by Chris, not re-seen by Claude: his `sudo ss -ltnp` in the
+     same window showed readsb on 127.0.0.1 only, and step 10's new verify passed.
+     - ⚠️ Only the outcome is seen. Why there is no `[::]` listener (readsb resolves the bind
+       address with `getaddrinfo(AF_UNSPEC)`) and why a removed input port opens nothing (its
+       default at the pin is "0") stay readings of readsb's source, as does readsb forwarding
+       network input to the BEAST output.
+     - ⚠️ "changed; installed" is logged when the file's content, mode or owner differs
+       (`install_if_changed` in `setup/steps/10-decoder.sh`), so the line does not say which.
+       Content is the evident cause, but it is inferred.
    - Read in readsb's source at the pin, not seen on a rig: network input is forwarded to the BEAST
      output, which the writer archives. ➡️ Anyone on the same Wi-Fi could put frames into the
      archive.
    - **The fix:** `--net-bind-address 127.0.0.1`, with the input listeners removed. It is the
-     change in step 10 (not yet committed): `NET_OPTIONS` in `setup/steps/10-decoder.sh`, whose
-     comment carries the source reading.
+     change in step 10 ~~(not yet committed)~~: `NET_OPTIONS` in `setup/steps/10-decoder.sh`, whose
+     comment carries the source reading. *Corrected 2026-10-10: committed as `425e89b` and pushed
+     to `main`. The line it renders is `NET_OPTIONS="--net --net-bind-address 127.0.0.1
+     --net-ro-port 30002 --net-sbs-port 30003 --net-bo-port 30005"`.*
    - ℹ️ Upstream's own `debian/readsb.default` carries the old line, so the exposure was upstream's
      default. Read by the implementer at the pin, not re-read here.
    - ℹ️ A reviewer's note: feeder and mlat clients normally push into readsb's input ports on
      loopback, so a future feeder step would reopen one input, bound to 127.0.0.1.
-   - Its issue: none until it is pushed (ruling 11).
+   - Its issue: none until it is pushed (ruling 11). *Update 2026-10-10: none at all. It is pushed,
+     and Chris ruled that no issue is filed and the item is done; the ruling is in ruling 11's
+     update.*
 3. **Panel power: from the battery bank's second port, not the Pi's USB.** Recommended by the
    consultation. It keeps the Pi's one USB hub, which carries the stick, the GPS and the drive,
    clear. No panel model is named.
@@ -260,8 +281,13 @@ in Arizona time (UTC−7), and from `date`.
 7. **:8504 closes; :80 is the one LAN door.** Recommended by the consultation, and its reason
    accepted by Chris: :8504 carries the same page and data as :80, so it is a second door to audit
    for no gain.
-   - ✅ Seen: :8504 serves tar1090's page (its title). Not seen: its owning process. It is most
-     likely lighttpd's second port, from tar1090's installer.
+   - ✅ Seen: :8504 serves tar1090's page (its title). ~~Not seen: its owning process. It is most
+     likely lighttpd's second port, from tar1090's installer.~~ *Corrected 2026-10-10: its owner is
+     seen. Recorded by Chris, not re-seen by Claude: his `sudo ss -ltnp` on the 🎒 portable showed
+     :8504 owned by lighttpd, the same process as :80. Seen by Claude, read-only:
+     `/etc/lighttpd/conf-available/95-tar1090-otherport.conf` begins "serve tar1090 directly on
+     port 8504". Not checked: whether that file is linked into `conf-enabled`, and that tar1090's
+     installer wrote it.*
    - Rejected, as put: **keep both.**
 8. **#30 is split into three, and ATC does not gate "the 🎒 portable is completed".** Recommended
    by the consultation.
@@ -290,6 +316,14 @@ in Arizona time (UTC−7), and from `date`.
       is off. ➡️ The second half of that reason does not apply at home.
 11. **Issues.** The viewer and ATC get public issues, #35 and #36, and #30 is retitled. The ports
     fix is tracked without a public issue until it is pushed. No reason is on record.
+    *Update 2026-10-10: ruled by Chris, by multiple-choice question; the stamp of his answer is
+    17:59 Arizona time. No issue is filed for the ports fix: the condition is satisfied, and the
+    item is done. He chose the option Claude recommended, worded "No issue; mark done — The fix is
+    shipped and recorded in PLAN; an issue now would only be opened to close it.", and added no
+    reason. That wording is the recommendation's reason.*
+    - *Rejected, as put: **file and close an issue.** Its option text: "A public issue records the
+      exposure and its fix, closed against 425e89b." The question offered only these two options.
+      No reason was given for rejecting it beyond the chosen option's own wording.*
 
 **The one position source, and the surface rule,** from the consultation's design, inside the
 options chosen:
@@ -309,7 +343,8 @@ options chosen:
 
 **The work within #30, in order:**
 
-1. The ports commit.
+1. The ports commit. *Done 2026-10-10: committed as `425e89b`, on `main`, which equals
+   `origin/main`, and seen on the 🎒 portable (ruling 2's second "✅ Seen" bullet).*
 2. The field display: a renderer in `bin/` and a new step, through the implementer, the step
    reviewer, `/code-review` and `/security-review`; Chris runs the step. Its measurements: one photo
    of the slate beside time.gov, within 0.3 s; a one-hour power reading with the panel on, which
@@ -3077,10 +3112,14 @@ PLAN was pending; this is that record.
 - **The unit and `/etc/default/readsb`** are rendered from upstream's `debian/` files at the pin,
   identical to them apart from the rendered header comment (the bodies were diffed on 2026-10-04).
   *Corrected 2026-10-10: still true for the unit; true only in part for `/etc/default/readsb`. Its
-  `NET_OPTIONS` differs from upstream's in the change in step 10 (not yet committed): loopback only,
-  with no input listeners, as read in the working tree's `setup/steps/10-decoder.sh`. See
+  `NET_OPTIONS` differs from upstream's in the change in step 10 ~~(not yet committed)~~: loopback only,
+  with no input listeners, as read in ~~the working tree's~~ `setup/steps/10-decoder.sh`. See
   [§5](#5-proposed-the-web-interface-is-three-existing-services-not-a-new-one), "Update
-  2026-10-10: the interface, ruled (#30)", ruling 2.*
+  2026-10-10: the interface, ruled (#30)", ruling 2. The change is committed as `425e89b` and
+  pushed. The 🎒 portable's update installed the rendered file and restarted readsb at 17:34:43
+  Arizona time (the rig's journal). ✅ Read by Claude on the rig, over read-only SSH:
+  `grep NET_OPTIONS /etc/default/readsb` printed exactly the rendered line, and the file's mtime
+  is 17:34:43 Arizona time.*
 - **`tar1090`** is at `3.14.1823` (`e784ee5ae82948f41efe3ef5c235ade0943ab8ff`), installed by its own
   `install.sh` from the pinned checkout, and served by `lighttpd`. ⚠️ **`tar1090-db`, the aircraft
   database, is not pinned.** Accepted, (Chris) 2026-10-04: it is lookup data, not code.

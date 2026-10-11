@@ -44,9 +44,12 @@ added 2026-10-10, once Chris had approved the list of issues.
    ([§5](PLAN.md#5-proposed-the-web-interface-is-three-existing-services-not-a-new-one), "Update
    2026-10-10: the interface, ruled (#30)"). ATC playback (#36) moved to "📻 After the stationary";
    it does not gate the portable's completion.* Item 4 is now, in order:
-   1. **readsb's listeners on loopback,** in their own commit, first (ruling 2).
+   1. ~~**readsb's listeners on loopback,** in their own commit, first (ruling 2).
       **Hands:** implementer, then `step-reviewer`, `/code-review` (medium), `/security-review`;
-      Chris runs step 10. **Done when:** `ss -ltn` on the 🎒 portable shows readsb on loopback only.
+      Chris runs step 10. **Done when:** `ss -ltn` on the 🎒 portable shows readsb on loopback only.~~
+      *Done 2026-10-10: committed as `425e89b`. The portable's own update applied it, not a run of
+      step 10 by Chris, and `ss -ltn` then showed listeners on loopback only (PLAN §5, ruling 2's
+      "✅ Seen" bullet).*
    2. **The field display and the position ruling** (rulings 1, 3, 4, 6, 9, 10).
       **Hands:** implementer and the same review chain; Chris attaches the panel and runs the step.
       **Done when:** the slate photographed beside time.gov within 0.3 s; the one-hour power reading
