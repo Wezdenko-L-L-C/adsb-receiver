@@ -11,6 +11,11 @@ been decided at all.
 **Ruled 2026-10-11 (Chris):** a claim found false is rewritten to the current truth and the old text
 is left to git; rulings, rejected options and dated observations are the record and are not
 rewritten. Code is cited by name or quoted text; a line number only pinned to a commit.
+**Ruled 2026-10-11 (Chris, 14:29, by question; the texts as put are in the private pick-up
+record):** a ruling's word-for-word text has one home, the private pick-up record. This file states
+each ruling, and the reasons for the options rejected with it, in its own words, and points at the
+record by date and time. It quotes no question text. Rejected: quoting rulings here with bracketed
+redactions.
 
 ---
 
@@ -157,6 +162,11 @@ complexity — two machines to keep headless, updated and reachable — than it 
 expected to serve as a stationary rig, and the proposal for the remote rig is a Pi 5. If so, this
 rejection is overtaken. For the stationary design; see also the open note under
 [§9l](#9l-rejected)'s rejection of an RTC on the stationary rig.*
+*📋 Open note, 2026-10-11 (not a ruling): there are now two 🏠 stationary sites, the home one and
+the remote one ([§9h](#9h--the-stationary-rigs-home-and-remote)'s
+"Update 2026-10-11: two 🏠 stationary rigs, the home one first"). This proposal was written for one
+stationary site. Whether the two-Pi split applies at one site, at both, or becomes a split across
+the two sites is for the stationary design (ROADMAP item 8).*
 
 ---
 
@@ -624,7 +634,7 @@ options chosen:
      Both work: the digits never depended on the font. It does not prove a boot with the panel
      attached, an unplug and replug, or `TTYVTDisallocate=` after a SIGKILL. ⚠️ If no fb0 appears,
      the fallback is the firmware's `hdmi_force_hotplug`, and `/boot/firmware` is on
-     [§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away)'s denylist: that
+     [§9h](#9h--the-stationary-rigs-home-and-remote)'s denylist: that
      would need a ruling.
    - **tty2's login (F7).** Advice, not ruled: the Alt-F2 and Alt-F1 keyboard test at the panel
      settles it; a static `getty@tty2` only if that test fails.
@@ -677,10 +687,13 @@ places:
 ⛔ **None of this changes the build order.** [BUILD.md §8](BUILD.md#8-build-order) still applies:
 the portable rig first, drivers first, second radio only once the base is boring. Slots are added
 **one at a time**, and each one is allowed to be boring before the next arrives.
-*Corrected 2026-10-10: BUILD.md §8's staged order is overtaken where it differs from
-[ROADMAP.md](ROADMAP.md): the uploader is the first step of the 🏠 stationary work, not the last
-step before it, and the second radio comes after the 🏠 stationary, not before it (the 2026-10-10
-update at the end of this section).*
+*Corrected 2026-10-10, and again 2026-10-11: BUILD.md §8's staged order is overtaken where it
+differs from [ROADMAP.md](ROADMAP.md): the uploader comes before the 🏠 remote stationary's deploy,
+and the 🏠 home stationary may be built before it (ruling B in
+[§9h](#9h--the-stationary-rigs-home-and-remote)'s "Update 2026-10-11: two 🏠 stationary rigs, the
+home one first"; Chris, 2026-10-11 13:59, by question; the texts as put are in the private pick-up
+record); and the second radio comes after the 🏠 stationary, not before it (the 2026-10-10 update at
+the end of this section).*
 
 ➡️ Rough order, with everything after the first line still 📋:
 
@@ -715,6 +728,9 @@ the current order. The reasons stay in this file.
 - **The uploader is not part of the portable's completion.** It is the first step of the 🏠
   stationary work ([§9i](#9i-what-is-not-chosen-yet-the-uploader)'s
   2026-10-10 update).
+  *Overtaken 2026-10-11 by ruling B in [§9h](#9h--the-stationary-rigs-home-and-remote)'s
+  2026-10-11 update: the uploader comes before the 🏠 remote stationary only, and the 🏠 home
+  stationary may be built before its hosting exists.*
 - **About 12:39, by multiple-choice question: the plan's home is a new `docs/ROADMAP.md`,** an
   ordered list in which each item links to its issue and to the section of this file that holds its
   reason, with the issues on the project's tracking board. Chris approves the list of issues before
@@ -742,7 +758,7 @@ change. ➡️ [§9k](#9k-the-first-deliverable-in-order) item 1 is done.
 
 - `lib.sh` holds the shared helpers: `--verify` parsing, reading `station.yml` with `python3` and
   `yaml`, the role checks of [§9b](#9b-one-bash-script-per-build-step), and the
-  [§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away) denylist. A
+  [§9h](#9h--the-stationary-rigs-home-and-remote) denylist. A
   `systemctl` wrapper, `unit`, refuses denylisted units, and `00-drivers.sh` calls it. A write
   guard, `guard_path`, is defined~~, but no step calls it yet~~. *Corrected 2026-10-04: since commit
   `47ed4ed`, `05-config` and `30-archive-drive` call it on the paths they install.*
@@ -777,7 +793,7 @@ change. ➡️ [§9k](#9k-the-first-deliverable-in-order) item 1 is done.
   `50-updater`) and `status.json` are written, ~~⚠️ not yet run on hardware~~ (corrected
   2026-10-10: `update.sh`, the timers and `status.json` have run on the 🎒 portable, as
   [§9k](#9k-the-first-deliverable-in-order) item 3 records; the two foundation scripts have run
-  there on their skip paths only, [§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away))
+  there on their skip paths only, [§9h](#9h--the-stationary-rigs-home-and-remote))
   ([§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic) and
   [§9f](#9f-what-updatesh-does), "As built"). ~~`10-decoder` is written but not committed; it waits for
   its run on the Pi (§9m, R5).~~ `20-stationary-clock` is still not written.* *Corrected 2026-10-05:
@@ -807,6 +823,23 @@ credential on the device:
 ℹ️ Until this section, that reasoning existed only in the commit message. ➡️ It is why Ansible, or
 any config management pushed from a workstation, is rejected in [§9l](#9l-rejected): it reverses
 that direction. The other options rejected there have reasons of their own.
+
+**Update 2026-10-11: the boundary between this guide and the product. (Chris, 2026-10-11 14:29, by
+question; the texts as put are in the private pick-up record.)**
+
+- This repo stays the public, open RTL-SDR station guide, and the source of the update path.
+- The product station's software lives in a private repo: the tuner board's driver, its gateware,
+  any decoders of its own, fleet care, and customer stations. That repo may pin this one by commit.
+- ⛔ Nothing proprietary ever enters this repo.
+- Customer devices can still hold no secret later, by signed releases designed in the product repo.
+- ℹ️ fable-architect's reading, 2026-10-11, not part of the ruling: what this keeps of the section
+  above is its invariant, no credential on the device; a public `git clone` is the guide's means of
+  meeting it.
+- Rejected: **this repo becomes the product,** developed privately with a public mirror that is
+  filtered once product parts land. It would stop being the guide, and it splits the commit history
+  in two.
+- Rejected: **deciding after the tuner's FPGA decision.** Every commit made until then is public
+  for good.
 
 ### 9b. One bash script per build step
 
@@ -1163,7 +1196,7 @@ recommendation every time, and that choice is the decision.
   ➡️ `update.sh` still never reboots (§9f). [§9l](#9l-rejected)'s rejection of letting the updater
   reboot is scoped, not dropped.
 - **The foundation tier, invoked by the bootstrap.** The two irreversible acts of a first build move
-  into [§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away)'s
+  into [§9h](#9h--the-stationary-rigs-home-and-remote)'s
   `setup/foundation/`, for the 🎒 portable role only. They are invoked only by `update.sh --bootstrap`,
   which a human starts by hand, and never by a step or by the timer.
   - **`setup/foundation/rtc-overlay.sh`** backs up `config.txt` to a dated copy, appends
@@ -1266,7 +1299,7 @@ with `archive_candidates.py` are written. ⚠️ ~~**Nothing here has run on a P
 2026-10-10: `bootstrap.sh` and `update.sh --bootstrap` ran on the 🎒 portable on 2026-10-04 and
 2026-10-05 (the 2026-10-04 (night) update below), and both runs ran the two foundation scripts,
 which took their skip paths only (the drive already labeled, `/dev/rtc0` already present;
-[§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away)). Not seen on hardware:
+[§9h](#9h--the-stationary-rigs-home-and-remote)). Not seen on hardware:
 a format, or the overlay written.* Every mechanism was
 checked off the Pi only: the unit tests under `tests/` (105 pass), `bash -n` and `shellcheck`, and,
 as reported by the implementer and not seen by Claude, a sandbox run of `update.sh` and
@@ -1290,7 +1323,7 @@ others are the build's own.
     roles, with the unsoaked first build only documented.
   - ⚠️ **A bootstrap run again on a built 🏠 stationary builds `stable`'s tip without the soak,
     however young it is.** It is an ordinary update then, with rollback and the
-    [§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away) gate. The timer is
+    [§9h](#9h--the-stationary-rigs-home-and-remote) gate. The timer is
     what waits out the soak. `bootstrap.sh`'s header says so.
   - *Superseded in part 2026-10-05, (Chris): `--role` no longer chooses a channel. Both roles build
     `stable`'s tip, the first build without the soak on either
@@ -1768,7 +1801,7 @@ section). No step has been skipped by role on hardware ([§9b](#9b-one-bash-scri
 - **The full verify in step 6 is the install tier** of every step that applies to the rig
   ([§9c](#9c-every-step-ends-in-a-check-of-the-observable-effect)). It does not judge the sky.
 - **Readiness gating depends on the role, and `update.sh` reads `station.role` to choose.** On the
-  🏠 stationary rig it keeps [§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away)'s
+  🏠 stationary rig it keeps [§9h](#9h--the-stationary-rigs-home-and-remote)'s
   "before committing an update" list as written, `clock-preflight` passing included, because NTP at
   a house is guaranteed and a failure there means something broke. On the 🎒 portable, no readiness
   check gates an update. The preflight verdicts go to `status.json` and the login banner.
@@ -2068,15 +2101,16 @@ cgroup v2, which are what these mechanisms assume. Four choices below were ruled
   rollback checks that the applied worktree is there before it flips back, rewrites `applied-rev`
   with the flip, and runs the applied steps each in a session of its own (`setsid --wait`), so a
   second Ctrl-C does not reach them.
-  - ➡️ **The install manifest is the next change, before any 🏠 stationary deploy;** see the
-    deferred items below. Until then the 🎒 portable rolls back at home, where Chris can look.
+  - ➡️ **The install manifest comes before the 🏠 remote stationary's deploy;** see the deferred
+    items below. The 🏠 home stationary may be built before it, and rehearses it with Chris beside
+    it (ruling A in [§9h](#9h--the-stationary-rigs-home-and-remote)'s 2026-10-11 update). Until it
+    is built, the 🎒 portable rolls back at home, where Chris can look.
     *Weakened 2026-10-05, by the home-gated opener ruled 2026-10-04 (night) at the end of this
     section: a portable that updates itself at home can roll back there with no one looking. That
     is reported as a reason to pull the install manifest forward on the 🎒 portable too; it is not
-    ruled.* *Corrected 2026-10-10: it was not the next change. The opener (`f411815`) and step
-    `06-journal` were built before it, and it is still not built: no helper in `setup/lib.sh` records
-    what it installs, and `install_if_changed` is still defined in each step that uses it. Its ruled place is
-    unchanged: before any 🏠 stationary deploy.*
+    ruled.* It is still not built: no helper in `setup/lib.sh` records what it installs, and
+    `install_if_changed` is still defined in each step that uses it (✅ a grep of `setup/`,
+    2026-10-11). The opener (`f411815`) and step `06-journal` were built before it.
   - Rejected: a per-step `--uninstall`, a second description of each step, run only at the worst
     moment; a step-list diff with `--uninstall`, which misses the common case, a new file inside an
     existing step; accepting the gap for good, which on the stationary would leave a rejected
@@ -2138,8 +2172,9 @@ cgroup v2, which are what these mechanisms assume. Four choices below were ruled
     on what the candidate touched and the applied tree did not, conservatively: units disabled,
     sudoers and tmpfiles entries removed, plain files deleted only under the repo's own install
     roots, everything else reported as leftovers. A CI grep stops steps installing outside the
-    helpers. Before any 🏠 stationary deploy, and the pre-ship checklist's failing commit should then
-    create something.
+    helpers. Before the 🏠 remote stationary's deploy (ruling A in
+    [§9h](#9h--the-stationary-rigs-home-and-remote)'s 2026-10-11
+    update), and the pre-ship checklist's failing commit should then create something.
   - **`install_if_changed` moves into `lib.sh`.** It is defined again in steps 05, 10, 20, 30, 40,
     50, 60, 70 and 80, and it is where the manifest's recording goes; step 06 installs its drop-in
     without it.
@@ -2193,7 +2228,7 @@ is.
     adsb-writer.service`, `ExecCondition=/usr/local/bin/adsb-at-home`, `TimeoutStartSec=55min`,
     `Nice=10`.
   - `bin/adsb-at-home` reads the active Wi-Fi SSID through `nmcli`, read-only
-    ([§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away) bars writes, not
+    ([§9h](#9h--the-stationary-rigs-home-and-remote) bars writes, not
     reads), and compares it with an owner-set `update.home_ssid` in `station.yml`. **Unset means
     always off: the opener is opt-in.** It prints only "at home" or "not at home", ⛔ never the SSID
     (the ⛔ on echoing a config value, under `status.json` above).
@@ -2719,7 +2754,7 @@ update below.*
 - 🏠 **The stationary rig tracks a `stable` branch** that GitHub Actions fast-forwards when CI is
   green. CI runs `shellcheck`, `bash -n`, a dry run of every step in an arm64 trixie container
   against sample-filled templates (including the role-refusal paths), and a grep for the denylist in
-  [§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away).
+  [§9h](#9h--the-stationary-rigs-home-and-remote).
   - *Update 2026-10-05, (Chris): both rigs follow this `stable` branch now (the 2026-10-05 update
     below). ⚠️ The arm64 dry run named here is still not built (`ci.yml`'s TODO,
     [§9k](#9k-the-first-deliverable-in-order) item 3), so it is what both rigs' channel lacks, not
@@ -2909,10 +2944,90 @@ using stable build points instead of main to determine where to pull the latest 
   each role-gated step, run against the other role's template, exits `ADSB_RC_OTHER_ROLE` with
   `--skip-other-role`, and non-zero without it.
 
-### 9h. 🏠 The stationary rig runs at a remote site, hundreds of miles away
+**Update 2026-10-11: hiding unfinished work on `main` is not done now. (Chris, 2026-10-11 14:29, by
+question; the texts as put are in the private pick-up record.)**
+
+- It is decided before the 🏠 home stationary's first bootstrap (ROADMAP item 9.1). That bootstrap
+  sets a second rig's repo address, and by then the product repo's plumbing is known
+  ([§9a](#9a-the-repo-ships-its-own-software-and-the-pi-pulls-it)'s 2026-10-11 update).
+- Rejected: **now, as a private development repo with a public mirror;** and **never.**
+
+### 9h. 🏠 The stationary rigs: home and remote
 
 **(Chris)** The stationary rig will sit, static, at a remote site hundreds of miles from Chris. It
 is built at Chris's build site first and then moved.
+
+**Update 2026-10-11: two 🏠 stationary rigs, the home one first. (Chris, 2026-10-11 13:59, by
+question; the texts as put are in the private pick-up record.)** Three rulings, each the
+recommended option. This is their one home in this file; other sections point here.
+
+- **The fact they rest on, Chris's statement before the rulings:** there will be a second
+  stationary rig, at home, and the home one comes first, then the remote one.
+  - Claude's reading, not Chris's statement: the home rig has hands on site, and the 🏠 remote
+    stationary is the rig the paragraph above describes.
+- **A. Only the role's gates come before the 🏠 home stationary.** The stationary design (ROADMAP
+  item 8) still comes first, for its clock step, archive, maintenance window and hardware. The
+  install manifest, the pre-ship checklist, the smart plug and the uploader's hosting gate only the
+  🏠 remote stationary; the 🏠 home stationary rehearses them with Chris beside it. It runs Tailscale
+  anyway, because the update gate requires Tailscale on any stationary rig.
+  - Rejected: **everything as written.** In this file's words the home rig counts as a stationary
+    deploy, so the install manifest and the uploader's hosting would come first. That delays the one
+    deploy with no remote risk, for reasons written for a rig with nobody on site.
+  - Rejected: **building the home rig now,** from the existing steps, ahead of the design. ✅ No step
+    is written for the stationary role yet: every role-gated step in `setup/steps/` calls
+    `require_role portable`, and none calls `require_role stationary` (a grep, 2026-10-11). A home
+    rig built today would be a decoder with no clock step, no archive and no writer, and every
+    automatic update would hold: the gate counts a `clock-preflight` that is not installed as a
+    hold ([§9f](#9f-what-updatesh-does), "Open, for the stationary design").
+  - ✅ The Tailscale reason, read in `setup/update.sh` on 2026-10-11: `readiness()` adds its
+    Tailscale, GitHub and port-30005 checks only when `$ROLE` is `stationary`, and records `not
+    installed` when there is no `tailscale` command; `gate_holds()` holds on any status that is not
+    `ok`. ➡️ The gate is keyed on the role, not the site, so it binds the 🏠 home stationary too.
+- **B. The uploader comes before the 🏠 remote stationary only.** This replaces the 2026-10-10
+  ruling that it is the first step of the 🏠 stationary work
+  ([§9i](#9i-what-is-not-chosen-yet-the-uploader)). The 🏠 home stationary may be built before the
+  uploader's hosting exists. How its data gets off the rig until then, by a pull by hand over the
+  LAN or by the uploader once it lands, is decided in the stationary design. The uploader is then
+  proven on two rigs at home before it runs at the remote site. The accepted cost: more hand pulls
+  meanwhile.
+  - Rejected: **the uploader first for any stationary, as ruled on 2026-10-10.** The home build
+    would wait on the private service's hosting.
+- **C. In this public repo the two sites are "home" and "remote", and nothing more.** No city, no
+  airport, no distance, and no hostname that names a place. Those, and the range figures tied to the
+  home, stay in the private pick-up record.
+  - The reason: a city, a distance from a landmark and a range plot, taken together, narrow down a
+    home address. Neither rejected option avoids that combination.
+  - Rejected: **city names,** with distances, positions and range figures still kept out. It keeps
+    the city. Rejected: **no rule.** It avoids none of it.
+- **The heading of this section was renamed under C. (Chris, 2026-10-11 14:09, by question; the
+  texts as put are in the private pick-up record.)** It dropped its distance phrase, and every link
+  to it was moved to the new anchor in the same change.
+
+**What binds the role, and what binds the remote site:**
+
+- Ruled (A): the install manifest, the pre-ship checklist, the smart plug and the uploader's
+  hosting gate only the 🏠 remote stationary. The 🏠 home stationary rehearses them with Chris
+  beside it.
+- ✅ Read in the code, 2026-10-11: the readiness gate below is keyed on `station.role` (A, above),
+  so it binds both stationaries. The denylist below (`ADSB_DENY_PATHS` and `ADSB_DENY_UNITS` in
+  `setup/lib.sh`) is not keyed on a role at all, so it binds every rig, the 🎒 portable included.
+- 📋 Not ruled; for the stationary design (ROADMAP item 8): the rest of this section.
+  fable-architect's reading, 2026-10-11: the foundation layer and the pushed health bind the role;
+  asking the host for a wired port binds the remote site.
+
+**Open for the stationary design (ROADMAP item 8):**
+
+- From ruling B: how the 🏠 home stationary's data gets off it until the uploader lands.
+- The rest are open notes from fable-architect's reading of 2026-10-11, not rulings:
+  - 📋 Per-station gain. ✅ Read 2026-10-11: `setup/steps/10-decoder.sh` sets `--gain auto` in
+    `RECEIVER_OPTIONS` for every rig, and neither station template has a gain key. ⚠️ Reported, not
+    checked here: a test with the 1090 collinear saw autogain at gain 59, its top setting, a peak of
+    −0.9 dBFS, and 350 to 370 messages a minute above −3 dBFS in its first minutes. ⚠️ Belief, not
+    checked (fable-architect, 2026-10-11): autogain may settle over tens of minutes.
+  - The others live with their reasons: the two-Pi split
+    ([§4](#4-proposed-split-the-stationary-site-across-two-pis)), the second canary Pi
+    ([§9l](#9l-rejected)), and the rig's name in the store
+    ([§9m](#9m--the-portable-rigs-archive-drive), under the mirror rule).
 
 **(Chris) The foundation layer is the one thing updated by hand.** Tailscale, the watchdogs and the
 boot disk live in `setup/foundation/`. Those scripts are run by hand, and they are outside
@@ -2997,7 +3112,8 @@ wired port.
 
 🎒 The portable rig gets a login banner and `status.json`, and nothing more.
 
-**The pre-ship checklist, run at the build site before the rig moves:**
+**The pre-ship checklist, run at the build site before the 🏠 remote stationary moves:** *(updated
+2026-10-11: "the rig" became the 🏠 remote stationary, under A)*
 
 - [ ] Sky check with the real collinear.
 - [ ] Three cold power cuts. After each one, the rig is reachable from a phone on cellular, over
@@ -3009,6 +3125,10 @@ wired port.
 - [ ] Tailscale key expiry disabled.
 - [ ] The heartbeat and a failure alert both received.
 
+It gates only the 🏠 remote stationary; the 🏠 home stationary rehearses it first, with Chris beside
+it (A, in this section's 2026-10-11 update). Which items the rehearsal covers is not ruled:
+fable-architect proposed, 2026-10-11, the items that do not depend on the move.
+
 ### 9i. What is not chosen yet: the uploader
 
 **The writer's and the extractor's language and packaging: (Chris), 2026-10-04:** Python 3,
@@ -3018,9 +3138,12 @@ standard library only. The ruling and its reasons are in
 of §9m).
 
 Still open: the uploader's language, and where its receiving end puts the bytes (the 2026-10-10
-updates at the end of this section). Its place is ruled. **(Chris), 2026-10-10:** the uploader is
-the first step of the 🏠 stationary work; see "Update 2026-10-10: both rigs get an automatic
-uploader", at the end of this section.
+updates at the end of this section). Its place is ruled. **(Chris), 2026-10-11:** it comes before
+the 🏠 remote stationary only, and the 🏠 home stationary may be built before it (ruling B in
+[§9h](#9h--the-stationary-rigs-home-and-remote)'s "Update 2026-10-11:
+two 🏠 stationary rigs, the home one first"). That replaces the 2026-10-10 ruling that it is the
+first step of the 🏠 stationary work ("Update 2026-10-10: both rigs get an automatic uploader", at
+the end of this section).
 
 **Only the interfaces are fixed:**
 
@@ -3119,6 +3242,9 @@ Until 2026-10-10 no document in this repo held them, though BUILD.md §8 step 4 
   pull into a synced folder"), and by the uploader on both rigs (below).*
 - ⛔ **The gate, in his words:** *"the auto upload has to work before the remote stations can be
   deployed."*
+  *Update 2026-10-11: the 🏠 home stationary is not one of the remote stations; this gate binds the
+  🏠 remote stationary (ruling B in
+  [§9h](#9h--the-stationary-rigs-home-and-remote)'s 2026-10-11 update).*
 - ⛔ **Not ruled: what credential a rig holds.** Chris: *"We may need to create 3rd party
   credientials for the stations."* A reading of it, that a rig's key is a device credential under
   Chris's own personal identity, was not accepted.
@@ -3141,6 +3267,9 @@ multiple-choice question.**
   of the 🏠 stationary work: built and first proven on the 🎒 portable at home, where a hand can
   reach the drive, then inherited by the stationary. The order is in [ROADMAP.md](ROADMAP.md)
   ([§8](#8-sequencing)'s 2026-10-10 update).
+  *Overtaken 2026-10-11 by ruling B in
+  [§9h](#9h--the-stationary-rigs-home-and-remote)'s 2026-10-11 update:
+  before the 🏠 remote stationary only.*
 - ℹ️ **The consultation's rig-side shape: a recommendation for the uploader's design session, not
   ruled.**
   - A generic client in this repo, for a three-call contract: open; a resumable PUT to a URL the
@@ -3538,12 +3667,17 @@ worth having when an outside builder appears.
 credential, is off for weeks at a time, and never runs the stationary-only steps.
 
 ⛔ **Rejected: a second canary Pi at the build site.** ℹ️ Reconsider only if a rollback ever fails remotely.
+*📋 Open note, 2026-10-11 (not a ruling): the 🏠 home stationary is a second stationary Pi where
+Chris is, with hands on site (Claude's reading, in [§9h](#9h--the-stationary-rigs-home-and-remote)'s
+2026-10-11 update). fable-architect's reading, 2026-10-11: it is the Pi this rejects. Whether it
+serves as a canary for the 🏠 remote stationary, and what its soak is worth, is for the stationary
+design (ROADMAP item 8). The rejection is not reopened here.*
 
 ⛔ **Rejected: an overlayfs read-only root.** Every update becomes a two-reboot dance, and booting
 from the SSD with no SD card already removes the wear problem it would solve.
 
 ⛔ **Rejected: Tailscale as the only recovery path.** That is why the smart plug goes through the
-vendor's cloud ([§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away)).
+vendor's cloud ([§9h](#9h--the-stationary-rigs-home-and-remote)).
 
 ⛔ **Rejected: a pull-only status page as the health signal.** Silence is ambiguous: it does not
 tell you whether the rig is fine or nobody looked.
@@ -3590,11 +3724,11 @@ strict rule; a human formats by hand only when that rule refuses, or with `--no-
 not built.~~* *Corrected 2026-10-10: built 2026-10-04 (evening) ("As built" in §9e's evening update,
 and "the format, as built" in [§9m](#9m--the-portable-rigs-archive-drive)). It has run on the 🎒
 portable on its skip path only, finding the drive already labeled; it has never formatted a drive
-there ([§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away)).*
+there ([§9h](#9h--the-stationary-rigs-home-and-remote)).*
 
 ⛔ **Rejected: editing `/etc/fstab` from a step.** A step would be editing the file that carries the
 root filesystem's line. **(Chris)** added `/etc/fstab` to the
-[§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away) denylist.
+[§9h](#9h--the-stationary-rigs-home-and-remote) denylist.
 
 ⛔ **Rejected: the portable rig pushing its archive to the workstation.** It puts a credential to the
 workstation on a rig that travels and may be stolen, which undoes
@@ -3623,7 +3757,7 @@ root is unbounded. The pull window's sudoers rule allows two commands
 greppable and verifiable.
 
 ⛔ **Rejected: a forced-command key in `authorized_keys`.** That is the ssh login path, which the
-[§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away) denylist keeps steps away
+[§9h](#9h--the-stationary-rigs-home-and-remote) denylist keeps steps away
 from, and it still needs privilege underneath.
 
 ⛔ **Rejected: a dedicated pull user.** It is a second account to keep in step.
@@ -3723,7 +3857,7 @@ filesystem.
 *Corrected 2026-10-04, later that evening: built, ~~not yet run on hardware~~; as built, below.*
 *Corrected 2026-10-10: run on the 🎒 portable, by the bootstraps of 2026-10-04 and 2026-10-05, on
 its skip path only: the drive already carried the label, ext4, so nothing was formatted
-([§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away)). A format of a blank
+([§9h](#9h--the-stationary-rigs-home-and-remote)). A format of a blank
 drive is not seen on hardware.*
 *"No step ever runs `mkfs`"* keeps its sentence: step 30 still formats nothing, and still prints the
 commands and exits non-zero when it finds no labeled drive. The exception is not a step.
@@ -3747,7 +3881,7 @@ functions over `lsblk -J`, tested without a disk in `tests/test_archive_candidat
 hardware: no command of it has run on the Pi.~~ *Corrected 2026-10-10: it has run on the 🎒
 portable, in the bootstraps of 2026-10-04 and 2026-10-05, and took the labeled-drive skip both times
 ("already labeled adsb-archive, ext4: /dev/sda1 ; nothing to format";
-[§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away)). Not seen on hardware:
+[§9h](#9h--the-stationary-rigs-home-and-remote)). Not seen on hardware:
 any candidate search, probe mount, last check, `sfdisk`, `wipefs` or `mkfs.ext4`.* Where it goes beyond the rule in
 [§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic), these are the build's own
 choices, made stricter on review:
@@ -3880,7 +4014,7 @@ becomes "retry until disciplined", and each refusal is recorded. ℹ️ That doe
 inside a running recording. This refusal is a precondition of a session, like rule 4's clock
 refusal, and it leaves a record that survives, so a refused window is a third fact, not silence.
 ⚠️ On the 🏠 stationary rig health is pushed
-([§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away)), so a refusal there
+([§9h](#9h--the-stationary-rigs-home-and-remote)), so a refusal there
 also needs the push alert. That is left to the stationary build.
 
 *Update 2026-10-04: nothing was named to produce that record; the preflights write nothing. **(Chris),
@@ -4105,6 +4239,14 @@ named at about 15:10. The store listing was at about 14:57, between the rejectio
     - **Source first, `<store>/beast/<host>/`.** The store's tree diverges from the rig's, and
       every new source needs a rewrite rule.
     - **Flat, one folder per host.** About 52,000 files a year in one folder, on a sync client.
+  - *📋 Open note, 2026-10-11 (not a ruling), for the stationary design (ROADMAP item 8): with two
+    🏠 stationaries, the rig hostname becomes load-bearing. ✅ Read in `bin/adsb-writer`'s header:
+    the writer names a file by the UTC second alone (`<archive>/YYYY-MM-DD/YYYYMMDDTHHMMSSZ.beast.pcap`),
+    so only the host folder separates two rigs' files. ➡️ fable-architect's reading, 2026-10-11:
+    that makes a unique hostname per rig, never renamed, load-bearing. A second name is on record too: the stationary template's
+    `station.id` (`home-01` in `config/station.stationary.example.yml`). ✅ A grep of `setup/`,
+    `bin/` and `tools/` on 2026-10-11 found no code that reads `station.id`. Which of the two is a
+    rig's one name is not ruled.*
 - **A, the database. Ruled: ClickHouse, in one Docker container on the workstation; derived from
   the store, and rebuildable from it.**
   - **Chris's first answer,** in free text, to a question offering (1) no database now, (2) a
@@ -4330,7 +4472,7 @@ recorded here.*
     keep finding.*
 - ⛔ The pull step validates the rendered file with `visudo -cf` before installing it. A parse error
   in any `sudoers.d` file makes sudo refuse everyone, which on a remote rig is a reachability failure
-  ([§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away)).
+  ([§9h](#9h--the-stationary-rigs-home-and-remote)).
 - **(Chris)** The installing user is added to `adsb-operator`. `05-config` does that (see the steps
   below), and it says so, and says that the change needs a fresh login.
 - ➡️ The login can do two things as root: start and stop one unit. §9a is intact. The Pi
@@ -4925,7 +5067,7 @@ powered-hub rule ([BUILD.md §3d](BUILD.md#3d--the-second-radio--either-rig) par
 the hub, not a different filesystem.
 
 **(Chris), 2026-10-04: `/etc/fstab` joins the
-[§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away) denylist.** A guard: no
+[§9h](#9h--the-stationary-rigs-home-and-remote) denylist.** A guard: no
 step writes it under this design.
 
 📋 **Not decided:** whether the 🏠 stationary rig's archive SSD is its boot device or a separate
@@ -5062,7 +5204,7 @@ portable rig. Seen by Claude on 2026-10-04, over read-only SSH on the Pi or in o
 | BUILD.md §4, the code block and its ⚠️ "Build from `osmocom/rtl-sdr`" paragraph below it | "`sudo apt purge '^librtlsdr'`" … "then build current librtlsdr from osmocom/rtl-sdr"; "Build from `osmocom/rtl-sdr`, not `rtlsdrblog/rtl-sdr-blog`" | *Added 2026-10-10.* The steps do the opposite: `00-drivers` installs the packaged `rtl-sdr` from apt, and `10-decoder` installs `librtlsdr0` and `librtlsdr-dev` from apt and builds `readsb` against the packaged 2.0.2 ([§9j](#9j--verified-on-hardware-2026-10-03)). No step purges `librtlsdr` or builds it from source. `setup/steps/10-decoder.sh`'s comment "BUILD.md §4 says to purge the packaged librtlsdr and build osmocom's" sends the reader to this table for it, which had no row until this one. *Done 2026-10-10: BUILD.md §4 carries a dated correction after the block ("Corrected 2026-10-10: the steps the one command runs … do the opposite") saying what the steps do; the recipe is kept as written beside it.* Still owed, in code: that comment then calls BUILD.md §4 "queued for a rewrite", and gives "no V4 is coming" as a reason, which no ruling in this file says: (Chris), 2026-10-03, ruled to buy a genuine V4 ([§9j](#9j--verified-on-hardware-2026-10-03)). *Update 2026-10-10: a ruling says it now: (Chris), 2026-10-10, no genuine V4 is available, and the 🎒 portable runs on a genuine V3 (§9j's 2026-10-10 update). The comment's correction is still owed, in code, and is in [ROADMAP.md](ROADMAP.md)'s sweep fixes* *Done 2026-10-10, in commit `cd913dd`: `setup/steps/10-decoder.sh` keeps its BUILD.md §4 pointer as written ("BUILD.md §4 says to purge the packaged librtlsdr and build osmocom's") and carries a dated correction after it ("Corrected 2026-10-10: BUILD.md §4 is not rewritten"): BUILD.md §4 is not rewritten but carries a dated correction after its code block, with the recipe kept beside it; and "no V4 is coming" was not a ruling when written, and is now: no genuine V4 is available, and the 🎒 portable runs on a genuine V3* |
 | README "The three traps that cost the most time" / BUILD.md §3a parts table, row 3 | — | Warn that counterfeit V4s are sold, Amazon included ([§9j](#9j--verified-on-hardware-2026-10-03)). The check is `rtl_eeprom` (its Manufacturer and Product strings) plus `rtl_test` naming the R828D. Buy from RTL-SDR Blog or a seller listed on rtl-sdr.com. *Corrected 2026-10-05: the EEPROM strings do not tell a counterfeit from a V3, because both read `Realtek` / `RTL2838UHIDIR` ([§9j](#9j--verified-on-hardware-2026-10-03)), so the tuner name is the only tell. And since 2026-10-05 no verify opens the stick, so that check is the hand check in BUILD.md §8, not a step's* *Done 2026-10-10, in the stale sweep: BUILD.md §3a row 3 and the README's trap 1 carry the warning, with the tuner name as the only tell and the hand check in BUILD.md §8 step 0* |
 | BUILD.md §7 | "uploader (yours to write)" | It ships in this repo. *Done 2026-10-10, in the stale sweep: BUILD.md §7 corrects the line below its 🎒 portable block; the uploader is not written* |
-| BUILD.md §8 | Steps with no scripts | Name each step's script, and add the [§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away) pre-ship checklist. *Done 2026-10-10, in the stale sweep: BUILD.md §8 lists the step scripts the one command runs, and its step 6 points at the pre-ship checklist here rather than copying it* |
+| BUILD.md §8 | Steps with no scripts | Name each step's script, and add the [§9h](#9h--the-stationary-rigs-home-and-remote) pre-ship checklist. *Done 2026-10-10, in the stale sweep: BUILD.md §8 lists the step scripts the one command runs, and its step 6 points at the pre-ship checklist here rather than copying it* |
 | BUILD.md §2 | "reachable over something like Tailscale" | Tailscale key expiry, and disabling it. ⚠️ The 180-day default is an unverified claim from the consultation. *Done 2026-10-10, in the stale sweep: BUILD.md §2 adds it, with the 180 days marked unverified* |
 | BUILD.md §3c | Stationary parts list | Add a powered hub or a low-draw SSD enclosure, and a smart plug. *Done 2026-10-10, in the stale sweep: added below BUILD.md §3c's table* |
 | `config/station.stationary.example.yml` | — | Add `update.soak_days`, `notify.discord_webhook` and `notify.healthcheck_url`. ⛔ The portable template must not get them |
@@ -5082,8 +5224,8 @@ portable rig. Seen by Claude on 2026-10-04, over read-only SSH on the Pi or in o
 | `setup/lib.sh`, `parse_args` and `require_role` | `--verify` and `--help` only; `require_role` always dies on a mismatch | *Added 2026-10-04.* `parse_args` gains `--skip-other-role`, and `lib.sh` gains the constant `ADSB_RC_OTHER_ROLE`, an unused value below 126 and not 3. With the flag, `require_role` on a mismatch logs the skip and exits that code. `require_absent` is unchanged ([§9b](#9b-one-bash-script-per-build-step)). *Done 2026-10-04, in commit `47ed4ed`. `ADSB_RC_OTHER_ROLE` is 100* |
 | `.github/workflows/ci.yml` | Two step checks: the denylist grep, and `parse_args` plus `verify()` in every step | *Added 2026-10-04.* A third check: in every step containing `require_role`, the first non-comment command after `parse_args` and `require_root` is the `require_role` call ([§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable)). *Done 2026-10-04, in commit `47ed4ed`* |
 | BUILD.md §8 step 2 | "Confirm `gpsd` has a fix, `chronyc sources` shows GPS disciplining the clock, and the Pi still knows the time after a power cycle **with the network unplugged**" | *Added 2026-10-04.* When this step names `20-portable-clock`, say that the script's verify checks only the install tier, and that these checks stay human gates under the sky ([§9c](#9c-every-step-ends-in-a-check-of-the-observable-effect)). *Done 2026-10-10, in the stale sweep: BUILD.md §8 step 2 names `20-portable-clock`, says its verify is install tier only, and leaves the three checks to you, under the sky* |
-| `setup/lib.sh`, `ADSB_DENY_PATHS` | No `/etc/fstab`; its comment says the list is "Written as in the PLAN §9h table" | *Added 2026-10-04.* Add `/etc/fstab` (**(Chris)**, [§9h](#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away)). CI reads this array for its grep of `setup/steps/`. *Done 2026-10-04, in commit `47ed4ed`* |
+| `setup/lib.sh`, `ADSB_DENY_PATHS` | No `/etc/fstab`; its comment says the list is "Written as in the PLAN §9h table" | *Added 2026-10-04.* Add `/etc/fstab` (**(Chris)**, [§9h](#9h--the-stationary-rigs-home-and-remote)). CI reads this array for its grep of `setup/steps/`. *Done 2026-10-04, in commit `47ed4ed`* |
 | BUILD.md §8 | No `06-journal` | *Added 2026-10-10.* Name the shared step `06-journal` ([§9f](#9f-what-updatesh-does), "A persistent journal, step `06-journal`"): the journal made persistent, capped at `SystemMaxUse=200M`; journald restarted only under `update.sh`; run by hand, the step installs and warns, and the drop-in loads at the next boot. *Done 2026-10-10: BUILD.md §8 names it, after the list of what the one command does without asking.* Still owed, in code: the header of `setup/steps/06-journal.sh`, line 4, says "BUILD.md: none yet (no section, no §8 step)" *Done 2026-10-10, in commit `cd913dd`: the header keeps line 4 as written and corrects it on lines 5–6, saying BUILD.md §8 names the step, after its list of what the one command does without asking* |
 | BUILD.md §3a parts table, row 3; BUILD.md §4, "⛔ The V4 fails silently on old drivers"; README "The three traps that cost the most time", trap 1 | — | *Added 2026-10-10.* No genuine V4 is available, and the 🎒 portable runs on a genuine RTL-SDR Blog V3 ((Chris), 2026-10-10, [§9j](#9j--verified-on-hardware-2026-10-03)'s 2026-10-10 update). Keep the counterfeit warning: it is still true of what is sold. *Done 2026-10-10: BUILD.md §3a row 3 strikes ", or RTL-SDR Blog V4" and corrects it; BUILD.md §4 carries a note under its heading; the README's trap 1 carries a correction; all three keep the counterfeit warning* |
 | BUILD.md §7, the correction below the 🎒 portable block | "`uploader.endpoint` stays null" | *Added 2026-10-10.* The data is moved off by hand only until the uploader, which both rigs get ((Chris), 2026-10-10, [§9i](#9i-what-is-not-chosen-yet-the-uploader)'s 2026-10-10 update); meanwhile the pull goes into a synced folder ([§9m](#9m--the-portable-rigs-archive-drive)). *Done 2026-10-10: BUILD.md §7 strikes "and `uploader.endpoint` stays null", and a correction below the next paragraph calls the null endpoint interim until the uploader. The synced folder is not mentioned there* |
-| BUILD.md §8, steps 4 to 6 | "Write the uploader last"; the second radio (step 5) before the stationary (step 6) | *Added 2026-10-10.* The order of remaining work is [ROADMAP.md](ROADMAP.md): the uploader is the first step of the 🏠 stationary work, and the second radio comes after the 🏠 stationary ((Chris), 2026-10-10, [§8](#8-sequencing)'s 2026-10-10 update). *Done 2026-10-10: BUILD.md §8 gains a note at its head pointing to ROADMAP.md; step 4 strikes "last", step 5 says it comes after the stationary, and step 6 strikes "and 5"* |
+| BUILD.md §8, steps 4 to 6 | "Write the uploader last"; the second radio (step 5) before the stationary (step 6) | *Added 2026-10-10.* The order of remaining work is [ROADMAP.md](ROADMAP.md): the uploader is the first step of the 🏠 stationary work, and the second radio comes after the 🏠 stationary ((Chris), 2026-10-10, [§8](#8-sequencing)'s 2026-10-10 update). *Done 2026-10-10: BUILD.md §8 gains a note at its head pointing to ROADMAP.md; step 4 strikes "last", step 5 says it comes after the stationary, and step 6 strikes "and 5"* *Overtaken 2026-10-11: ruling B, [§9h](#9h--the-stationary-rigs-home-and-remote)'s 2026-10-11 update; the uploader comes before the 🏠 remote stationary only* |

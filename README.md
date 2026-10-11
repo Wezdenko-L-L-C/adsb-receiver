@@ -8,8 +8,8 @@ This is a **build guide that ships its own software**. One command,
 `setup/steps/00`–`80` through [`setup/update.sh`](setup/update.sh), which then keeps it current;
 [`bin/`](bin/) holds what runs on the rig, and [`tools/pull-archive`](tools/pull-archive) and
 [`tools/adsb-extract`](tools/adsb-extract) run on a workstation. The 🎒 portable rig is built from
-it (first bootstrapped 2026-10-04) and running, updating itself from the `stable` branch. The 🏠
-stationary rig is not built yet. The guide exists because most ADS-B instructions stop at
+it (first bootstrapped 2026-10-04) and running, updating itself from the `stable` branch. Neither 🏠
+stationary rig, home or remote, is built yet. The guide exists because most ADS-B instructions stop at
 "it decodes aircraft" — and the failures that cost real time happen after that point, silently, in
 ways that look like a bad antenna.
 

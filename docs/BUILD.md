@@ -69,9 +69,9 @@ auto-restarting, reachable over something like Tailscale — on somebody else's 
 archive, potentially in anything you publish from it. Agree it with them before the antenna goes
 up, not after.
 
-*Added 2026-10-10: Tailscale keys expire, and the 🏠 stationary's pre-ship checklist has key expiry
+*Added 2026-10-10, updated 2026-10-11: Tailscale keys expire, and the 🏠 remote stationary's pre-ship checklist has key expiry
 disabled before the rig moves
-([PLAN.md §9h](PLAN.md#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away)).
+([PLAN.md §9h](PLAN.md#9h--the-stationary-rigs-home-and-remote)).
 ⚠️ Unverified: that the default expiry is 180 days, a claim from the architecture consultation.*
 
 ---
@@ -118,7 +118,7 @@ strict rule in [§8](#8-build-order); a drive it refuses is formatted by hand.*
 | 10 | ⛔ **Not** a GPS, and **not** an RTC | [§2](#2-two-rigs-not-one) — it has a network and a position that never moves |
 
 *Added 2026-10-10, from the remote-site design
-([PLAN.md §9h](PLAN.md#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away)'s
+([PLAN.md §9h](PLAN.md#9h--the-stationary-rigs-home-and-remote)'s
 recovery layers): **a smart plug**, controlled from your phone through the vendor's cloud and
 ⛔ deliberately not through Tailscale, so it still works when Tailscale is what broke; and, to boot
 from the USB SSD with no SD card, **a powered hub or a low-draw SSD enclosure**. ℹ️ The stationary
@@ -472,7 +472,7 @@ rules apply to the uploader, still to be written ([ROADMAP.md](ROADMAP.md) item 
 ➡️ **Build the 🎒 portable rig first.** The stationary rig reuses everything you learn, and steps
 0–1 are identical for both.
 
-*Added 2026-10-10: **the 🎒 portable is completed first** (**(Chris)**, 2026-10-10). "Completed"
+*Added 2026-10-10, updated 2026-10-11: **the 🎒 portable is completed first** (**(Chris)**, 2026-10-10). "Completed"
 means the stale-sweep fixes; where the collected data lives; the interface, which is the field
 display showing the rig's position and the time for the camera shot, and a viewer; the 🎒
 pre-field checklist ([PLAN.md §9m](PLAN.md#9m--the-portable-rigs-archive-drive), "The pre-field
@@ -482,7 +482,10 @@ checklist"); and a field session. ATC playback does not gate it (**(Chris)**, 20
 [ROADMAP.md](ROADMAP.md)'s "After the stationary". Whether the viewer gates completion is not
 ruled ([PLAN.md §8](PLAN.md#8-sequencing)). The interface comes before the 🏠 stationary's design
 (**(Chris)**, 2026-10-10: his aim, the remote rig done sooner). The uploader is not part of
-"completed": it is the first step of the stationary work (step 4 below). The second radio comes
+"completed". There are two 🏠 stationary rigs, the home one first; the uploader comes before the
+🏠 remote stationary's deploy, and the 🏠 home stationary may be built before it (step 4 below;
+**(Chris)**, 2026-10-11, ruling B in
+[PLAN.md §9h](PLAN.md#9h--the-stationary-rigs-home-and-remote)). The second radio comes
 after the stationary (step 5 below). ➡️ Where steps 4–6 below differ from this, this holds, and the
 order of the remaining work is kept in [ROADMAP.md](ROADMAP.md).*
 
@@ -658,11 +661,13 @@ and no script can pass them for you:
    mid-recording, a boot with the drive pulled, a full pull, an update inside the pull window) is in
    [PLAN.md §9m](PLAN.md#9m--the-portable-rigs-archive-drive), "The pre-field checklist".*
 4. Write the uploader ~~last~~, against a receiver you already trust.
-   *Corrected 2026-10-10: not last. The uploader is the first step of the 🏠 stationary work, and
-   not part of the 🎒 portable's completion (above). Both rigs get it (**(Chris)**, 2026-10-10;
+   *Corrected 2026-10-10, and again 2026-10-11: not last. The uploader comes before the 🏠 remote
+   stationary's deploy; the 🏠 home stationary may be built before it (**(Chris)**, 2026-10-11,
+   ruling B in [PLAN.md §9h](PLAN.md#9h--the-stationary-rigs-home-and-remote)). It is not part of
+   the 🎒 portable's completion (above). Every rig gets it (**(Chris)**, 2026-10-10;
    [§7](#7-software)): it is built and first proven on the 🎒 portable at home, where a hand can
-   reach the drive, then inherited by the stationary. Its receiving end is a private service
-   outside this repo, as planned 2026-10-04. ➡️ The 🏠 stationary's remote deploy waits on that
+   reach the drive, then inherited by the stationaries. Its receiving end is a private service
+   outside this repo, as planned 2026-10-04. ➡️ The 🏠 remote stationary's deploy waits on that
    service's hosting being built, because the gate of 2026-10-04 stands: automatic upload works
    before any remote station deploys. ⚠️ Until the change that lands the uploader, the 🏠
    stationary still has no `uploader:` block: its template leaves one out on purpose, and the
@@ -674,12 +679,15 @@ and no script can pass them for you:
    *Corrected 2026-10-10: the second radio comes after the 🏠 stationary (step 6), not before it
    (**(Chris)**, 2026-10-10; the order at the head of this section). It still goes on only once the
    rig is boring.*
-6. 🏠 **Then build the stationary rig**, reusing steps 1 ~~and 5~~ — but ⛔ **not** step 2. Its own
-   extra step is the mast, because height is the only thing that materially changes reception.
-   *Corrected 2026-10-10: struck "and 5": step 5 now comes after this one, so the stationary is
-   built before any second radio. Its first step is the uploader (step 4).*
-   📋 *Added 2026-10-10: before it moves to its remote site, the pre-ship checklist in
-   [PLAN.md §9h](PLAN.md#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away)
+6. 🏠 **Then build the stationary rigs, the 🏠 home one first**, reusing steps 1 ~~and 5~~ — but
+   ⛔ **not** step 2. Their own extra step is the mast, because height is the only thing that
+   materially changes reception.
+   *Corrected 2026-10-10, and again 2026-10-11: struck "and 5": step 5 now comes after this one, so
+   the stationaries are built before any second radio. The uploader (step 4) comes before the 🏠
+   remote stationary, not before the 🏠 home one ([PLAN.md
+   §9h](PLAN.md#9h--the-stationary-rigs-home-and-remote), rulings A and B).*
+   📋 *Added 2026-10-10, updated 2026-10-11: before the 🏠 remote stationary moves to its site, the pre-ship checklist in
+   [PLAN.md §9h](PLAN.md#9h--the-stationary-rigs-home-and-remote)
    (a sky check with the real collinear, cold power cuts, a smart-plug power cycle, the WAN unplugged, an update that rolls back, a
    retention fill, Tailscale key expiry disabled, the heartbeat and an alert received).*
 

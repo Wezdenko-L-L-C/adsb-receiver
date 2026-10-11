@@ -99,29 +99,63 @@ added 2026-10-10, once Chris had approved the list of issues.
   place here is not ruled; Chris places it.
   **Hands:** fable-architect first. **Done when:** not yet stated. (#32)
 
-## 🏠 The stationary, after the portable
+## 🏠 The two stationaries, after the portable: home first, then remote
 
-7. **The uploader, first.** The rig-side client, in this repo, proven on the 🎒 portable at home;
-   the receiving end, in a private service outside this repo, whose hosting gates the remote
-   deploy.
+*Changed 2026-10-11 by Chris's rulings A and B
+([§9h](PLAN.md#9h--the-stationary-rigs-home-and-remote), "Update
+2026-10-11: two 🏠 stationary rigs, the home one first"): two stationary rigs, the 🏠 home
+stationary first, then the 🏠 remote stationary.*
+
+7. **The uploader, before the 🏠 remote stationary.** The rig-side client, in this repo, proven on
+   the 🎒 portable at home; the receiving end, in a private service outside this repo, whose hosting
+   gates the remote deploy. *Placed 2026-10-11 by ruling B: before the 🏠 remote stationary (9.2)
+   only; the 🏠 home stationary (9.1) may be built before it.*
    **Hands:** not yet named. **Done when:** the uploader is proven on the 🎒 portable at home.
    [§9i](PLAN.md#9i-what-is-not-chosen-yet-the-uploader), "Update
    2026-10-10: both rigs get an automatic uploader". (#1)
-8. **The stationary design,** in one fable-architect session. Its carry list is the open notes
-   PLAN.md leaves for the stationary design
-   ([§4](PLAN.md#4-proposed-split-the-stationary-site-across-two-pis),
-   [§9f](PLAN.md#9f-what-updatesh-does), [§9l](PLAN.md#9l-rejected),
-   [§9m](PLAN.md#9m--the-portable-rigs-archive-drive)).
+8. **The stationary design,** in one fable-architect session, before any 🏠 stationary build, the
+   home one included (ruling A). Its carry list is the open notes PLAN.md leaves for the stationary
+   design, compiled 2026-10-11 from fable-architect's reading; each entry is an open note at the
+   section named, and none of them is a ruling (ruling B only leaves the data exit to this session):
+   - which parts of §9h bind the role and which bind the remote site
+     ([§9h](PLAN.md#9h--the-stationary-rigs-home-and-remote));
+   - the maintenance window for a writer that holds the recording lock around the clock, and the
+     stationary clock step ([§9f](PLAN.md#9f-what-updatesh-does));
+   - the stationary's archive storage ([§9m](PLAN.md#9m--the-portable-rigs-archive-drive));
+   - the 🏠 home stationary's data exit until the uploader lands (§9h, ruling B);
+   - the hardware and the RTC ([§4](PLAN.md#4-proposed-split-the-stationary-site-across-two-pis),
+     [§9l](PLAN.md#9l-rejected));
+   - whether §4's two-Pi split becomes a split across the two sites (§4);
+   - the rejected second canary Pi, and the 🏠 home stationary's soak (§9l);
+   - station identity: the hostname and `station.id`
+     ([§9m](PLAN.md#9m--the-portable-rigs-archive-drive));
+   - per-station gain (§9h).
+
    **Hands:** fable-architect. **Done when:** its rulings are recorded in PLAN.md.
    (#33)
-9. **The install manifest, before any 🏠 stationary deploy; then the stationary build, and its
-   pre-ship checklist.**
-   **Hands:** not yet named. **Done when:** every box in the pre-ship checklist is checked.
-   [§9f](PLAN.md#9f-what-updatesh-does), "Deferred, decided and not built";
-   [§9h](PLAN.md#9h--the-stationary-rig-runs-at-a-remote-site-hundreds-of-miles-away), "The
-   pre-ship checklist". (#34)
+9. **The two stationary builds.** *Split 2026-10-11 by ruling A.* Item 9 is now, in order:
+   1. **The 🏠 home stationary build.**
+      **Hands:** not yet named. **Done when:** not yet ruled. Proposed by fable-architect,
+      2026-10-11: "it archives 24/7 and has taken one automatic update through its maintenance
+      window, seen." (no issue yet)
+      **Owed before its first bootstrap:** the decision on hiding unfinished work on `main`
+      ([§9g](PLAN.md#9g-channels-portable-tracks-main-stationary-tracks-stable), "Update
+      2026-10-11: hiding unfinished work on `main` is not done now").
+   2. **The install manifest, before the 🏠 remote stationary's deploy; then the 🏠 remote
+      stationary build, and its pre-ship checklist.** Proposed by fable-architect, 2026-10-11, not
+      ruled: the 🏠 home stationary runs the checklist's items that do not depend on the move
+      first, as a rehearsal.
+      **Hands:** not yet named. **Done when:** every box in the pre-ship checklist is checked, on
+      the 🏠 remote stationary.
+      [§9f](PLAN.md#9f-what-updatesh-does), "Deferred, decided and not built";
+      [§9h](PLAN.md#9h--the-stationary-rigs-home-and-remote), "The
+      pre-ship checklist". (#34)
 
 ## 📻 After the stationary
+
+⚠️ *Flagged 2026-10-11, not ruled: with two 🏠 stationaries, whether "after the stationary" means
+after both, and which rig the second radio goes on first, are open; a question for the stationary
+design (item 8).*
 
 - **The second radio, on both rigs,** per [BUILD.md §8](BUILD.md#8-build-order) step 5: "Add a
   second radio only after all of the above is boring."
