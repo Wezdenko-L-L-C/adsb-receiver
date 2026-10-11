@@ -512,8 +512,43 @@ options chosen:
      s"). The slate's SYNCED needs a bound within 20 ms (`BOUND_OK_S = 0.020`, read at
      `bin/adsb-slate:215`). Reasoned: with the GPS selected, the root delay is about 0.2 s, so the
      bound is at least 0.1 s and the word is COARSE. SYNCED appears only when chrony has chosen an
-     NTP server, as it had at home today. ⚠️ Unverified link: that chrony reports a refclock's
-     configured delay as the tracking root delay. The check is `chronyc tracking` with Wi-Fi off.
+     NTP server, as it had at home today. ~~⚠️ Unverified link: that chrony reports a refclock's
+     configured delay as the tracking root delay. The check is `chronyc tracking` with Wi-Fi off.~~
+     *✅ Checked 2026-10-11 on the 🎒 portable, chrony 4.6.1 (seen): the link holds. With the GPS
+     selected, `chronyc tracking` at 06:46:21 Arizona time (13:46:21Z) read Reference ID 47505300
+     (GPS), Stratum 1, system time 0.000159599 s slow of NTP time, root delay 0.200000003 s, root
+     dispersion 0.000982984 s, update interval 16.0 s, leap status Normal; `chronyc sources` at the
+     same moment showed the GPS refclock at "+/- 101ms". ➡️ chrony reports the refclock's
+     configured `delay 0.2` as the tracking root delay, so on the GPS alone the bound is about
+     0.1 s and the word is COARSE, as F1 reasoned. This is a recorded observation, not a ruling: the
+     clock-word question in the advice below is still Chris's, after the panel test.*
+     *⚠️ The check did not turn Wi-Fi off; it used `chronyc offline`. Chris ran `sudo chronyc
+     offline` at 06:29:21 Arizona time (13:29:21Z), and chrony's journal logged each NTP source
+     "offline" at that second. That takes every NTP source out of use and leaves the GPS refclock
+     untouched, and the SSH session stayed up. Wi-Fi off was not used because it would cut the SSH
+     session, and `nmcli radio wifi off` is reported to persist across a reboot: Claude's reasons,
+     accepted by Chris by running the command. The persistence is reported, not checked.*
+     *Seen: right after `offline`, every NTP source's Reach read 0, but chrony kept its previously
+     selected NTP server as its reference. chrony's journal logged "Selected source GPS" at
+     06:45:47 Arizona time (13:45:47Z), 16 minutes 26 seconds later. Afterwards Chris ran `sudo
+     chronyc online`, and at 06:58:51 Arizona time (13:58:51Z) the reference was an NTP server
+     again.*
+     *Claude's, unchecked against chrony's documentation: after `offline`, chrony stays on a stale
+     NTP source until that source's last sample is older than the oldest sample the GPS refclock
+     holds. It comes from a docs subagent's reading of chrony 4.6's `sources.c`, reported through
+     model summaries. The 16 minute 26 second delay is consistent with it and does not prove it. In the true
+     field state there is no network at boot, so there is no stale NTP source to age out. Debian's
+     `20-chrony-onoffline` NetworkManager dispatcher script is present on the rig (seen by Claude,
+     in a listing of the dispatcher directory). ⚠️ That it marks the sources offline when
+     NetworkManager loses its route is believed, not seen working.*
+     *Computed by Claude, not seen: the slate's bound, `abs(offset) + root_disp + 0.5 *
+     root_delay` (`bin/adsb-slate:197`), is about 0.101 s on this reading, above `BOUND_OK_S =
+     0.020` (`bin/adsb-slate:215`), so the slate's bound test (`bin/adsb-slate:243`) gives COARSE.
+     The HOLDOVER test at `:241` comes before it and does not fire: it needs the time since the
+     reference to exceed twice the update interval plus `HOLDOVER_SLACK_S = 64.0` (`:216`), here
+     96 s, and the same `chronyc tracking` output gave a reference time of 13:46:14Z, 7 s before
+     the reading (seen). ⚠️ The slate's word on tty1 was not seen in the GPS-selected state: a read of
+     `/dev/vcs1` afterwards returned nothing, and chrony was back on an NTP server by then.*
      - The number shown is right. It is consistent with
        [§9m](#9m--the-portable-rigs-archive-drive)'s R2, where NMEA-disciplined chrony is good to
        about 0.1 s and "a requirement tighter than about 0.3 s, which means PPS first" is what would
