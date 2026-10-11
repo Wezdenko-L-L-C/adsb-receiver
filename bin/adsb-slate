@@ -40,9 +40,10 @@
 #   both HDMI connectors read disconnected and there is no
 #   /sys/class/graphics/fb0. Then tty1 is an 80x25 console whose screen
 #   buffer is written: recorded by Chris on the 🎒 portable 2026-10-10 (sudo
-#   cat /dev/vcs1, no panel): 80x25, the buffer is written; to be recorded in
-#   PLAN §5 with this step. That was getty's output; this program's writes
-#   take the same path, not yet seen for the slate itself. At 80x25 plan()
+#   cat /dev/vcs1, no panel): 80x25, the buffer is written (it held getty's
+#   output). This program's own writes land there too: seen on the 🎒
+#   portable 2026-10-10, no panel, step 80's verify reading /dev/vcsu1. Both
+#   are recorded in PLAN §5 (#30's run with no panel). At 80x25 plan()
 #   gives digits one cell per unit (47x7) above the UTC line and the status.
 #   ⚠️ Belief, not seen: DRM's fbdev setup waits for
 #   the first hotplug, and fbcon then takes tty1 over at the panel's mode,
@@ -191,9 +192,9 @@ def parse_tracking(text):
         "ref_time": ref_time,
         "offset_s": offset,
         "interval_s": interval,
-        # chronyc(1), "tracking" (read 2026-10-10, chrony 4.8's man page on a
-        # workstation): "clock_error <= |system_time_offset| + root_dispersion
-        # + (0.5 * root_delay)".
+        # chronyc(1), "tracking" (read 2026-10-11 in the 🎒 portable's installed
+        # man page, chrony 4.6.1): "clock_error <= |system_time_offset| +
+        # root_dispersion + (0.5 * root_delay)".
         "bound_s": abs(offset) + root_disp + 0.5 * root_delay,
         "leap": leap,
         # chronyc(1) lists four leap statuses: Normal, Insert second, Delete
@@ -689,9 +690,12 @@ def gpsd_loop(src, addr, stop):
 def read_tracking():
     """chronyc's tracking as a dict, or None. -n: no name lookups, which could
     block with no network. Seen on the 🎒 portable 2026-10-10, read-only:
-    `chronyc -n -c tracking` answers as the unprivileged login user. ⚠️ Not
-    seen: that it answers under the unit's dynamic user and sandbox; with no
-    answer the slate shows CHRONY?."""
+    `chronyc -n -c tracking` answers as the unprivileged login user. With no
+    answer the slate shows CHRONY?. That it answers under the unit's dynamic
+    user and sandbox is inferred, not seen directly: the 🎒 portable's tty1
+    showed SYNCED on 2026-10-10 (PLAN §5), and the slate shows SYNCED only
+    from a parsed answer (fable-architect's and Claude's reading of this
+    code path)."""
     try:
         r = subprocess.run(["chronyc", "-n", "-c", "tracking"], capture_output=True,
                            text=True, timeout=CHRONYC_TIMEOUT_S)

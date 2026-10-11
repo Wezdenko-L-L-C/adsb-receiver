@@ -200,9 +200,17 @@ render_chrony() {
 # gpsd's shared-memory segment 0, as a refclock named GPS. Set by hand on the
 # portable rig on 2026-10-03.
 #
-# offset 0.203: the puck's NMEA lateness, in seconds, measured on THIS rig's
-#   puck on 2026-10-03. ⚠️ Another puck needs its own value: measure it against
-#   a good NTP source before trusting the number.
+# offset 0.203: chrony's refclock offset, in seconds, meant to compensate the
+#   NMEA's lateness. Set by hand on this rig on 2026-10-03; how it was derived
+#   is not recorded. As of 2026-10-11 the puck on this rig is a GlobalSat
+#   BU-353N. A spot check on 2026-10-11, not a measurement of the offset:
+#   with it applied, `chronyc sources` showed the GPS refclock's last sample
+#   at -2.3 ms (about 13:27Z, the NTP server online and selected; the only
+#   reading against a clock NTP was steering), then -6.8 ms (about 13:29Z)
+#   and -3.9 ms (about 13:38Z), both with the NTP sources offline and the
+#   clock coasting on the server's last correction, before chrony selected
+#   the GPS. ⚠️ Another puck may need its own value: measure it against a
+#   good NTP source before trusting it.
 # delay 0.2: half of it counts in chrony's error bound, so a USB NMEA puck is
 #   treated as good to about +/-0.1 s rather than as a precise clock.
 refclock SHM 0 refid GPS offset 0.203 delay 0.2

@@ -8,7 +8,7 @@
 # and the aircraft count. PLAN §5, "Update 2026-10-10: the interface, ruled
 # (#30)", ruling 1, and "The one position source, and the surface rule".
 # Ruling 3 (the panel's power from the battery bank) is a hardware ruling this
-# step does not touch. BUILD.md has no section for it yet.
+# step does not touch. BUILD.md §8's list of step scripts names this step.
 #
 # Portable only: asserts station.role and refuses a position: block (PLAN §9b).
 # Beyond those two checks it reads no station.yml key, and it adds none.
@@ -50,18 +50,19 @@
 # With no framebuffer tty1 is an 80x25 console and its screen buffer (what
 # /dev/vcs1 reads) is written: recorded by Chris on the 🎒 portable 2026-10-10
 # (sudo cat /dev/vcs1, no panel): 80x25 (`stty -F /dev/tty1 size`), the
-# buffer is written (it held getty's prompt); to be recorded in PLAN §5 with
-# this step. ⚠️ That was getty's output. The renderer's writes under this
-# unit take the same path as getty's, but are not yet seen for the slate
-# itself; this step's verify, reading the same buffer, is what will show it.
+# buffer is written (it held getty's prompt). The renderer's own writes under
+# this unit land there too: seen on the 🎒 portable 2026-10-10, no panel, by
+# this step's verify reading /dev/vcsu1. Both are recorded in PLAN §5 (#30's
+# run with no panel).
 # At 80x25 the slate's layout is: big digits one cell per unit, 47 columns by
 # 7 rows, from column 17 (1-based), rows 2 to 8; the UTC line on row 10; the
 # five status lines on rows 11 to 15; rows 16 to 25 empty (tests/test_adsb_slate.py
 # checks the width at 80 columns).
-# ⚠️ Belief, not seen: setfont fails with no framebuffer. Its ExecStartPre= is
-# "-" (a failure ignored) either way. The renderer exits when the console's
-# size changes (--exit-on-resize), and Restart= re-runs setfont, so a panel
-# plugged in after boot gets the font.
+# setfont fails with no framebuffer: seen in the slate's journal on the 🎒
+# portable 2026-10-10 ("Unable to load such font with such kernel version",
+# PLAN §5). Its ExecStartPre= is "-", so the failure is ignored. The renderer
+# exits when the console's size changes (--exit-on-resize), and Restart=
+# re-runs setfont, so a panel plugged in after boot gets the font.
 #
 # ⛔ The position goes to the screen only (PLAN §5, the surface rule). This
 #    step's verify reads the screen as root and prints exactly two things from
@@ -153,8 +154,8 @@ install_if_changed() {
 #     systemd-coredump package, and core_pattern is `core`, a file in the
 #     working directory.)
 #   - "-+" on setfont: "+" runs it as root, outside the sandbox (systemd.service(5));
-#     "-" ignores its failure, which is believed, not seen, to be what happens
-#     with no framebuffer.
+#     "-" ignores its failure, which is what happens with no framebuffer (seen
+#     in the slate's journal on the 🎒 portable 2026-10-10, PLAN §5).
 #   - DynamicUser=yes implies NoNewPrivileges=, RestrictSUIDSGID=,
 #     ProtectSystem=strict and ProtectHome=read-only (systemd.exec(5)); they
 #     are written out anyway, ProtectHome= tightened to yes.
@@ -358,12 +359,13 @@ PY
 # main process, unprivileged, and its UTC line is on tty1's screen, near the
 # system clock and advancing. With no panel, tty1's buffer is still written:
 # recorded by Chris on the 🎒 portable 2026-10-10 (sudo cat /dev/vcs1, no
-# panel): 80x25, the buffer is written; to be recorded in PLAN §5 with this
-# step. That was getty's output; the renderer's takes the same path, not yet
-# seen for the slate itself. ⛔ Never judged: chrony's state or a GPS fix
-# (readiness, PLAN §9c), and whether a panel is attached: none of them can be
-# fixed by an update, and a failed verify under update.sh rolls the whole
-# update back (setup/update.sh, rollback).
+# panel): 80x25, the buffer is written (getty's output). The renderer's own
+# output is written there too: seen by this verify on the 🎒 portable
+# 2026-10-10, no panel. Both are recorded in PLAN §5.
+# ⛔ Never judged: chrony's state or a GPS fix (readiness, PLAN §9c), and
+# whether a panel is attached: none of them can be fixed by an update, and a
+# failed verify under update.sh rolls the whole update back (setup/update.sh,
+# rollback).
 verify() {
   local out ver rc
   log "stat $SLATE; $SLATE --version (raw output follows)"
