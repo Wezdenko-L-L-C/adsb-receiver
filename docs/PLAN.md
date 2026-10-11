@@ -219,6 +219,33 @@ in Arizona time (UTC−7), and from `date`.
      present, so no new packages are needed. No compositor or browser is installed. Both HDMI ports
      read disconnected.
    - ➡️ Not a house surface: no stylesheet and no web design system. It is a text console.
+   - *Update 2026-10-10: built, as `bin/adsb-slate` and its step, `setup/steps/80-portable-slate.sh`,
+     in `ed40944` on `main`, pushed with Chris's approval (the stamp is 18:54 Arizona time); CI
+     passed and `stable` was fast-forwarded to it. Reviewed by the step reviewer (9 findings, all
+     addressed), `/code-review` at medium (8, all fixed) and `/security-review` (no findings). Its
+     run on the 🎒 portable is recorded under "The work within #30, in order", item 2, below.*
+     - *It is numbered 80 because `update.sh` runs the steps in filename order (`step_list` in
+       `setup/update.sh`, read by Claude) and the slate needs steps 10 and 20 before it; 30 is
+       taken.*
+     - *What the code does, read in it: the step installs the renderer, copied, to
+       `/usr/local/bin/adsb-slate`, and a unit, `adsb-slate.service`, that runs it on tty1 as a
+       dynamic user. The unit has `Conflicts=getty@tty1.service`, so starting it stops the login
+       prompt on tty1, and only there. Before each start the unit runs `setfont` as root on tty1,
+       its failure ignored, with the first of `Uni2-`, `Lat15-` and `Uni3-Terminus32x16` that
+       exists. The renderer sizes itself to the console, draws UTC to tenths in large digits made
+       of reverse-video spaces, the tenth truncated and never rounded, and writes one plain line,
+       `UTC YYYY-MM-DD HH:MM:SS.t`, which the step's verify reads back from tty1's screen buffer.
+       It exits when the console's size changes, so the unit restarts it and runs `setfont` again.
+       The step installs no packages and adds no `station.yml` key.*
+     - *The clock's word is SYNCED, COARSE, HOLDOVER, UNSYNCED or `CHRONY?`, and a source that is
+       missing or stale shows a word, never an old value. ⚠️ The thresholds are the implementer's,
+       not rulings: SYNCED needs chronyc(1)'s error bound within 20 ms and a reference time no
+       older than twice the update interval plus 64 s; older is HOLDOVER, and a bound above 20 ms
+       is COARSE. A fix older than 60 s shows a word, not its age. readsb's `now` more than 2 s
+       ahead of the system clock is not shown as current.*
+     - *The surface rule, as built: the renderer logs exception type names only, never a message,
+       and the step's verify prints only the UTC line and the clock's word from the screen, never
+       the screen itself.*
 2. **readsb's listeners go to loopback, in their own commit, first.** Recommended by the
    consultation.
    - ✅ Seen 2026-10-10 at about 15:28, with `ss -ltn` on the 🎒 portable: readsb's 30001 to 30005
@@ -258,7 +285,25 @@ in Arizona time (UTC−7), and from `date`.
      update.*
 3. **Panel power: from the battery bank's second port, not the Pi's USB.** Recommended by the
    consultation. It keeps the Pi's one USB hub, which carries the stick, the GPS and the drive,
-   clear. No panel model is named.
+   clear. ~~No panel model is named.~~ *Corrected 2026-10-10: the panel is named. Chris named it
+   on 2026-10-10, by an Amazon link: a ViewSonic VA1653.*
+   - *Its figures, from ViewSonic's spec sheet (viewsonic.com/global/products/sheet/VA1653-1T),
+     read by Claude 2026-10-10: a vendor document, not a measurement. 16 inches (15.6 viewable),
+     1920×1080 at 60 Hz, IPS, 250 cd/m² typical. Inputs: mini-HDMI (v1.4); a USB-C input for
+     DisplayPort Alt mode, which is also a 15 W charger port; and a separate USB-C input for power
+     only. Power input DC 5, 9, 12, 15 or 20 V. Consumption 7 W typical, 7.3 W maximum, 5.1 or 6 W
+     in eco mode, 0.5 W in standby. No power adapter in the box, only a USB-C to USB-C cable.
+     ⚠️ Retailers' figures differ: SHI lists 9.6 W maximum and 7.6 W typical.*
+   - *Claude's reading of the sheet, not seen with the panel:*
+     - *The Pi 4's micro-HDMI needs a micro-HDMI to mini-HDMI cable. Chris ordered one on
+       2026-10-10; it has not arrived.*
+     - *The Pi 4 has no DisplayPort Alt mode, so the panel's USB-C video input is of no use here.*
+     - *➡️ This ruling's power from the bank goes into the panel's power-only USB-C input. ⚠️ The
+       sheet does not say whether the panel runs from a plain 5 V port.*
+     - *Estimated, not measured: the rig's 5.6 W ([BUILD.md §5](BUILD.md#5-power-portable-only)'s
+       2026-10-05 reading) plus the panel's 7 W is about 12.6 W, or about 6.7 h on the bank's
+       ~84.6 Wh usable.*
+     - *⚠️ 250 cd/m² is dim in direct sun: a reading of the figure, not seen.*
 4. **The receiver's position on the LAN map: yes.** (Chris's call; no reason given.) tar1090 shows
    the receiver position, at the accuracy of rulings 6 and 9.
    - Overrode the recommendation, **physical surfaces only.** The consultation's reason for it: the
@@ -350,6 +395,55 @@ options chosen:
    of the slate beside time.gov, within 0.3 s; a one-hour power reading with the panel on, which
    closes the reading [BUILD.md §5](BUILD.md#5-power-portable-only) still owes; and the slate's
    CPU, from `ps`.
+   *Update 2026-10-10: built and run on the 🎒 portable with no panel; the measurements with the
+   panel are still owed.* Built as `ed40944` (ruling 1's update). Ruled by Chris, by multiple-choice
+   question, the stamp of his answer 19:11 Arizona time: today's run is recorded now, and the
+   panel's results get their own record later. No reason is on record for it.
+   - *Before the build, seen by Claude, read-only, on the 🎒 portable, 2026-10-10 at about 18:13 to
+     18:34, with no panel attached: both HDMI connectors `disconnected`; no
+     `/sys/class/graphics/fb0`; `/dev/tty1` root:tty 0600; `/dev/vcs1` and `/dev/vcsu1` present;
+     the kernel's `consoleblank` 0; time zone America/Phoenix; `getty@tty1` enabled; the `Uni2-`,
+     `Lat15-` and `Uni3-Terminus32x16` fonts present; an unprivileged `chronyc -n -c tracking`
+     answers; the running kernel has `CONFIG_CGROUP_BPF=y`; systemd 257; no `systemd-coredump`;
+     `ioctl` is in `@system-service`. chrony's CSV system-time field is negative when chronyc's text
+     says "fast" (compared side by side at about 18:34). chrony's reference then was an NTP server,
+     not the GPS: the rig was at home, on Wi-Fi.*
+   - *Recorded by Chris, not re-seen by Claude, at about 18:40, on the same panel-less portable:
+     `sudo stty -F /dev/tty1 size` gave `25 80`, and `sudo cat /dev/vcs1` held getty's login
+     prompt.*
+   - *The run: Chris ran `tools/pull-archive`, the interim pull, and the pull window's update
+     applied `ed40944`. Recorded by Chris: his `sudo adsb-update` at about 19:00 printed
+     `ADSB-UPDATE-SKIPPED lock-held`, the writer holding the recording lock
+     ([§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic)'s 2026-10-05
+     correction).*
+   - *Seen by Claude, read-only, in the update's journal and on the rig, 2026-10-10 at about 19:09:
+     `applied-rev` is `ed40944a32a8…`. Step 80's install chose `Uni2-Terminus32x16.psf.gz`,
+     installed the binary and the unit, enabled the unit, and started it ("That stops
+     getty@tty1.service"). Its verify passed twice, in the install pass and in the full verify
+     pass: the renderer is the unit's main process, as a dynamic uid, with NoNewPrivs 1;
+     `/dev/vcsu1` showed the UTC line, with `screen minus system -0.04 s` on each read; and the
+     clock's word on the screen was SYNCED. The update's result: "applied; exit 0".*
+     - *The slate's journal: `setfont: ERROR kdfontop.c:212 put_font_kdfontop: Unable to load such
+       font with such kernel version`, which the unit's `-` prefix tolerates; then "start 0.1.0:
+       console 80x25, digits 1x1 cells per unit". NRestarts 0. `getty@tty1` inactive. ➡️ The
+       step's belief that `setfont` fails with no framebuffer is now seen, in this form.*
+     - *➡️ The open belief that the slate's own writes land in tty1's screen buffer with no panel is
+       settled: seen. Until this run only getty's output had been seen there (Chris's record
+       above).*
+     - *⚠️ `getty@tty2` and `autovt@tty2` were inactive too. That is expected, since logind starts
+       autovt on a switch to that console, but a login on tty2 is not seen: it needs a keyboard at
+       the rig.*
+   - *The slate's CPU with no panel, seen by Claude, read-only: its utime plus stime went from 74 to
+     163 ticks (CLK_TCK 100) over a 60 s window at about 19:10 to 19:11, about 0.89 s per 60 s, or
+     about 1.5 % of one of the Pi's four cores. ⚠️ With the panel on, fbcon draws the glyphs in the
+     write path, which may raise it: the done-when's CPU reading is still owed with the panel on.*
+   - *Still owed for #30's done-when, unchanged: the photo of the slate beside time.gov, within
+     0.3 s; the one-hour power reading with the panel on; and the slate's CPU with the panel on.*
+   - *⚠️ Still beliefs in the code, not seen: DRM's fbdev setup deferred to the first hotplug, with
+     fbcon then taking tty1, and the renderer's exit on the resize re-running `setfont`;
+     `TTYVTDisallocate=` clearing the console after a SIGKILL; and systemd opening `TTYPath=`
+     before it drops privileges, which works in effect: the renderer was seen running as a dynamic
+     uid and writing tty1.*
 3. The live viewer: one new readsb flag, `--net-connector`, plus gating two that already exist,
    `--json-location-accuracy` and `--range-outline-hours`; and :8504 removed. ✅ Both existing
    flags are in the defaults file step 10 renders, at `2` and `24`. They are inert today only

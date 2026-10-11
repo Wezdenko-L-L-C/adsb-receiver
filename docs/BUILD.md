@@ -567,6 +567,10 @@ on the other rig `update.sh` skips it.*
 - `60-portable-pull` 🎒: the pull window that `tools/pull-archive` opens, and the sudoers rule that
   lets it.
 - `70-portable-home-update` 🎒: the home-gated opener, off until `update.home_ssid` is set.
+- `80-portable-slate` 🎒: the field display, `bin/adsb-slate`, which draws the camera slate on
+  tty1, the HDMI console, in place of tty1's login prompt
+  ([PLAN.md §5](PLAN.md#5-proposed-the-web-interface-is-three-existing-services-not-a-new-one),
+  "the interface, ruled (#30)", ruling 1).
 
 *Steps 3 to 6 below have no script. The 🏠 stationary's clock step, `20-stationary-clock`, is not
 written.*
