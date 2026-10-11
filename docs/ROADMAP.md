@@ -137,7 +137,7 @@ stationary first, then the 🏠 remote stationary.*
    1. **The 🏠 home stationary build.**
       **Hands:** not yet named. **Done when:** not yet ruled. Proposed by fable-architect,
       2026-10-11: "it archives 24/7 and has taken one automatic update through its maintenance
-      window, seen." (no issue yet)
+      window, seen." (#38)
       **Owed before its first bootstrap:** the decision on hiding unfinished work on `main`
       ([§9g](PLAN.md#9g-channels-portable-tracks-main-stationary-tracks-stable), "Update
       2026-10-11: hiding unfinished work on `main` is not done now").
