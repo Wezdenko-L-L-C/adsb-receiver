@@ -503,14 +503,48 @@ options chosen:
           Claude's inference from the code path, not seen directly.
         - `setup/steps/80-portable-slate.sh:11`: "BUILD.md has no section for it yet".
           [BUILD.md §8](BUILD.md#8-build-order)'s list of step scripts now names it.
+      - ➡️ *Changed 2026-10-11 by Chris's ruling, by multiple-choice question; the stamp of his
+        answer is 07:22 Arizona time: the lagging comments are fixed now, all of them, as a
+        comment-only rig change through the three reviews, which the panel change will go through
+        again. He chose the option Claude recommended, "Now, all the lagging comments". His reason,
+        given before the question: his instruction "fix the still open". No other reason is on
+        record.*
+        - *Rejected, as put: **Now, only the two still-open**; and **Keep ruling 4**, whose reason
+          was that the three reviews run once.*
+        - *A second question at the same stamp, on the text of step 20's `offset 0.203` comment:
+          Chris chose "Hand-set + this morning's reading", the option Claude recommended, which
+          included recording that reading here (F1's 2026-10-11 notes, below). Rejected, as put:
+          **Hand-set only**. No reason is on record beyond the option's wording.*
+        - *Done in `7e5dd45`. There the comments above are at `bin/adsb-slate:42–46` and
+          `:694–698`, and `setup/steps/80-portable-slate.sh:50–56`, `:360–364`, `:61–63`,
+          `:156–158` and `:11`; each now says seen or recorded, and the chronyc one says "inferred,
+          not seen directly". Two more, from the 2026-10-11 morning session:
+          `bin/adsb-slate:195–197` now cites chronyc(1) as read in the 🎒 portable's installed man
+          page, chrony 4.6.1, not chrony 4.8's; and `setup/steps/20-portable-clock.sh:203–213` no
+          longer says `offset 0.203` was measured on this rig's puck on 2026-10-03: it was set by
+          hand that day, and how it was derived is not recorded.*
+        - *Reviewed: the step reviewer, on both step scripts, found the readings' conditions
+          misstated, the NMEA's lateness stated as fact, the puck's model tied to the 2026-10-03
+          setting, and "needs" too strong; all fixed. `/code-review` at medium made five findings:
+          two fixed (the spot check's label, a rewrap); one was the drift of PLAN's line citations,
+          corrected in F1 below; one rejected, that `read_tracking`'s docstring calls the sandbox
+          point settled (it says "inferred, not seen directly"); and one closed by the man-page
+          reading in F1's notes below. `/security-review`: no findings. 166 unit tests OK; smoke 255
+          passed, 0 failed. Not pushed when this was recorded: Chris approves the push after it.*
+        - *Reported, not fixed: `setup/steps/80-portable-slate.sh:63–65` says `Restart=` re-runs
+          `setfont`, "so a panel plugged in after boot gets the font", as fact, and so does
+          `bin/adsb-slate:36–38` ("systemd restarts it and re-runs the unit's setfont"), while item
+          2 above lists the resize re-running `setfont` among the beliefs not seen. `setup/steps/80-portable-slate.sh:47` gives `/dev/vcs1`
+          and `/dev/vcsu1` as `root:tty 0660`, and `:26` gives `setfont` as `/usr/bin/setfont`;
+          PLAN records neither.*
 
    **fable-architect's findings, 2026-10-10, recorded beside these rulings.** Reasoned unless marked
    read; none of them is a ruling.
    - **The field clock word (F1).** Step 20 renders `refclock SHM 0 refid GPS offset 0.203 delay
-     0.2` (✅ read by Claude at `setup/steps/20-portable-clock.sh:208`; its comment at 206–207 says
+     0.2` (✅ read by Claude at ~~`setup/steps/20-portable-clock.sh:208`~~ `setup/steps/20-portable-clock.sh:216`; its comment at ~~206–207~~ 214–215 says
      half the delay counts in chrony's error bound, so the puck is treated as "good to about +/-0.1
      s"). The slate's SYNCED needs a bound within 20 ms (`BOUND_OK_S = 0.020`, read at
-     `bin/adsb-slate:215`). Reasoned: with the GPS selected, the root delay is about 0.2 s, so the
+     ~~`bin/adsb-slate:215`~~ `bin/adsb-slate:216`). Reasoned: with the GPS selected, the root delay is about 0.2 s, so the
      bound is at least 0.1 s and the word is COARSE. SYNCED appears only when chrony has chosen an
      NTP server, as it had at home today. ~~⚠️ Unverified link: that chrony reports a refclock's
      configured delay as the tracking root delay. The check is `chronyc tracking` with Wi-Fi off.~~
@@ -542,13 +576,27 @@ options chosen:
      in a listing of the dispatcher directory). ⚠️ That it marks the sources offline when
      NetworkManager loses its route is believed, not seen working.*
      *Computed by Claude, not seen: the slate's bound, `abs(offset) + root_disp + 0.5 *
-     root_delay` (`bin/adsb-slate:197`), is about 0.101 s on this reading, above `BOUND_OK_S =
-     0.020` (`bin/adsb-slate:215`), so the slate's bound test (`bin/adsb-slate:243`) gives COARSE.
-     The HOLDOVER test at `:241` comes before it and does not fire: it needs the time since the
-     reference to exceed twice the update interval plus `HOLDOVER_SLACK_S = 64.0` (`:216`), here
+     root_delay` (~~`bin/adsb-slate:197`~~ `bin/adsb-slate:198`), is about 0.101 s on this reading, above `BOUND_OK_S =
+     0.020` (~~`bin/adsb-slate:215`~~ `bin/adsb-slate:216`), so the slate's bound test (~~`bin/adsb-slate:243`~~ `bin/adsb-slate:244`) gives COARSE.
+     The HOLDOVER test at ~~`:241`~~ `:242` comes before it and does not fire: it needs the time since the
+     reference to exceed twice the update interval plus `HOLDOVER_SLACK_S = 64.0` (~~`:216`~~ `:217`), here
      96 s, and the same `chronyc tracking` output gave a reference time of 13:46:14Z, 7 s before
      the reading (seen). ⚠️ The slate's word on tty1 was not seen in the GPS-selected state: a read of
      `/dev/vcs1` afterwards returned nothing, and chrony was back on an NTP server by then.*
+     *Update 2026-10-11: the bound's formula is chrony's own, seen. Seen by Claude at 07:31 Arizona
+     time, over read-only SSH: the 🎒 portable has chrony 4.6.1-3+deb13u2, and line 306 of its
+     `/usr/share/man/man1/chronyc.1.gz` reads `clock_error <= |system_time_offset| +
+     root_dispersion + (0.5 * root_delay)`, the formula at `bin/adsb-slate:198`.*
+     *Update 2026-10-11: a spot check consistent with `offset 0.203`, not a measurement of it. Seen
+     by Claude in the raw output of the same morning's session: `chronyc sources` showed the GPS
+     refclock as `#-`, not selected, with its last sample at `-2328us` at about 06:27:31 Arizona
+     time (13:27:31Z), `-6780us` at about 06:29:34 (13:29:34Z) and `-3877us` at about 06:37:56
+     (13:37:56Z). Each time `chronyc tracking` gave the NTP server as Reference ID, with root delay
+     about 12 ms. The times are when the output returned, not chrony's stamps. Only the first
+     reading compares against a clock NTP was steering; the other two follow the `offline` at
+     13:29:21Z, against a clock coasting on the server's last correction. ⚠️ How 0.203 was derived
+     on 2026-10-03 is recorded nowhere. Step 20's comment now carries this
+     (`setup/steps/20-portable-clock.sh:203–213`).*
      - The number shown is right. It is consistent with
        [§9m](#9m--the-portable-rigs-archive-drive)'s R2, where NMEA-disciplined chrony is good to
        about 0.1 s and "a requirement tighter than about 0.3 s, which means PPS first" is what would
@@ -4789,7 +4837,7 @@ recording session ([§9c](#9c-every-step-ends-in-a-check-of-the-observable-effec
       [§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic). ⚠️ The same
       `| head -n1` shape remains, reported and not fixed, in ~~`setup/bootstrap.sh:73`~~ `setup/bootstrap.sh:145` (guarded by
       `|| unit=''`), `bin/adsb-home-update:208` (added 2026-10-10, the same shape, also guarded by
-      `|| unit=''`), and ~~`setup/update.sh:237`~~ `setup/update.sh:299`, ~~`setup/steps/20-portable-clock.sh:366`~~ `setup/steps/20-portable-clock.sh:375` and
+      `|| unit=''`), and ~~`setup/update.sh:237`~~ `setup/update.sh:299`, ~~`setup/steps/20-portable-clock.sh:366`~~ ~~`setup/steps/20-portable-clock.sh:375`~~ `setup/steps/20-portable-clock.sh:383` and
       `bin/clock-preflight:120` and `:125` (each guarded by `|| true`).*
 - **(Chris), 2026-10-04:** no step's verify reads `UMask=`. That is the setting, not the effect: the
   full pull in the pre-field checklist tests the effect.
