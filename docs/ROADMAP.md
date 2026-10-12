@@ -55,8 +55,8 @@ added 2026-10-10, once Chris had approved the list of issues.
       step 10 by Chris, and `ss -ltn` then showed listeners on loopback only (PLAN §5, ruling 2's
       "✅ Seen" bullet).*
    2. **The field display and the position ruling** (rulings 1, 3, 4, 6, 9, 10).
-      **Hands:** implementer and the same review chain; Chris opens a pull window
-      (`tools/pull-archive`), whose update applies the step, and attaches the panel.
+      **Hands:** implementer and the same review chain; Chris opened a pull window
+      (`tools/pull-archive`), whose update applied the step, and attached the panel.
       ~~**Done when:** the slate photographed beside time.gov within 0.3 s; the one-hour power reading
       with the panel on; the slate's CPU from `ps`.~~
       *Changed 2026-10-10 by Chris's ruling (PLAN §5, "The work within #30, in order", item 2's
@@ -64,8 +64,9 @@ added 2026-10-10, once Chris had approved the list of issues.
       by filming both; the same check in the field state (Wi-Fi off, the rig on the GPS, a phone
       reference on cellular); the one-hour power reading with the panel on; the slate's CPU from
       `ps`. (#30)
-      *Built 2026-10-10 as `ed40944` and run on the 🎒 portable with no panel; the done-when's
-      measurements are still owed (PLAN §5, "The work within #30, in order", item 2).*
+      *Built 2026-10-10 as `ed40944`. With the panel, 2026-10-11: the two time checks are seen, at
+      home and in the field state; the power reading and the CPU with the panel on are still owed
+      (PLAN §5, "The work within #30, in order", item 2, "#30's panel run, 2026-10-11").*
    3. **The viewer:** the live map with the receiver marker at the gated accuracy, :8504 closed,
       and the archive timeline from 4a (rulings 6, 7, 9, 10). **Hands:** implementer and the same
       review chain. **Done when:** stated in its issue. (#35)

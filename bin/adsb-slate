@@ -35,8 +35,10 @@
 #   It sizes itself to the console it finds (TIOCGWINSZ), checked every second
 #   and on SIGWINCH, and lays out again when the size changes. With
 #   --exit-on-resize (the unit passes it) it then exits, so systemd restarts
-#   it and re-runs the unit's setfont, which needs root. ⚠️ Belief, not seen:
-#   the restart and setfont on a resize; the panel test (#30) settles it.
+#   it and re-runs the unit's setfont, which needs root. ✅ Seen on the 🎒
+#   portable 2026-10-11 (PLAN §5, #30's panel run): a panel plugged in resized
+#   it 80x25 -> 240x67, it exited and came back at 120x33, with no kdfontop
+#   error (setfont's success is inferred: 120x33 fits a font twice the size).
 #   Seen on the 🎒 portable 2026-10-10, read-only: with no panel attached,
 #   both HDMI connectors read disconnected and there is no
 #   /sys/class/graphics/fb0. Then tty1 is an 80x25 console whose screen
@@ -46,10 +48,10 @@
 #   portable 2026-10-10, no panel, step 80's verify reading /dev/vcsu1. Both
 #   are recorded in PLAN §5 (#30's run with no panel). At 80x25 plan()
 #   gives digits one cell per unit (47x7) above the UTC line and the status.
-#   ⚠️ Belief, not seen: DRM's fbdev setup waits for
-#   the first hotplug, and fbcon then takes tty1 over at the panel's mode,
-#   with its default font, so a panel plugged in after boot shows up here as
-#   a size change.
+#   ⚠️ Belief, not seen: DRM's fbdev setup waits for the first hotplug, and
+#   fbcon then takes tty1 over at the panel's mode, with its default font.
+#   ✅ Seen on the 🎒 portable 2026-10-11 (the same panel run): a panel
+#   plugged in after boot shows up here as a size change.
 #
 # ⛔ The position goes to the screen and nowhere else: never to stderr (the
 #    journal), never into an exception message or traceback, never to a file.

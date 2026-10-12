@@ -317,10 +317,14 @@ in Arizona time (UTC−7), and from `date`.
      ⚠️ Retailers' figures differ: SHI lists 9.6 W maximum and 7.6 W typical.*
    - *Claude's reading of the sheet, not seen with the panel:*
      - *The Pi 4's micro-HDMI needs a micro-HDMI to mini-HDMI cable. Chris ordered one on
-       2026-10-10; it has not arrived.*
+       2026-10-10; it arrived, and was used on 2026-10-11.*
      - *The Pi 4 has no DisplayPort Alt mode, so the panel's USB-C video input is of no use here.*
      - *➡️ This ruling's power from the bank goes into the panel's power-only USB-C input. ⚠️ The
-       sheet does not say whether the panel runs from a plain 5 V port.*
+       sheet does not say whether the panel runs from a plain 5 V port.* *At home on 2026-10-11
+       (recorded in the private pick-up record by the main loop's session of 15:08 Arizona time,
+       not re-checked since): the panel's power went into its bottom USB-C, marked ⎓, by a white
+       USB-C cable from the power bank, after a first USB-C cable left the panel on "no signal"
+       ("#30's panel run, 2026-10-11", below).*
      - *Estimated, not measured: the rig's 5.6 W ([BUILD.md §5](BUILD.md#5-power-portable-only)'s
        2026-10-05 reading) plus the panel's 7 W is about 12.6 W, or about 6.7 h on the bank's
        ~84.6 Wh usable.*
@@ -417,9 +421,10 @@ options chosen:
    closes the reading [BUILD.md §5](BUILD.md#5-power-portable-only) still owes; and the slate's
    CPU, from `ps`.
    *Update 2026-10-10: built and run on the 🎒 portable with no panel; the measurements with the
-   panel are still owed.* Built as `ed40944` (ruling 1's update). Ruled by Chris, by multiple-choice
-   question, the stamp of his answer 19:11 Arizona time: today's run is recorded now, and the
-   panel's results get their own record later. No reason is on record for it.
+   panel came on 2026-10-11, in "#30's panel run, 2026-10-11", below.* Built as `ed40944`
+   (ruling 1's update). Ruled by Chris, by multiple-choice question, the stamp of his answer 19:11
+   Arizona time: today's run is recorded now, and the panel's results get their own record later.
+   No reason is on record for it.
    - *Before the build, seen by Claude, read-only, on the 🎒 portable, 2026-10-10 at about 18:13 to
      18:34, with no panel attached: both HDMI connectors `disconnected`; no
      `/sys/class/graphics/fb0`; `/dev/tty1` root:tty 0600; `/dev/vcs1` and `/dev/vcsu1` present;
@@ -462,15 +467,18 @@ options chosen:
      163 ticks (CLK_TCK 100) over a 60 s window at about 19:10 to 19:11, about 0.89 s per 60 s, or
      about 1.5 % of one of the Pi's four cores. ⚠️ With the panel on, fbcon draws the glyphs in the
      write path, which may raise it: the done-when's CPU reading is still owed with the panel on.*
-   - *Still owed for #30's done-when, ~~unchanged~~: the photo of the slate beside time.gov, within
-     0.3 s; the one-hour power reading with the panel on; and the slate's CPU with the panel on.*
+   - *Still owed for #30's done-when, after the panel run of 2026-10-11 below: the one-hour power
+     reading with the panel on, and the slate's CPU with the panel on. Its two time checks, at home
+     and in the field state, are seen there.*
      *Changed 2026-10-10 by Chris's ruling (ruling 3 of the 19:27 rulings below): a second
      measurement is added, in the field state. The photo is taken by filming (ruling 2 there).*
    - *⚠️ Still beliefs in the code, not seen: DRM's fbdev setup deferred to the first hotplug, with
-     fbcon then taking tty1, and the renderer's exit on the resize re-running `setfont`;
-     `TTYVTDisallocate=` clearing the console after a SIGKILL; and systemd opening `TTYPath=`
-     before it drops privileges, which works in effect: the renderer was seen running as a dynamic
-     uid and writing tty1.*
+     fbcon then taking tty1, whose effect is seen (the console resized when the panel was plugged
+     in after boot) but not the mechanism; `TTYVTDisallocate=` clearing the console after a
+     SIGKILL; and systemd opening `TTYPath=` before it drops privileges, which works in effect: the
+     renderer was seen running as a dynamic uid and writing tty1. The renderer's exit on the resize
+     and the unit's restart are seen, in "#30's panel run, 2026-10-11", below; `setfont`'s success
+     on the restart is inferred from those two facts.*
 
    *Update 2026-10-10: four rulings by Chris, by multiple-choice question; the stamp of his answers
    is 19:27 Arizona time.* They came after a fable-architect review, which stopped at about 19:24,
@@ -507,6 +515,16 @@ options chosen:
         Its option text: "Keep the ruled wording. Name the command as `nmcli device disconnect
         wlan0`…". Rejected, as put: **chronyc offline is enough**. F1's 2026-10-11 note below, that
         the check used `chronyc offline`, records what that run did and stays as written.*
+        - ➡️ *Changed 2026-10-11 by Chris's ruling, by multiple-choice question; the stamp of his
+          answer is 18:36 Arizona time, and the texts as put are in the private pick-up record: a
+          boot with no Wi-Fi counts as the field state, as the field run that evening did it
+          ("#30's panel run, 2026-10-11", below). The reason: the bar is Wi-Fi off with the rig on
+          the GPS, and both were seen, `wlan0` disconnected the whole boot and the CLOCK line
+          reading `COARSE GPS`; and a boot with no Wi-Fi is stricter than a disconnect after boot.
+          The method named at 08:15 changed by his choice.*
+          - *Rejected: **running the check again with `nmcli device disconnect wlan0`.** Its
+            stated cost: at home, a disconnect after boot left chrony on HOLDOVER for about 12
+            minutes.*
    4. **The lagging code comments ride with the next rig-code change,** not a comment-only change
       now. Its option text: "Next rig-code change — They ride along with the change after the panel
       test (the clock word, maybe getty@tty2), through the three reviews once. PLAN lists them
@@ -553,12 +571,14 @@ options chosen:
           passed, 0 failed. Pushed 2026-10-11, `7e5dd45` and `f844a9a`; CI green (run
           38149022479), and `stable` followed: `origin/stable` is `f844a9a`. Seen by the main
           loop.*
-        - *The two comments that stated the resize's re-run of `setfont` as fact now mark it as a
-          belief, in `543b75f`: step 80's setfont paragraph ("⚠️ Belief, not seen: the exit,
+        - *The two comments that stated the resize's re-run of `setfont` as fact were made to mark
+          it as a belief in `543b75f`: step 80's setfont paragraph ("⚠️ Belief, not seen: the exit,
           restart and setfont on a resize; the panel test (#30) settles it") and `bin/adsb-slate`'s
           header ("⚠️ Belief, not seen: the restart and setfont on a resize; the panel test (#30)
-          settles it"), as item 2 above lists it among the beliefs not seen. Step 80's other details
-          were seen true on the 🎒 portable at 08:07 Arizona time on 2026-10-11, by the main loop,
+          settles it"). The panel test has since settled it, in "#30's panel run, 2026-10-11",
+          below: the exit and the restart are seen, and `setfont`'s success is inferred from them.
+          Both comments now say so, in the same change as this record. Step 80's other details were
+          seen true on the 🎒 portable at 08:07 Arizona time on 2026-10-11, by the main loop,
           read-only: `stat` gave `/dev/vcs1` and `/dev/vcsu1` as `root:tty` 660, `command -v
           setfont` gave `/usr/bin/setfont`, and `/bin` is a link to `usr/bin`.*
 
@@ -579,7 +599,8 @@ options chosen:
      same moment showed the GPS refclock at "+/- 101ms". ➡️ chrony reports the refclock's
      configured `delay 0.2` as the tracking root delay, so on the GPS alone the bound is about
      0.1 s and the word is COARSE, as F1 reasoned. This is a recorded observation, not a ruling: the
-     clock-word question in the advice below is still Chris's, after the panel test.*
+     clock-word question in the advice below was Chris's, and he ruled it after the panel test
+     (ruling 1 of 2026-10-11 18:26, below: COARSE stays).*
      *⚠️ The check did not turn Wi-Fi off; it used `chronyc offline`. Chris ran `sudo chronyc
      offline` at 06:29:21 Arizona time (13:29:21Z), and chrony's journal logged each NTP source
      "offline" at that second. That takes every NTP source out of use and leaves the GPS refclock
@@ -595,7 +616,9 @@ options chosen:
      NTP source until that source's last sample is older than the oldest sample the GPS refclock
      holds. It comes from a docs subagent's reading of chrony 4.6's `sources.c`, reported through
      model summaries. The 16 minute 26 second delay is consistent with it and does not prove it. In the true
-     field state there is no network at boot, so there is no stale NTP source to age out. Debian's
+     field state there is no network at boot, so there is no stale NTP source to age out: seen in
+     the field run of 2026-10-11, where chronyd selected the GPS 47 s after it started ("#30's
+     panel run, 2026-10-11", below). Debian's
      `20-chrony-onoffline` NetworkManager dispatcher script is present on the rig (seen by Claude,
      in a listing of the dispatcher directory). ⚠️ That it marks the sources offline when
      NetworkManager loses its route is believed, not seen working.*
@@ -605,8 +628,10 @@ options chosen:
      The HOLDOVER test at ~~`:241`~~ `:242` comes before it and does not fire: it needs the time since the
      reference to exceed twice the update interval plus `HOLDOVER_SLACK_S = 64.0` (~~`:216`~~ `:217`), here
      96 s, and the same `chronyc tracking` output gave a reference time of 13:46:14Z, 7 s before
-     the reading (seen). ⚠️ The slate's word on tty1 was not seen in the GPS-selected state: a read of
-     `/dev/vcs1` afterwards returned nothing, and chrony was back on an NTP server by then.*
+     the reading (seen). The slate's word on tty1 was not seen in this GPS-selected state: a read of
+     `/dev/vcs1` afterwards returned nothing, and chrony was back on an NTP server by then. It was
+     seen in the field run of 2026-10-11, filmed 44 s after the GPS was selected: the CLOCK line
+     read `COARSE GPS` with chrony's bound ("#30's panel run, 2026-10-11", below).*
      *Update 2026-10-11: the bound's formula is chrony's own, seen. Seen by Claude at 07:31 Arizona
      time, over read-only SSH: the 🎒 portable has chrony 4.6.1-3+deb13u2, and line 306 of its
      `/usr/share/man/man1/chronyc.1.gz` reads `clock_error <= |system_time_offset| +
@@ -627,17 +652,111 @@ options chosen:
        change it. Only the word's tone misleads.
      - Advice, not ruled: do not raise the threshold, because SYNCED would then claim 20 ms. After
        the panel test, one question to Chris: keep COARSE, or a word that names the source, with
-       the bound.
+       the bound. That question was put after the panel test, and COARSE stays (ruling 1 of
+       2026-10-11 18:26, below).
    - **What the first plug-in will prove, and what it will not (F5).** It proves that fb0 appears on
      hotplug, and the path from a resize to a restart to `setfont`. The journal would show a resize
      line, a restart, then a new console size: 120x33 with no `kdfontop` error, or 240x67 with it.
      Both work: the digits never depended on the font. It does not prove a boot with the panel
-     attached, an unplug and replug, or `TTYVTDisallocate=` after a SIGKILL. ⚠️ If no fb0 appears,
+     attached, an unplug and replug, or `TTYVTDisallocate=` after a SIGKILL; the first two have
+     since been seen, on 2026-10-11: a boot with the panel attached starts at 120x33,
+     and a replug of the same panel did not resize ("#30's panel run, 2026-10-11", below).
+     ⚠️ If no fb0 appears,
      the fallback is the firmware's `hdmi_force_hotplug`, and `/boot/firmware` is on
      [§9h](#9h--the-stationary-rigs-home-and-remote)'s denylist: that
      would need a ruling.
    - **tty2's login (F7).** Advice, not ruled: the Alt-F2 and Alt-F1 keyboard test at the panel
      settles it; a static `getty@tty2` only if that test fails.
+
+   **#30's panel run, 2026-10-11: at home, then in the field.** The panel's own record, as ruled at
+   19:11 on 2026-10-10 (this item's opening, above).
+   - *At home. Recorded in the private pick-up record by the main loop's session of 15:08 Arizona
+     time, from the slate's journal read over SSH and from Chris's words; not re-checked since.*
+     - **The connection.** The Pi's output is the micro-HDMI port nearer the audio jack,
+       `HDMI-A-2`, at 1920x1080 at 60 Hz. The panel's power goes into its bottom USB-C, marked ⎓;
+       its middle USB-C is the DisplayPort Alt video input. The first USB-C power cable left the
+       panel on "no signal"; a white USB-C cable from the power bank worked.
+     - **The 0.3 s check, at home, by filming.** time.gov on one device, filmed with another at
+       30 fps, the rig on NTP. Three of time.gov's second changes were read frame by frame: the
+       slate's `.9` to `.0` came 1 frame after it at two of them and 1 to 2 frames after it at the
+       third, so 0.03 to 0.07 s. With the 0.05 s allowance for the truncated tenth (F4, in ruling 2
+       of the 19:27 rulings above), within 0.12 s. ✅ Inside 0.3 s. Its limits: a frame's
+       quantization, the rolling shutter, and time.gov as the reference.
+     - **The resize path.** The slate booted headless at 80x25, with `setfont`'s `kdfontop` error
+       at that boot, and then the panel was plugged in. The slate's journal: `console resized:
+       80x25 -> 240x67`, `exiting so the unit re-applies the console font`, the restart counter at
+       1, then `start 0.1.0: console 120x33, digits 2x2 cells per unit` with no `kdfontop` error,
+       two seconds apart. ➡️ The renderer's exit on a resize and the unit's restart, a belief in the
+       code until this run, are seen. `setfont`'s success on the restart is inferred from those two
+       facts, not seen: at 1920x1080, 240x67 is what the default 8x16 font gives, and 120x33 is what a
+       16x32 font, twice the size, gives. A replug of the same panel did not resize. Every headless boot in the
+       journal started at 80x25; a boot with the panel attached starts at 120x33.
+     - **A first try at the field state, at home.** Wi-Fi was disconnected by hand after boot. The
+       slate and time.gov rolled over in the same frame, but the CLOCK line read HOLDOVER on the
+       last NTP server: chrony did not select the GPS until 12 min 23 s after the disconnect.
+       ➡️ That try did not have the field state, so Chris ran it again in the field, from a boot
+       with no Wi-Fi.
+   - *In the field. Seen by the main loop: the boot's journal read over SSH at 18:07 to 18:08
+     Arizona time, and the clip read frame by frame.*
+     - **The boot.** No Wi-Fi at all: `wlan0` stayed disconnected the whole boot. The kernel set
+       the clock from the RTC, and chronyd logged `Selected source GPS` 47 s after it started, with
+       no clock step logged.
+     - **The writer.** Its clock preflight refused twice before the GPS was selected, as designed:
+       `Not synchronised`, with the GPS refclock's reach at 0. The writer then opened its first file
+       on `GPS stratum=1`, and `system_time_s` stayed within 0.6 ms at each file rotation.
+     - **The 0.3 s check, in the field state.** Filmed 44 s after the GPS was selected, at
+       59.94 fps, with time.gov on a phone on cellular. The slate's CLOCK line reads `COARSE GPS`
+       with chrony's bound; the bound's digits are too blurred in the clip to quote. Four rollovers
+       were read frame by frame: time.gov's second changes 4 to 5 frames before the slate's `.9` to
+       `.0`, so 0.067 to 0.083 s. With the 0.05 s allowance, within 0.133 s. ✅ Inside 0.3 s, and
+       in the same direction as at home. Its limits: a frame's quantization (17 ms), the rolling
+       shutter (the phone sits lower in the frame), and time.gov as the reference.
+     - **The archive.** Powering off in the field tore the open file; the next boot's archive
+       preflight renamed it `.torn`, as expected. The pulled files decode: 3 files, 0 failing,
+       every DF17/18 frame CRC-valid, and the `.torn` file reads `complete`.
+     - Back home the rig joined Wi-Fi again at boot: the field state does not persist.
+     - The rig code at `5a50ff6` was applied in a window the home-gated opener opened, not one
+       opened by hand or by `tools/pull-archive`: status.json read `opened_by: adsb-home-update`
+       and `result: applied`.
+   - *The slate's CPU, still headless only.* 0.91 s of utime plus stime over 60 s, about 1.5 % of
+     one core, at 80x25, measured over SSH by the main loop at 18:28 to 18:29 Arizona time. Not
+     seen with the panel attached.
+   - *Not done:* the Alt-F2 and Alt-F1 test on a USB keyboard. No keyboard was in the field.
+   - ➡️ What #30's done-when still owes is in this item's "Still owed" bullet, above.
+
+   **Rulings after the panel run. (Chris, 2026-10-11 18:26 Arizona time, by question; the texts as
+   put are in the private pick-up record.)**
+   1. **The field clock word stays COARSE.** The option Claude recommended. The reason: the line
+      already names its source, GPS, and prints chrony's bound, so it claims no more than chrony
+      knows. No code changes.
+      - Rejected: **a word that names the source,** such as GPS with the bound. It would change the
+        slate's states (`clock_state` in `bin/adsb-slate`) and the step's verify, which reads them
+        (its `CLOCK` pattern in `setup/steps/80-portable-slate.sh`).
+   2. **HOLDOVER after Wi-Fi is lost after boot is left as it is.** Chris chose this over the
+      option Claude recommended. The reason: HOLDOVER is honest, the clock drifts only microseconds
+      in 12 minutes, and the writer keeps recording. ➡️ The cost, seen once, in the one at-home
+      try above: chrony did not select the GPS until 12 min 23 s after Wi-Fi was disconnected, and
+      the slate's CLOCK line read HOLDOVER on the last NTP server in that try.
+      - Rejected, Claude's recommendation: **a rig step installing a NetworkManager dispatcher
+        script that removes the NTP sources when Wi-Fi drops,** instead of chrony's packaged script
+        marking them offline (F1's note on `20-chrony-onoffline`, above). It was to be proven by
+        repeating the at-home drop.
+      - Rejected: **testing first, with no change.**
+      - *Claude's, from a docs agent's reading of chrony 4.6.1's source; not seen on the rig.* Why it
+        takes about 12 minutes: sources marked offline keep their samples and stay candidates for
+        selection. They outscore the GPS, whose root distance is large because of the refclock's
+        `delay 0.2`, but they get no updates, so chrony selects nothing until they go stale, which
+        happens once their newest sample is older than the GPS's oldest retained sample. The
+        12 minutes is the agent's inference from the refclock's sample window.
+      - *Claude's, not ruled:* not `prefer` or `trust`, nor a smaller `delay`, on the refclock.
+        Each would let the GPS beat good NTP servers while the rig is online.
+   3. **The Alt-F2 test is done at home, not in the field.** The first option, and the one Claude
+      recommended. No keyboard was in the field.
+      - Rejected: **moving the check to the pre-field checklist (#31),** to be done on the next
+        field trip; and **dropping it,** because a login on tty2 is not needed for the slate's job.
+
+   ➡️ The field state's method was ruled the same evening, at 18:36; its one home is beside the
+   08:15 ruling, under ruling 3 of the 19:27 rulings, above.
 3. The live viewer: one new readsb flag, `--net-connector`, plus gating two that already exist,
    `--json-location-accuracy` and `--range-outline-hours`; and :8504 removed. ✅ Both existing
    flags are in the defaults file step 10 renders, at `2` and `24`. They are inert today only

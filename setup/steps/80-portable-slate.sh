@@ -63,8 +63,11 @@
 # PLAN §5). Its ExecStartPre= is "-", so the failure is ignored. The renderer
 # exits when the console's size changes (--exit-on-resize), and Restart= is
 # meant to re-run setfont, so a panel plugged in after boot should get the
-# font. ⚠️ Belief, not seen: the exit, restart and setfont on a resize; the
-# panel test (#30) settles it.
+# font. ✅ Seen on the 🎒 portable 2026-10-11 (PLAN §5, #30's panel run):
+# 80x25 -> 240x67 on plugging in, the exit, one restart, then 120x33 with no
+# kdfontop error in the journal. That setfont worked is inferred: 120x33 fits
+# 240x67 under a font twice the size. A replug of the same panel did not
+# resize.
 #
 # ⛔ The position goes to the screen only (PLAN §5, the surface rule). This
 #    step's verify reads the screen as root and prints exactly two things from
@@ -419,10 +422,10 @@ check_renderer() {
   settle 20 || settled=0
   # MainPID is read only now, after the unit has settled with no job queued.
   # NRestarts is printed, not judged: the renderer exits on every console
-  # resize and Restart= brings it back, so restarts are expected. (⚠️ Belief,
-  # not seen: that plugging in a panel resizes the console, PLAN §5.) A
-  # renderer that keeps dying is caught instead by its PID changing while this
-  # checks it, twice (verify).
+  # resize and Restart= brings it back, so restarts are expected. (✅ Seen on
+  # the 🎒 portable 2026-10-11, PLAN §5: plugging in a panel resizes the
+  # console.) A renderer that keeps dying is caught instead by
+  # its PID changing while this checks it, twice (verify).
   log "systemctl show $UNIT (raw output follows)"
   show=$(systemctl show -p ActiveState,SubState,Result,NRestarts,MainPID,ExecMainStatus "$UNIT" 2>&1) || true
   printf '%s\n' "$show"
