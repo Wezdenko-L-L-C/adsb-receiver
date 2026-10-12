@@ -4366,6 +4366,12 @@ named at about 15:10. The store listing was at about 14:57, between the rejectio
     `station.id` (`home-01` in `config/station.stationary.example.yml`). ✅ A grep of `setup/`,
     `bin/` and `tools/` on 2026-10-11 found no code that reads `station.id`. Which of the two is a
     rig's one name is not ruled.*
+  - *Update 2026-10-11 (evening), from fable-architect's design that evening, and no new
+    decision about the store: files in the store that no rig writes follow the same rule, host
+    first. The host is the machine that wrote the file, so such a file lands under
+    `<store>/<host>/…`, in the subtree its writer keeps, and is never renamed. Third-party feeds
+    are the first named: Chris ruled them, by question at 19:35, "Later, as stored files".
+    ⛔ "Source first" stays rejected, for the reason above.*
 - **A, the database. Ruled: ClickHouse, in one Docker container on the workstation; derived from
   the store, and rebuildable from it.**
   - **Chris's first answer,** in free text, to a question offering (1) no database now, (2) a
@@ -4398,8 +4404,11 @@ named at about 15:10. The store listing was at about 14:57, between the rejectio
       frame's type, counter, signal and bytes, reads the DF and the address field, checks the CRC,
       and notes a torn file.
     - **`adsb_positions` comes when stage 2, frames to positions, is written** (R-ext, below).
-      Stage 2 is written once, and the same library serves both the extractor's samples for the
-      private service and the positions ingest. Two decoders would be two truths.
+      Stage 2 is written once~~, and the same library serves both the extractor's samples for the
+      private service and the positions ingest~~. Two decoders would be two truths.
+      *Struck 2026-10-11 (evening): the extractor's samples for the private service are dropped
+      for camera shoots (the standing rules, below). Stage 2 is still written once, and it now
+      serves the positions ingest.*
     - Every row carries station, source, UTC time, the file's path relative to the store, and a
       byte offset back into its file.
     - Rejected, as put: **positions now,** which pulls stage 2 forward and delays issue #30, the
@@ -4428,8 +4437,21 @@ named at about 15:10. The store listing was at about 14:57, between the rejectio
     - ⛔ The database is never inside the synced folder, because a sync client and a live database
       corrupt each other.
     - ⛔ It never joins with any other database on the workstation.
-    - The private service's pairing does not read the database; samples still travel by its track
-      route.
+      *Stands, 2026-10-11 (evening).*
+    - The private service's pairing does not read the database~~; samples still travel by its track
+      route~~.
+      *Reversed in part 2026-10-11 (evening), for camera shoots, by Chris's rulings by question
+      between 19:16 and 19:39, on fable-architect's design. **(Chris), 2026-10-11, between 19:11
+      and 19:13:** "I want to be able to pair ADS-B and another flight data with pictures and
+      videos …" (cut at Chris's choice: the rest names the camera). ➡️ The pairing of camera frames now happens in the private
+      repository that holds the database's code (4, above), and it reads the database as its
+      input. In the architect's words: "The database is the join's input, never its record." The
+      join is a committed file in that repository, and "the database holds no photo, no label and
+      no pick." So
+      for camera shoots the rigs' samples no longer travel by the private service's track route,
+      and the extractor's samples for it are dropped (2, above, and R-ext, below). The track route
+      stays for the product. The first half stands: the private service's pairing does not read
+      the database.*
     - The ingest prints counts only, never an address or a position, as `--decode` does (✅ read in
       its header in `tools/adsb-extract`: *"Counts only: no address is ever printed."*). The
       receiver's own position is data, never schema or a default.
@@ -4742,9 +4764,12 @@ it gives per-frame times, as CSV, and a slice of plain BEAST. The default window
 CPR even and odd pairs survive. Stage 2, frames to positions, is deferred, and does not block
 recording.
 *Update 2026-10-10 (afternoon): still deferred. When it is written, it is written once: the same
-library serves the extractor's samples for the private service and the database's positions ingest,
+library serves ~~the extractor's samples for the private service and~~ the database's positions ingest,
 whose `adsb_positions` rows wait on it. See "Update 2026-10-10 (afternoon): where the collected data
 lives, ruled", above.*
+*Struck 2026-10-11 (evening): the extractor's samples for the private service are dropped for
+camera shoots, because the pairing of camera frames now reads the database (the same block, A,
+its standing rules). Stage 2 is still written once, for the positions ingest.*
 
 **The writer's rulings (a) to (g). (Chris), 2026-10-04,** accepted as a set:
 

@@ -88,8 +88,17 @@ added 2026-10-10, once Chris had approved the list of issues.
 ➡️ **The portable is completed.**
 
    6a. **Database step B: positions,** after the field session and before the 🏠 stationary
-   design (item 8). Frames to positions is written once, for this and for the extractor.
+   design (item 8). Frames to positions is written once, for this ~~and for the extractor~~.
    *Placed 2026-10-10 by Chris's ruling.*
+   *Struck 2026-10-11 (evening): the extractor's samples for the private service are dropped for
+   camera shoots ([§9m](PLAN.md#9m--the-portable-rigs-archive-drive), the same block, A.2 and
+   its standing rules).*
+   ⚠️ *Flagged 2026-10-11 (evening), not ruled: the private repository's order now wants step B's
+   positions for the camera shoot of 2026-10-11, the first with the 🎒 portable recording and a
+   slate filmed (Chris, 19:39, by question: "Portable station, Slate filmed"; and at 19:33: "the
+   first shoot with data happened today"). This item puts step B after the field session
+   (item 6). Whether that shoot is the field session is not established. The order here is
+   unchanged.*
    **Hands:** not yet named. **Done when:** stated in its issue (in a private repository).
    [§9m](PLAN.md#9m--the-portable-rigs-archive-drive), "Update 2026-10-10 (afternoon): where the
    collected data lives, ruled", A.3.
