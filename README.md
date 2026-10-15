@@ -115,8 +115,10 @@ portable is built from this repo and running; what has been verified on it is re
 [§9m](docs/PLAN.md#9m--the-portable-rigs-archive-drive). The 🏠 stationary is not built.* These are
 researched notes: the power figures in [BUILD.md §5](docs/BUILD.md#5-power-portable-only) come off a
 pack's spec sheet rather than a bench run, and that section names the two things to test before
-trusting them. *Added 2026-10-10: that section now also carries one measured reading, a minute
-long, from 2026-10-05.* ✅ in these docs marks **the check to run, or the fix to apply** ~~— never a
+trusting them. *Added 2026-10-10: that section now also carries ~~one measured reading, a minute
+long, from 2026-10-05~~.* *Corrected 2026-10-14: two measured readings, a minute long on
+2026-10-05 and an hour with the panel on 2026-10-14; the low-current test at a headless Pi's
+near-3 W idle is still owed.* ✅ in these docs marks **the check to run, or the fix to apply** ~~— never a
 claim that the part was tested here~~. *Corrected 2026-10-10: a ✅ with a date beside it, as on
 BUILD.md §5's 2026-10-05 reading, records a check made on the built 🎒 portable.*
 
