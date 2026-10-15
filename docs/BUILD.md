@@ -251,9 +251,20 @@ Worked example, computed from the spec of an **Anker Prime 27,650 mAh / 250 W**:
 
 ✅ *Measured 2026-10-05, on that bank:* one minute after boot, with the stick, the GPS puck, the
 archive drive, the fan and the RTC live and `readsb` decoding, the port read **5.1 V, 1.1 A, 5.6 W**,
-and the bank estimated **14 h 36 m** at 100 %. ➡️ The ~7 W row above is conservative. ⚠️ One
+and the bank estimated **14 h 36 m** at 100 %. ➡️ The ~7 W row above is conservative. ~~⚠️ One
 minute is not a session: a one-hour reading, with the low-current cutoff (below) proven not to bite,
-is still owed.
+is still owed.~~ *Corrected 2026-10-14: the one-hour reading is taken, below. The cutoff half is
+met only in part: it did not bite at about 4.5 W a port, and a headless Pi's near-3 W idle is still
+untested.*
+
+✅ *Measured 2026-10-14, on the same bank, for an hour:* the rig on one port and an HDMI panel on
+the other each drew about **4.5 W**, about **9 W** in all, and the bank fell from 100 % to 89 % in
+61 minutes, about **9 hours** from full. The Pi reported no under-voltage at any minute, and the
+low-current cutoff (below) did not bite at about 4.5 W a port. ⚠️ That is not the near-3 W idle of
+a headless Pi that test 1 below describes, which is still untested. Whether the bank's low-current
+mode was on is not recorded. The record is
+[PLAN.md §5](PLAN.md#5-proposed-the-web-interface-is-three-existing-services-not-a-new-one),
+"#30's panel on, 2026-10-14".
 
 ⚠️ **A second radio is where the headroom goes** — 12 hours down to about 9.5. Still longer than
 any session, but no longer the "far more than needed" a single-dongle rig enjoys.

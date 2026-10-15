@@ -327,7 +327,11 @@ in Arizona time (UTC−7), and from `date`.
        ("#30's panel run, 2026-10-11", below).*
      - *Estimated, not measured: the rig's 5.6 W ([BUILD.md §5](BUILD.md#5-power-portable-only)'s
        2026-10-05 reading) plus the panel's 7 W is about 12.6 W, or about 6.7 h on the bank's
-       ~84.6 Wh usable.*
+       ~84.6 Wh usable.* *Measured 2026-10-14, the estimate kept above as the estimate: with the
+       panel on the bank's port C1 and the Pi on C2, each port read about 4.5 W, about 9 W in all,
+       and the bank fell from 100 % to 89 % in 61 minutes, about 9 h from full. ➡️ The estimate was
+       pessimistic: the panel drew about 4.5 W, not the sheet's 7 W typical ("#30's panel on,
+       2026-10-14", below).*
      - *⚠️ 250 cd/m² is dim in direct sun: a reading of the figure, not seen.*
 4. **The receiver's position on the LAN map: yes.** (Chris's call; no reason given.) tar1090 shows
    the receiver position, at the accuracy of rulings 6 and 9.
@@ -418,10 +422,13 @@ options chosen:
 2. The field display: a renderer in `bin/` and a new step, through the implementer, the step
    reviewer, `/code-review` and `/security-review`; Chris runs the step. Its measurements: one photo
    of the slate beside time.gov, within 0.3 s; a one-hour power reading with the panel on, which
-   closes the reading [BUILD.md §5](BUILD.md#5-power-portable-only) still owes; and the slate's
-   CPU, from `ps`.
+   closes the reading [BUILD.md §5](BUILD.md#5-power-portable-only) ~~still owes~~ *owed until
+   2026-10-14; its cutoff was then seen not to bite at about 4.5 W a port, not at a headless
+   Pi's near-3 W idle*; and the slate's CPU, from `ps`.
    *Update 2026-10-10: built and run on the 🎒 portable with no panel; the measurements with the
-   panel came on 2026-10-11, in "#30's panel run, 2026-10-11", below.* Built as `ed40944`
+   panel came on 2026-10-11, in "#30's panel run, 2026-10-11", below.* *Update 2026-10-14: the
+   time checks came on 2026-10-11; the power reading and the CPU with the panel on came on
+   2026-10-14, in "#30's panel on, 2026-10-14", below.* Built as `ed40944`
    (ruling 1's update). Ruled by Chris, by multiple-choice question, the stamp of his answer 19:11
    Arizona time: today's run is recorded now, and the panel's results get their own record later.
    No reason is on record for it.
@@ -466,10 +473,15 @@ options chosen:
    - *The slate's CPU with no panel, seen by Claude, read-only: its utime plus stime went from 74 to
      163 ticks (CLK_TCK 100) over a 60 s window at about 19:10 to 19:11, about 0.89 s per 60 s, or
      about 1.5 % of one of the Pi's four cores. ⚠️ With the panel on, fbcon draws the glyphs in the
-     write path, which may raise it: the done-when's CPU reading is still owed with the panel on.*
-   - *Still owed for #30's done-when, after the panel run of 2026-10-11 below: the one-hour power
+     write path, which may raise it: ~~the done-when's CPU reading is still owed with the panel on~~.*
+     *Corrected 2026-10-14: seen with the panel on, 1.42 s per 60 s, about 2.4 % of one core, in
+     "#30's panel on, 2026-10-14", below.*
+   - ~~*Still owed for #30's done-when, after the panel run of 2026-10-11 below: the one-hour power
      reading with the panel on, and the slate's CPU with the panel on. Its two time checks, at home
-     and in the field state, are seen there.*
+     and in the field state, are seen there.*~~ *Corrected 2026-10-14: nothing is owed for #30's
+     done-when. Its two time checks, at home and in the field state, are seen in "#30's panel run,
+     2026-10-11", below; the one-hour power reading and the slate's CPU, both with the panel on,
+     in "#30's panel on, 2026-10-14", below. All four parts are seen.*
      *Changed 2026-10-10 by Chris's ruling (ruling 3 of the 19:27 rulings below): a second
      measurement is added, in the field state. The photo is taken by filming (ruling 2 there).*
    - *⚠️ Still beliefs in the code, not seen: DRM's fbdev setup deferred to the first hotplug, with
@@ -718,11 +730,77 @@ options chosen:
      - The rig code at `5a50ff6` was applied in a window the home-gated opener opened, not one
        opened by hand or by `tools/pull-archive`: status.json read `opened_by: adsb-home-update`
        and `result: applied`.
-   - *The slate's CPU, still headless only.* 0.91 s of utime plus stime over 60 s, about 1.5 % of
-     one core, at 80x25, measured over SSH by the main loop at 18:28 to 18:29 Arizona time. Not
-     seen with the panel attached.
+   - *The slate's CPU, ~~still headless only~~ headless.* 0.91 s of utime plus stime over 60 s,
+     about 1.5 % of one core, at 80x25, measured over SSH by the main loop at 18:28 to 18:29 Arizona time. ~~Not
+     seen with the panel attached.~~ *Corrected 2026-10-14: seen with the panel attached since, in
+     "#30's panel on, 2026-10-14", below.*
    - *Not done:* the Alt-F2 and Alt-F1 test on a USB keyboard. No keyboard was in the field.
-   - ➡️ What #30's done-when still owes is in this item's "Still owed" bullet, above.
+   - ➡️ ~~What #30's done-when still owes is in this item's "Still owed" bullet, above.~~
+     *Corrected 2026-10-14: #30's done-when owes nothing; this item's struck "Still owed"
+     bullet above carries the same day's correction, which says where each part is seen.*
+
+   **#30's panel on, 2026-10-14: the slate's CPU and the one-hour power reading.** The done-when's
+   last two parts. *Seen by the main loop: the slate's `/proc/<pid>/stat`, its journal and the rig's
+   state over read-only SSH; and the battery bank's own figures, read by the main loop from Chris's
+   photos of the bank's screen and screenshots of its app. The photos stay out of this repository.
+   All times are Arizona time.*
+   - **The slate's CPU, headless.** Read as utime plus stime in `/proc/<pid>/stat` (CLK_TCK 100),
+     which is where `ps` gets its TIME column: 90 ticks, 0.90 s, over 60 s at 21:40:56 to 21:41:56,
+     about 1.5 % of one core. Both HDMI connectors read `disconnected` in sysfs, and the slate's
+     start line read `console 80x25, digits 1x1 cells per unit`. Over the slate's whole run, `ps`
+     gave TIME 01:01:53 over ELAPSED 2-17:11:13, about 1.58 %: the load does not grow over days.
+     It repeats 2026-10-11's headless 0.91 s, above.
+   - **The panel plugged in, at 21:50:04.** The slate's journal: `console resized: 80x25 ->
+     240x67`, `exiting so the unit re-applies the console font`, the restart counter at 1, then at
+     21:50:06 `start 0.1.0: console 120x33, digits 2x2 cells per unit`, with no `kdfontop` error.
+     The Pi's output was `HDMI-A-2`, at 1920x1080.
+   - **The slate's CPU, panel on.** 237 to 379 ticks, 1.42 s over 60.02 s at 21:51:40 to 21:52:40,
+     about 2.37 % of one core. The window started about 94 s after the restart, and the process's
+     total by then, 2.37 s in about 94 s, about 2.5 %, is a similar rate, so the restart did not
+     inflate it.
+     ⚠️ The main loop's inference, not profiled: the rise from 0.90 s comes from the larger console
+     and the double-size digits. The done-when names no CPU limit; it asks for the reading.
+   - **Onto the bank.** The rig and the panel were moved from wall power onto the battery bank that
+     [BUILD.md §5](BUILD.md#5-power-portable-only) names. The journal's `--list-boots`: the previous
+     boot ended at 21:56:00 and the next started at 21:57:43; the slate started at 21:57:56 at
+     `console 120x33`. Recorded by Chris, not re-seen: the panel is on the bank's port C1 and the Pi
+     on C2, as ruling 3 has the panel's power, from the bank and not the Pi's USB.
+   - **The bank's figures.** At the start (the app at 21:58): 100 %; C1 5.1 V, 0.9 A, 4.5 W; C2
+     5.1 V, 0.9 A, 4.5 W in the app, but 5.1 V, 1.0 A, 5.1 W on the bank's screen at about the same
+     time; the app's total output 9 W; remaining 10 h 20 min in the app, 9 h 41 m on the screen;
+     the bank at 26 °C. At the end (the app at 22:59): 89 %; C1 and C2 each 5.1 V, 0.9 A, 4.5 W in
+     the app, and 4.5 W each on the screen; total 9 W; remaining 9 h 15 min in the app, 9 h 14 m on
+     the screen; 26 °C.
+   - **The rig over the hour.** The main loop's per-minute SSH log, 21:58:16 to 22:58:59, 61
+     readings: `vcgencmd get_throttled` read 0x0 in every one, so no under-voltage; the slate's PID
+     never changed; no SSH failure and no reboot, with uptime 3,681 s at the end; the CPU at 25.8
+     to 28.7 °C. The first reading, at 21:58:16 (uptime 38 s), read the writer as `activating` and
+     the HDMI field empty. The empty field was the logger's: it read `card1-HDMI-A-2`, and the
+     connector was `card0` at that boot, so it says nothing about the panel. From the logger's
+     restart at 21:58:38, all 60 readings to 22:58:59 read `adsb-writer` active and HDMI connected,
+     which agrees with the writer's first file at 21:58:27, below. ✅ The bank's low-current cutoff
+     did not bite over the hour, at about 4.5 W a port. ⚠️ That is not the case BUILD §5's first
+     bench test describes, a headless Pi idling near 3 W, which is still untested. Not checked
+     either: whether the bank's low-current or trickle mode was on.
+   - **The writer at that boot.** Its first start, at 21:57:56, failed with exit status 2 on its
+     clock preflight (`bin/clock-preflight`'s not-ready exit): the designed refusal. The
+     preflight's own `chronyc -n tracking` output read reference `00000000`, stratum 0 and `Leap
+     status : Not synchronised`. At 21:58:26 the preflight found the clock disciplined, with an NTP
+     server selected, and printed `READY`. Seen by the main loop in the journal over SSH, read at
+     23:09. The writer opened its first file at 21:58:27, after chrony synced over Wi-Fi. ⚠️ A
+     `.torn` file from the power-off is expected and not yet seen; the next pull shows it.
+   - **The arithmetic, the main loop's, checked only as arithmetic.** 11 % of the bank in 61
+     minutes at about 9 W. With the display's 1 % steps at both ends, the drop is 11 % give or take
+     about 1 %, so roughly 10 to 12 % an hour: about 8.5 to 10 h from full, about 9 h at the
+     center. 9 W for an hour is about 9 Wh; against BUILD §5's ~84.6 Wh usable, a
+     figure computed from the spec and not measured, that is about 9.4 h. ➡️ Ruling 3's estimate,
+     about 12.6 W and about 6.7 h, was pessimistic: about 9 W and about 9 h were seen. The panel
+     drew about 4.5 W, against the 7 W typical on ViewSonic's sheet; the rig alone 4.5 to 5.1 W,
+     against 2026-10-05's one-minute 5.6 W. ⚠️ The bank's own estimate, 9 h 14 m at 89 % on its
+     screen, is more optimistic than the rate seen, which gives about 8 h from 89 % at about 11 %
+     an hour. Which is right is not checked.
+   - ➡️ With these two readings, all four parts of #30's done-when are seen
+     ([ROADMAP.md](ROADMAP.md) item 4.2).
 
    **Rulings after the panel run. (Chris, 2026-10-11 18:26 Arizona time, by question; the texts as
    put are in the private pick-up record.)**
