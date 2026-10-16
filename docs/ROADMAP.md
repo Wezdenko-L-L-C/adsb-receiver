@@ -70,6 +70,7 @@ added 2026-10-10, once Chris had approved the list of issues.
       *Corrected 2026-10-14: the one-hour power reading and the slate's CPU, both with the panel on,
       are seen, so all four parts of the done-when are seen (PLAN §5, "The work within #30, in
       order", item 2, "#30's panel on, 2026-10-14").*
+      *Done 2026-10-14: #30 closed on Chris's word, with all four parts of the done-when seen.*
    3. **The viewer:** the live map with the receiver marker at the gated accuracy, :8504 closed,
       and the archive timeline from 4a (rulings 6, 7, 9, 10). **Hands:** implementer and the same
       review chain. **Done when:** stated in its issue. (#35)

@@ -136,7 +136,7 @@ jobs:
       - name: the run-time paths (reboot flag, recording lock, opener marker, home state) are the same everywhere
         # setup/lib.sh's ADSB_REBOOT_FLAG, ADSB_RECORDING_LOCK, ADSB_WINDOW_MARK and ADSB_HOME_STATE
         # are the source; the last two are in the opener's root-owned ADSB_HOME_DIR, not in
-        # ADSB_RUN_DIR, which the writer's user owns. The steps and bootstrap.sh read them from
+        # ADSB_RUN_DIR (the writer's user's until 2026-10-15). The steps and bootstrap.sh read them from
         # there (step 70 passes the last three to the opener and its predicate through its unit's
         # Environment=). update.sh (self-contained, it sources nothing) carries copies of the first
         # three, and the login banner of the flag, the lock and the home state, compared here. No
@@ -243,9 +243,10 @@ jobs:
   # is a fast-forward or nothing.
   # The brake is a revert commit on main (PLAN §9g's evening update): it reaches `stable`
   # through this job like any commit, and because the stationary applies stable's tip only once
-  # that tip is update.soak_days old, the revert resets its clock (the portable, soak 0, takes the
-  # revert on its next pull). A force-push of `stable` to an older commit holds both rigs only
-  # until the next green push to main, which this job fast-forwards.
+  # the rig has seen that tip unchanged for update.soak_days, the revert resets its clock (the
+  # portable, soak 0, takes the revert on its next pull). `stable` and `main` refuse force pushes
+  # and deletion (a ruleset, PLAN §9g 2026-10-15), and a rig's timer refuses a `stable` that does
+  # not descend from what it applied; a rig that must go back goes by hand, with --rev.
   # ✅ No longer unknown (PLAN §9g, 2026-10-05): GitHub does not refuse a GITHUB_TOKEN push of
   # commits that touch .github/workflows/. This job fast-forwarded `stable` with GITHUB_TOKEN alone
   # on every push to main on 2026-10-04 and 2026-10-05, including 9fd4a4e, which touched ci.yml.

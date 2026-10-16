@@ -1089,6 +1089,17 @@ fail on the other rig's steps.
   `ADSB_RC_OTHER_ROLE`. That is a `lib.sh` constant, any unused value below 126, such as 100. ⛔ It
   is not 3, which `lib.sh` already uses internally for an absent key in `station_get`. Without the
   flag, `require_role` dies, as it does today.
+  - *Changed 2026-10-15, on a review's finding: `ADSB_RC_OTHER_ROLE` is 117, and the code alone is
+    no longer the skip. 100 is what `apt-get` exits with on any error, and a step passes a failing
+    command's code through, so a failed install read as a role skip and its verify was not run. No
+    value is unused, since any tool may exit with any code. So `update.sh` records "skipped (role)"
+    only when the step exits that code **and** the last line it wrote in that call is
+    `require_role`'s own, "==> skipped: this step is for the <role> rig; station.yml says …"
+    (`role_skipped` in `setup/update.sh`). The code without that line is a failure, with a warning
+    that names it: `failed (exit 117)` in `status.json`, or the rollback's failed step on the
+    rollback path. ⛔ That line's text is now part of the contract (`lib.sh`'s comment on
+    `ADSB_RC_OTHER_ROLE` says to keep it). It is unchanged since `47ed4ed` (2026-10-04), so every
+    tree a rig can roll back to prints it.*
 - `require_absent` is unchanged, and dies in every mode.
 - ➡️ **The flag names no role**, so the rule above holds: there is still no `--role` flag, and the
   role still comes from the config. The flag only changes what a mismatch means. Run by hand, the
@@ -1212,6 +1223,14 @@ from inside an update ([§9m](#9m--the-portable-rigs-archive-drive)).
   install tier. A dead drive fails step 30's verify, and updates stop applying until it is replaced,
   with `failed_step` naming it. Rejected: classing the drive as readiness, because a portable with no
   drive would keep updating while refusing to record.
+- *Update 2026-10-15: a review's finding (C5) closes as already ruled. The rulings above put the
+  drive, the RTC and the puck in the install tier, so a built rig holds updates until the hardware
+  is back. One code change came of it: `20-portable-clock`'s `find_puck` takes the `DEVICES` path
+  that `/etc/default/gpsd` already configures, while that path exists, and looks for exactly one
+  device under `/dev/serial/by-id` only when nothing is configured or the configured device is
+  gone. So a second USB-serial adapter no longer holds updates at step 20.* fable-architect's
+  reading (2026-10-15), not a ruling: hardware the writer needs to record is install tier; what it
+  does not need, and what the world decides, is never judged by a verify.
 - ⚠️ **Unverified:** that the puck in the parts list emits NMEA with fix quality 0 indoors, and
   that `chronyc sources` lists a refclock with reach 0 before its first sample.
 - ➡️ [BUILD.md §8](BUILD.md#8-build-order) step 2's "`chronyc sources` shows GPS disciplining the
@@ -1922,6 +1941,11 @@ In order:
    portable: its `status.json` read `channel: stable` on 2026-10-09 and 2026-10-10, and it applied
    `5428470` and `398ad28` from `stable` on 2026-10-10 (the step-06 records at the end of this
    section). ⚠️ The 🏠 stationary's soak of 7 has not run: no stationary is built.*
+   *Update 2026-10-15, (Chris): on the timer, `--retry` included, a built rig also exits having
+   written nothing to its applied state when the candidate does not descend from the applied
+   commit: the timer never rewinds. And a soak above 0 is counted from this rig's first sight of
+   `stable`'s tip, which a timer run records in `/var/lib/adsb-receiver/stable-tip-seen` even when
+   it then exits unchanged. Both are in §9g's 2026-10-15 update.*
 4. Check the candidate out into a **second worktree** (blue/green, detached SHAs, ⛔ never a tracking
    branch).
 5. Run the candidate's steps.
@@ -1995,6 +2019,8 @@ section). No step has been skipped by role on hardware ([§9b](#9b-one-bash-scri
   `step.sh --verify --skip-other-role`. Exit `0` is done. `ADSB_RC_OTHER_ROLE` is recorded in
   `status.json` as "skipped (role)". Anything else is the failure that triggers rollback. The flag
   and the code are in [§9b](#9b-one-bash-script-per-build-step).
+  *Narrowed 2026-10-15: the code counts as "skipped (role)" only beside `require_role`'s skip line,
+  as the step's last output in that call; the code alone is a failure (§9b's 2026-10-15 change).*
 - **The full verify in step 6 is the install tier** of every step that applies to the rig
   ([§9c](#9c-every-step-ends-in-a-check-of-the-observable-effect)). It does not judge the sky.
 - **Readiness gating depends on the role, and `update.sh` reads `station.role` to choose.** On the
@@ -2048,9 +2074,14 @@ the option rejected below as "`update.sh` stopping the writer".
   - **A new updater takes effect at the next run.** The round that installs it finishes under the
     old one. ➡️ A change to the contract between steps and updater (exit `0`, `ADSB_RC_OTHER_ROLE`,
     anything else) takes two commits.
+    *Corrected 2026-10-15: not for `ADSB_RC_OTHER_ROLE`'s value, which `update.sh` reads from the
+    tree it runs (the next bullet). Its change to 117, with the skip line required beside it
+    (§9b's 2026-10-15 change), took one commit: the round that installs the new updater runs under
+    the old one, which reads 117 from the candidate's `lib.sh`.*
   - `update.sh` is self-contained: it sources no `lib.sh`, because from `/usr/local/sbin` there is no
     `..`. It reads `ADSB_RC_OTHER_ROLE` by sourcing the *candidate's* `lib.sh` in a subshell, so the
-    code it interprets is the one the candidate's steps emit.
+    code it interprets is the one the candidate's steps emit. *As built: it reads it from each tree
+    it runs steps from (`read_other_rc`), so in a rollback, from the applied tree's.*
 - **The unit:** `Type=oneshot`; `TimeoutStartSec=40min`, for a source build of `readsb` plus its
   verify; `TimeoutStopSec=30min`, so the rollback on SIGTERM, which may itself rebuild, has room
   before SIGKILL; `Nice=10`, so a build does not starve `readsb`;
@@ -2058,7 +2089,9 @@ the option rejected below as "`update.sh` stopping the writer".
   held, and no network on the portable, and non-zero for rolled back or failed, so the oneshot shows
   `failed` and the banner can say so. *As built, 2026-10-04: the unit also has
   `Wants=network-online.target`, without which `After=` on that target orders nothing. The full
-  list of exit codes is in "As built" below.*
+  list of exit codes is in "As built" below.* *Update 2026-10-15: a rewind the timer refuses exits
+  `0`, and git unable to tell whether the candidate descends from the applied commit exits `1`, so
+  the oneshot shows `failed` (§9g's 2026-10-15 update).*
 - **The writer-start rule.** At its end, after releasing the lock, `update.sh` runs
   `systemctl start --no-block adsb-writer.service` **only if** that unit is enabled and inactive and
   `adsb-pull-window.service` is neither active nor activating *(as built, 2026-10-04: nor
@@ -2119,6 +2152,10 @@ the option rejected below as "`update.sh` stopping the writer".
   before it reaches `main` (§9m, R5). ~~`10-decoder`'s first run on the Pi is to go this way.~~
   *Corrected 2026-10-10: it went this way, by `adsb-update --rev 42b5115` on 2026-10-05
   ([§9j](#9j--verified-on-hardware-2026-10-03), "the first run").*
+  *Update 2026-10-15, (Chris): `--rev` is unchanged, and is the deliberate way back or aside. After
+  it, the timer returns the rig to the channel only when `stable`'s tip descends from that commit.
+  A commit that reaches `main` by a squash or a rebase does not, so the rig holds there, the timer
+  refusing the rewind, until one `--rev` to `stable`'s tip (§9g's 2026-10-15 update).*
 - **CI.** The denylist grep, which today reads only `setup/steps/*.sh`, is to cover `setup/update.sh`
   and `setup/bootstrap.sh` too. The job that fast-forwards `stable`
   ([§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable), the workflow's TODO for
@@ -2249,8 +2286,10 @@ cgroup v2, which are what these mechanisms assume. Four choices below were ruled
 2026-10-04,** after the code reviews; the others are the build's own, marked as such.
 
 - **Exit codes:** `0` applied, unchanged, a candidate skipped in its backoff, the lock held (timer),
-  or no network (🎒 portable timer); `1` failed, including not root, the lock held when run by hand,
-  no build on the rig, and a damaged `applied`; `2` rolled back; `3` incomplete (a first build); `4`
+  a rewind refused (timer; §9g's 2026-10-15 update), or no network (🎒 portable timer); `1`
+  failed, including not root, the lock held when run by hand, no build on the rig, a damaged
+  `applied`, and (timer) git unable to tell whether the candidate descends from the applied commit
+  (§9g's 2026-10-15 update, ruling A's correction); `2` rolled back; `3` incomplete (a first build); `4`
   not ready (the 🏠 stationary gate held the update, or its fetch failed); `64` bad usage; `128+N`
   after a signal (143 SIGTERM, 130 SIGINT, 129 SIGHUP), recorded as `incomplete` in a first build,
   and recorded not at all when it arrived before anything changed.
@@ -2259,9 +2298,15 @@ cgroup v2, which are what these mechanisms assume. Four choices below were ruled
   priority: warning when the pull window is open, where the writer should already have stopped
   (§9m's ordering), notice otherwise. A run by hand that finds the lock held prints the holder
   instead, says how to free it, and exits `1`. The build's own choice, after review.
-- **The soak is tip-aged. (Chris), 2026-10-04.** The 🏠 stationary takes `stable`'s tip, and only
-  once the tip's commit date is at least `update.soak_days` old (7 when the key is absent);
-  otherwise the run counts as unchanged. The superseded wording, and why, is in
+- **The soak is tip-aged. (Chris), 2026-10-04.** ~~The 🏠 stationary takes~~ *A rig takes (both
+  rigs since the 2026-10-05 channel ruling, [§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable))*
+  `stable`'s tip, and only
+  once ~~the tip's commit date is at least `update.soak_days` old~~ *this rig has seen that tip for
+  `update.soak_days` (superseded 2026-10-15, (Chris): counted from the rig's first sight of the
+  tip, not from its commit date; §9g's 2026-10-15 update)* ~~(7 when the key is absent)~~ *(when
+  the key is absent, the role default: 0 on the 🎒 portable, which is no age check at all, and 7 on
+  the 🏠 stationary; `SOAK_DAYS_PORTABLE` and `SOAK_DAYS_STATIONARY` in `setup/update.sh`, by the
+  2026-10-05 ruling)*; otherwise the run counts as unchanged. The superseded wording, and why, is in
   [§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable).
 - **A 24 h backoff for a failed candidate. (Chris), 2026-10-04.** The timer skips a candidate that
   `status.json` records as `rolled_back` or `failed` (its `result`, `candidate_rev` and
@@ -2308,6 +2353,11 @@ cgroup v2, which are what these mechanisms assume. Four choices below were ruled
     ruled.* It is still not built: no helper in `setup/lib.sh` records what it installs, and
     `install_if_changed` is still defined in each step that uses it (✅ a grep of `setup/`,
     2026-10-11). The opener (`f411815`) and step `06-journal` were built before it.
+  - ⚠️ *A recorded limit, added 2026-10-15 from a code review, placed here by fable-architect:* a
+    rollback to a tree older than 2026-10-15 runs that tree's `05-config`, whose tmpfiles.d entry
+    names `adsb-receiver`, so it re-owns `/run/adsb-receiver` to the writer's user, and root's
+    writes there by name are exposed again until the next successful update (the opener's runtime
+    directory block, below, its 2026-10-15 update).
   - Rejected: a per-step `--uninstall`, a second description of each step, run only at the worst
     moment; a step-list diff with `--uninstall`, which misses the common case, a new file inside an
     existing step; accepting the gap for good, which on the stationary would leave a rejected
@@ -2377,6 +2427,9 @@ cgroup v2, which are what these mechanisms assume. Four choices below were ruled
     without it.
   - **`10-decoder`'s `git_at_pin` fetches before it looks for the commit locally,** so a rollback
     with no network would fail there. It should check with `git cat-file -e` first.
+  - *Added 2026-10-15:* **the rig's check of commit signatures,** before the 🏠 remote
+    stationary's deploy (ROADMAP item 9.2). Its design and prerequisites are in §9g's 2026-10-15
+    update.
 - **What only the Pi can prove,** from the build's own lists of what it could not check:
   - every script as root on trixie, end to end: `curl | sudo bash`, the 5 s reboot, and the timer
     finishing a build after the boot;
@@ -2489,7 +2542,14 @@ is.
     active SSID in its terse output, as one line beginning `yes:`, plus `no:` lines duplicated per
     band. ➡️ The predicate must take the `yes:` line; *Update 2026-10-09:* ✅ *the command the
     predicate runs, `nmcli -t -f active,ssid dev wifi list --rescan no`, gave exactly one `yes:`
-    line on the 🎒 portable Pi (the record on hardware below);*
+    line on the 🎒 portable Pi (the record on hardware below);* *Update 2026-10-15: the predicate
+    now runs `nmcli -t -f active,ssid-hex dev wifi list --rescan no`, and compares the hex on a
+    `yes:` line, ignoring the hex digits' case, with the hex of `update.home_ssid`'s UTF-8 bytes;
+    its verdicts and exit codes are unchanged (`bin/adsb-at-home`). The reason: the list holds every
+    network in range, so neighbors name most of its SSIDs, and a raw newline in one could have
+    forged a `yes:` line. That was not demonstrated; in hex no SSID byte can split a line, so the
+    question goes away. ✅ Seen on the 🎒 portable by Claude, 2026-10-15: the `ssid-hex` field works
+    on nmcli 1.52.1;*
   - `ExecCondition=` on systemd 257. *Update 2026-10-05: the Pi runs systemd 257.13;
     ~~`ExecCondition=` on it is still unverified;~~* *Update 2026-10-09:* ✅ *seen on systemd
     257.13: `ExecCondition=` ran `adsb-at-home`, which said "at home", and the opener ran after it,
@@ -2516,11 +2576,17 @@ above, from the code:
   nothing under `/var/lib`, no apt heal. It fetches and runs the same resolver a timer run does,
   then prints one line on stdout, `pending: …` or `not pending: …`. Its exit codes:
   - `0`: pending;
-  - `10`: not pending (the channel is unchanged, or its tip is under the soak);
+  - `10`: not pending (the channel is unchanged, or its tip is under the soak, or not yet seen by a
+    timer run, whose first sight starts the soak: `--check` records nothing);
   - `11`: not pending (the candidate failed within 24 h: the backoff);
   - `12`: not pending (the fetch failed);
   - `13`: not pending, because a timer run here would fail too, before any step: the rig needs a
-    hand, and a window would change nothing;
+    hand, and a window would change nothing. Since 2026-10-15 this includes git unable to tell
+    whether the candidate descends from the applied commit (§9g's 2026-10-15 update);
+  - `14`: not pending, because a timer run would refuse the candidate as a rewind: it does not
+    descend from the applied commit, and only `--rev` applies it (2026-10-15; §9g's 2026-10-15
+    update). The opener, `bin/adsb-home-update`, maps `14` to not-pending and exits `0`, as it
+    does `10`, `11` and `12`: the build's mapping, not ruled;
   - `1`: could not tell (not root, a tool missing);
   - `64`: bad usage;
   - `128+N`: after a signal.
@@ -2538,15 +2604,32 @@ above, from the code:
   implementer's choice, not ruled.
 - **The banner's §9e (a) lines differ from the ruled text in two places,** both noted in
   `setup/files/motd-banner.sh`: the bootstrap line takes `--role` from `status.json`'s `role`, not
-  from `station.yml`, because the banner runs as the login, which cannot read `station.yml` (a code
-  review's finding, ⚠️ not seen on the Pi); and it prints BUILD.md §8's whole URL rather than
-  "…/setup/bootstrap.sh", so the line can be copied (the implementer's reading, not ruled).
+  from `station.yml`, because the banner reads no `station.yml`, by choice, so that nothing from the
+  config reaches a login's screen. It runs as root: ✅ seen on the 🎒 portable by Claude, 2026-10-15
+  (libpam-modules 1.7.0-5), where `pam_motd.so` carries `run-parts --lsbsysinit /etc/update-motd.d
+  > /run/motd.dynamic.new`, `/etc/pam.d/sshd` runs `pam_motd.so motd=/run/motd.dynamic` without
+  `noupdate`, and `/run/motd.dynamic`, `root:root 644`, was rewritten at an SSH login. A code
+  review of 2026-10-09 had read it as running as the login, which was wrong; and it prints
+  BUILD.md §8's whole URL rather than "…/setup/bootstrap.sh", so the line can be copied (the
+  implementer's reading, not ruled).
 
 **The opener's runtime directory: a security finding and its ruling. (Chris), 2026-10-09, about
 18:50.** `/security-review` of the opener, before it was pushed, found its root writes landing in
 `/run/adsb-receiver`, which is owned by the writer's user, `adsb-receiver:adsb-operator 0755`
 (✅ read on the Pi, below). A link planted there would let a compromised writer clobber any file as
 root.
+*Update 2026-10-15, on a review's finding: `/run/adsb-receiver` is root's too now. `05-config`'s
+tmpfiles.d entry makes it `root:root 0755` and the lock file in it, `recording.lock`, `root:root
+0644`; the writer only opens the existing lock file to `flock` it, which a read-only open allows
+(seen on the workstation, util-linux 2.41.3, `05-config`'s comment). ✅ Seen on the 🎒 portable by
+Claude, 2026-10-15 at 22:18: `flock` from util-linux 2.41.5, run as the login, not root, took
+`flock -n … true` on the `root:root 0644` file `/etc/hostname` and exited `0`, the mechanism the
+writer's unit relies on. ⚠️ Not yet seen: the writer itself holding the root-owned lock; the
+portable keeps the old ownership until this change is applied there. `05-config`'s verify
+requires both to be root's and refuses either as a symlink. ⚠️ From
+tmpfiles.d(5), read on the workstation (systemd 259), not seen on the Pi: the owner and mode are
+applied to paths that already exist, so the entry re-owns a rig built before this change, and a
+rollback to an older tree, whose entry names `adsb-receiver`, re-owns them back.*
 
 - **The ruling:** the opener's files move to a root-owned `/run/adsb-home-update`, made by its own
   tmpfiles.d file, `/etc/tmpfiles.d/adsb-home-update.conf`, `root:root 0755`. Both writers,
@@ -2555,13 +2638,18 @@ root.
   through a link. Smoke cases SEC1 to SEC4 in `tests/smoke_update.sh` exercise it.
 - *The build's choice, not ruled:* a tmpfiles.d entry rather than `RuntimeDirectory=`, because the
   directory must outlive each run of the oneshot: the banner reads the state between runs.
-- 📋 **Reported by the same review, not fixed; open:**
-  - `need_reboot` in `setup/lib.sh` appends to `/run/adsb-receiver/reboot-required` as root: a
-    root write into the same writer-owned directory, the same link class. It predates the opener;
-  - the login banner prints `reboot-required` and `status.json`'s lines raw, so a terminal escape
-    in either reaches the login's terminal;
-  - `update.sh`'s `prepare_config` echoes a malformed `--set` value in its error, and passes the
-    `--set` values to `python3` in its arguments, where any process on the Pi can read them.
+- 📋 **Reported by the same review, not fixed; open:** `update.sh`'s `prepare_config` echoes a
+  malformed `--set` value in its error, and passes the `--set` values to `python3` in its
+  arguments, where any process on the Pi can read them.
+- **Reported by the same review, and fixed 2026-10-15:**
+  - `need_reboot` in `setup/lib.sh` appended to `/run/adsb-receiver/reboot-required` as root: a
+    root write into the same writer-owned directory, the same link class, older than the opener.
+    The directory is root's now (the update above).
+  - The login banner printed `reboot-required` and `status.json`'s lines raw, so a terminal escape
+    in either reached the login's terminal. Every value the banner prints now passes a filter that
+    turns each C0, DEL and C1 control character into `?`; it opens `status.json` and `writer.json`
+    with `O_NOFOLLOW` and requires regular files, and does not read the reboot flag if it is a
+    symlink (`setup/files/motd-banner.sh`'s header).
 
 **Step 70's timer verify. (Chris), 2026-10-09, about 20:00.** Ruled by multiple-choice question, on
 an architecture consultation's recommendation, after the third self-correction on this verify. It
@@ -2979,7 +3067,9 @@ update below.*
     revert followed it. Under the tip rule, any push to `main` resets the stationary's clock, and a
     bad commit is never applied alone. The cost, stated plainly: the stationary updates only after
     `update.soak_days` quiet days on `stable`, so a busy week means no stationary update that week.
-    That is what a soak means, and it gives the brake below for free.* Built. On hardware only the
+    That is what a soak means, and it gives the brake below for free.* *Superseded in part
+    2026-10-15, (Chris): the tip rule stands, but "old" counts from this rig's first sight of the
+    tip, not from its commit date (the 2026-10-15 update at the end of this section).* Built. On hardware only the
     🎒 portable's soak of 0 is seen, and a soak of 0 skips the age check (the "As built" at the end
     of the 2026-10-05 update below); the 🏠 stationary's soak of 7 has not run, since no stationary
     is built.
@@ -2994,22 +3084,32 @@ the portable has ever run it.
 (evening), (Chris): **a revert commit on `main`.** It is forward-only and CI-tested, reaches `stable`
 through the same job as any commit, and the rig applies it as a candidate, the mechanism it already
 has. Under the tip-aged soak above, the young revert holds the stationary until the revert and the
-bad commit have aged together. A force-push of `stable` to an older commit stays only as a
+bad commit have aged together. ~~A force-push of `stable` to an older commit stays only as a
 documented last resort, and **it holds only until the next green push to `main`**, which the job
-fast-forwards: nothing on `main` says "held", so the job is right to follow the chain again.*
+fast-forwards: nothing on `main` says "held", so the job is right to follow the chain again.~~*
+*Retired 2026-10-15 22:08, (Chris); see the block at the end of this section.*
 - *Rejected: a `stable-hold` branch or ref that the job honors, which is a second truth; a chain
   rule, `stable` must equal the push's `before`, which turns every red CI run on `main` into a silent,
   permanent hold; and leaving the force-push as the brake with its limit documented. ➡️ What would
   change it: a need to hold `stable` without touching `main` for longer than `update.soak_days`;
-  then a `stable-hold` ref, accepted as a second truth.*
+  then a `stable-hold` ref, accepted as a second truth.* *Since the last resort's retirement on
+  2026-10-15 at 22:08, that ref is the only named escape for a long hold.*
 - *Restated 2026-10-05, (Chris), now that both rigs follow `stable` (the update below). ~~📋 Ruled, not
   built.~~ Corrected 2026-10-05: both rigs follow `stable` as built in `94e4f94`, ~~⚠️ not yet run on
   a Pi~~. Corrected 2026-10-10: the 🎒 portable is seen following it (the "As built" below).* A revert on `main` reaches `stable` through the job. The 🎒 portable takes it on its next
-  pull; the 🏠 stationary once the revert and the bad commit have aged together. ⚠️ **The force-push
+  pull; the 🏠 stationary once the revert and the bad commit have aged together. ~~⚠️ **The force-push
   last resort now holds both rigs** until the next green push to `main`; during a hold the portable
-  runs a fix by `--rev`. A hand fast-forward of `stable`, `git push origin main:stable`, is not a
+  runs a fix by `--rev`.~~ *Retired 2026-10-15 22:08, (Chris); see the block at the end of this
+  section.* A hand fast-forward of `stable`, `git push origin main:stable`, is not a
   brake, and is permitted: it is what the job does, for an Actions outage or an unparseable
   `ci.yml`.
+- ~~*Narrowed 2026-10-15, (Chris), by the rewind ruling (the 2026-10-15 update at the end of this
+  section): a force-push of `stable` to an older commit no longer moves a built rig back, because
+  the timer refuses it as a rewind. In fable-architect's reading, the last resort becomes a pure
+  hold, no longer a downgrade. A rig goes back only by hand: by `--rev`, or by a bootstrap.*~~
+  *Retired 2026-10-15 22:08, (Chris); see the block at the end of this section.*
+- **Branch protection:** ruled 2026-10-15 at 22:08 (Chris), in the block at the end of this
+  section.
 
 **Update 2026-10-05: both rigs follow `stable`, and the soak is the only role difference. (Chris),
 2026-10-05, about 21:50.** ~~📋 **Ruled, not built.** Nothing below is in the tree yet: `update.sh`'s
@@ -3028,7 +3128,11 @@ using stable build points instead of main to determine where to pull the latest 
 - **A soak of 0 means no age check at all,** not "aged at least zero seconds". The guard exists
   because an age of at least zero would depend on the Pi's clock being past the commit date. Today's
   `resolve_candidate` tests `age >= days * 86400`, with `age` the Pi's `date +%s` less the tip's
-  commit date (read 2026-10-05).
+  commit date (read 2026-10-05). *Update 2026-10-15: `age` is now the Pi's `date +%s` less the
+  epoch this rig recorded at its first sight of the tip, in
+  `/var/lib/adsb-receiver/stable-tip-seen`, and the commit date is not read (the 2026-10-15 update
+  at the end of this section). A soak of 0 still returns before any of it, reading neither the
+  clock nor that file.*
 - **Why.**
   - CI tests what hardware cannot change: `bash -n`, `shellcheck`, the Python unit tests, the
     denylist and disk-command greps, path consistency, the `--verify` and `require_role` shape,
@@ -3140,6 +3244,9 @@ using stable build points instead of main to determine where to pull the latest 
 - 📋 **The planned dry run above** ([§9k](#9k-the-first-deliverable-in-order) item 3) gains a case:
   each role-gated step, run against the other role's template, exits `ADSB_RC_OTHER_ROLE` with
   `--skip-other-role`, and non-zero without it.
+  *Update 2026-10-15: and with `require_role`'s skip line as its last output, since `update.sh`
+  now counts the code as a skip only beside that line ([§9b](#9b-one-bash-script-per-build-step)'s
+  2026-10-15 change).*
 
 **Update 2026-10-11: hiding unfinished work on `main` is not done now. (Chris, 2026-10-11 14:29, by
 question; the texts as put are in the private pick-up record.)**
@@ -3148,6 +3255,127 @@ question; the texts as put are in the private pick-up record.)**
   sets a second rig's repo address, and by then the product repo's plumbing is known
   ([§9a](#9a-the-repo-ships-its-own-software-and-the-pi-pulls-it)'s 2026-10-11 update).
 - Rejected: **now, as a private development repo with a public mirror;** and **never.**
+
+**Update 2026-10-15: the timer never rewinds, the soak counts from the rig's first sight, and
+commit signing is to be set up now. (Chris, 2026-10-15 21:31; the record is in the private pick-up
+record.)** Three rulings. The designs, the consequences and the rejected options are
+fable-architect's, of the same day; the reasons written for them after 22:08 are labeled where
+they stand.
+
+- **A. The timer never moves a built rig backwards or sideways.** In timer mode, `--retry`
+  included, on a built rig, `update.sh` takes a candidate only if it descends from the applied
+  commit (`git merge-base --is-ancestor`, `is_forward` in `setup/update.sh`). When it does not~~, or
+  git cannot tell~~, the run refuses it: one line beginning `ADSB-UPDATE-SKIPPED rewind:`, at
+  priority warning under systemd, naming the `sudo adsb-update --rev <sha12>` that would apply it;
+  exit `0`; no `status.json` and no run log written. `--check` answers `14`. `--rev` is unchanged,
+  the deliberate way back or aside. `bootstrap.sh`'s warning when the checkout it builds is not on
+  `stable` stays a warning, because the bootstrap is attended; once that rig is built, the timer
+  holds it there until `stable`'s tip descends from that commit, or a `--rev` to the tip, or a
+  bootstrap from it (`bootstrap.sh`'s comment there). ~~⚠️ The ruling's own reason is not yet
+  written here.~~
+  - *Corrected 2026-10-15: "or git cannot tell" was not in the option Chris chose, which said only
+    that the timer refuses a tip that does not descend from the applied commit, writes nothing,
+    and logs a line that can be grepped. It was an implementer's detail, and the code now makes it
+    a loud failure instead. When `merge-base` exits anything but 0 or 1, `is_forward` returns 2;
+    the timer prints `xx  FAIL: git could not tell whether stable's tip … descends from the applied
+    …`, at priority err under systemd, and exits `1`, so the unit shows failed; `applied` is
+    untouched. `--check` answers `13`, a timer run would fail. The reason, in the code's comment
+    on `is_forward`: a rig that cannot read its own history needs a hand, and must not look merely
+    unchanged. fable-architect compares it with §9f's damaged `applied`, which also fails loudly.*
+  - ⚠️ **Neither the refusal nor that failure writes `status.json`, so neither reaches the login
+    banner.** The refusal is seen only in the journal and in `--check`'s `14`; the failure in the
+    journal, in `--check`'s `13`, and in the unit's failed state.
+  - *The reason, ⚠️ fable-architect's reasoning after 22:08, reconstructed in the same design, not
+    the 21:31 session's text:* the timer is unattended, and moving backwards re-runs older steps
+    against newer state, which "Rollback does not undo creation" in §9f already makes a hand's
+    decision; and a `stable` that stops descending from what a rig applied is evidence of something
+    wrong at the source, which the rig should not follow.
+  - Consequences, from fable-architect's design:
+    - ~~the force-push last resort above becomes a pure hold, no longer a downgrade;~~ *retired
+      2026-10-15 22:08, (Chris); see the block at the end of this section;*
+    - a `--rev` commit that reaches `main` by a squash or a rebase is not an ancestor of `stable`'s
+      tip, so the rig holds at it until one `--rev` to the tip (§9f's `--rev` bullet);
+    - a refused rewind writes nothing, so the login banner, which reads `status.json`, does not
+      show it. The journal line and `--check` do.
+  - Rejected, in fable-architect's design, with ⚠️ its reasons as reconstructed after 22:08, not
+    the 21:31 session's text:
+    - **refusing `--rev` too:** it removes the only way back short of a bootstrap, which formats
+      and reboots;
+    - **keeping the ancestor test a warning:** on an unattended rig a warning is a journal line
+      nobody reads, and the move happens anyway;
+    - **a `station.yml` key that allows rewinds:** a config value that switches a safety off is the
+      lenient-flag shape [§9c](#9c-every-step-ends-in-a-check-of-the-observable-effect) rejected;
+    - **remembering the last commit applied from the channel, apart from `applied-rev`:** a second
+      truth beside `applied-rev`, which `--rev` makes diverge.
+  - Not chosen at 21:31, the option Chris was shown beside it, with the reason from the question's
+    recommendation: **leaving it for ROADMAP item 8,** because the timer would keep applying
+    rewinds until then.
+  - 📋 **Open, placed by fable-architect from a code review of 2026-10-15:** ROADMAP item 8's
+    pushed health must carry both a refused rewind and the ancestry failure, which reach no
+    `status.json` and no banner.
+- **B. The soak counts from this rig's first sight of `stable`'s tip.** It supersedes the
+  2026-10-04 (evening) ruling that the tip applies once its commit date is `update.soak_days` old
+  (§9f's "The soak is tip-aged", and the 🏠 bullet at the head of this section, both kept and
+  marked). The tip rule itself stands.
+  - As built, in `resolve_candidate`: a timer run that finds a tip its record does not hold writes
+    `/var/lib/adsb-receiver/stable-tip-seen`, "<sha> <epoch>", atomically (a temporary file, then
+    a rename). The tip's age is now less that epoch; the commit date (`%ct`) is no longer read. A
+    soak of 0 returns before any of it, so a 🎒 portable on its default never reads or writes the
+    file. `--check` writes nothing: with no record of the tip, it reports the tip under the soak
+    (exit `10`), and the next timer run starts the clock.
+  - ⚠️ **The implementer's addition, not ruled:** a recorded epoch later than now, written by a
+    clock that was ahead, is reset to now by a timer run, with a warning.
+  - The reason, fable-architect's: the commit date is a field the committer writes, so anyone who
+    can push can set the soak to zero; and the soak means quiet days on `stable`, which only the rig
+    observes.
+  - Rejected, in fable-architect's design: CI's fast-forward time; the bare clone's reflog, since a
+    bare repository keeps none by default; and the commit date plus a sanity bound. ⚠️ The reasons
+    for the first and the third are fable-architect's, reconstructed after 22:08, not the 21:31
+    session's text: CI's fast-forward time is a fact on GitHub's side, which the rig cannot read
+    without a second channel of trust; and a sanity bound still lets a committer set the date
+    inside it.
+  - Not chosen at 21:31, the option Chris was shown beside it, with the reason from the question's
+    recommendation: **keeping the commit date,** because the committer writes that field.
+  - 📋 **Open, placed by fable-architect from a code review of 2026-10-15, for ROADMAP item 8:** the
+    first sight's epoch can be taken after a boot before NTP has synced, which shortens the soak by
+    up to the rig's downtime (⚠️ fable-architect's inference: fake-hwclock restores the last
+    shutdown's time). The shape of the fix: write `stable-tip-seen` only when the clock is
+    disciplined. No built rig runs a soak above 0 today.
+- **C. Commit signing is to be set up now; the rig's check of signatures comes later.** ✅ Read by
+  Claude, 2026-10-15: none of the last 25 commits is signed, and the repository has no signing
+  configuration.
+  - 📋 **Decided, not built: the rig's check, to fable-architect's design.** It verifies only the
+    tip's signature, against one pinned key in `setup/files/allowed_signers`, installed from the
+    applied tree, never the candidate's. Chris's key signs, not CI's. Trust on first use at the
+    bootstrap, which prints the key's fingerprint. A key is rotated by a commit signed with the old
+    key. It comes before ROADMAP item 9.2, the 🏠 remote stationary's deploy.
+  - Its prerequisites come first: every committer signing, then a ruleset on `main` requiring
+    signatures, so that an unsigned commit surfaces at the workstation, not as a silent hold on a
+    rig.
+  - Not chosen at 21:31, the option Chris was shown beside it, with the reason from the question's
+    recommendation: **deferring signing to ROADMAP item 8,** because signing must be universal
+    before the rig's check lands, so that a verifying rig never holds silently.
+
+**Update 2026-10-15 (later): the force-push last resort is retired. (Chris, 2026-10-15 22:08, by
+question; the texts as put are in the private pick-up record.)**
+
+- **The ruling, in this file's words:** rulesets on `main` and `stable` block force pushes and
+  deletion, and nothing else. The brake is a revert on `main`, as above. A 🎒 portable that needs a
+  fix during a bad stretch takes it by `--rev`, at home. A stolen push credential can no longer
+  rewrite `stable`.
+- *fable-architect's recommendation, not in the ruling:* no bypass actors on the rulesets. A bypass
+  for the owner's account is a bypass for the owner's stolen token; to force-push ever, he edits the
+  ruleset first, which is a visible act.
+- *fable-architect's reading:* nothing else in the ruled design leans on the last resort. The brake
+  is the revert, and the hand fast-forward, `git push origin main:stable`, is a fast-forward, which
+  the rulesets do not block.
+- 📋 **Applied by Chris in GitHub's settings; not applied as of this writing.** ✅ Read by Claude
+  with `gh api`, 2026-10-15, before the ruling: `main` and `stable` had no protection and no
+  rulesets. It is ✅ only once read back with `gh api repos/Wezdenko-L-L-C/adsb-receiver/rulesets`.
+  ⛔ Never verified by a trial force push.
+- **Not yet: "Restrict updates" on `stable`.** GitHub's documentation lists no way to exempt the
+  built-in Actions token from it (⚠️ community posts say it cannot be), so it would block
+  `advance-stable`; it needs CI to push with a GitHub App token first.
 
 ### 9h. 🏠 The stationary rigs: home and remote
 
@@ -4037,6 +4265,16 @@ over USB mass storage is often unsupported, and it can stall a cheap controller.
 whose repair tool is unfamiliar, for a workload that is sequential; btrfs, because CPU is the binding
 constraint ([§3](#3--cpu-is-the-binding-constraint-not-power)) and this is a single device that may
 ignore flushes; `data=journal`, which doubles the writes; a `sync` mount, for throughput and wear.
+*Update 2026-10-15, on a review's finding: the mount unit's `Options=` adds `nosuid,nodev,noexec`,
+because the drive is data only, and one carried in from elsewhere may hold anything. Step 30's
+verify reads them from the live mount (`findmnt`). A missing one fails the verify, except where the
+reboot flag holds this unit's "changed while mounted" reason and the installed unit carries all
+three: then it warns, because the step never restarts a mounted unit, and a running 🎒 portable
+would otherwise roll back every update until its next reboot. Step 30 and `archive-preflight` also
+refuse a `beast/` or `spool/` on the drive that is a symbolic link: step 30 dies, and the preflight
+says NOT READY (exit `2`).* ⚠️ *A recorded limit, from a code review of 2026-10-15: the warning's
+exception cannot tie the flag's line to this mount. A remount by hand without the three flags,
+while that line is in the flag, also only warns, until the reboot clears the flag.*
 
 ~~**Formatting is a human gate.** A human formats the drive once, by hand:~~ *Superseded 2026-10-04
 (Chris), for the 🎒 portable: the one-command build's bootstrap formats the drive, under a strict
@@ -5306,6 +5544,12 @@ mount. That belongs to the stationary build. ℹ️ **The consultation's lean, n
   `0644`, `adsb-receiver:adsb-operator`, beside the `0755` directory. So `update.sh` and the writer
   never race to create it. ⚠️ That `flock(1)` can lock a file it opened read-only, which is what
   makes `0644` enough for both, is a belief, not checked.
+  *Changed 2026-10-15: the directory and the lock file are `root:root` now, 0755 and 0644; why, and
+  what a rollback does to them, is in [§9f](#9f-what-updatesh-does)'s opener's runtime directory
+  block, its 2026-10-15 update. The read-only `flock` is seen on the workstation (util-linux
+  2.41.3), and ✅ its mechanism on the 🎒 portable, 2026-10-15 at 22:18 (util-linux 2.41.5, a
+  non-root login locking a `root:root 0644` file; that block). The writer itself holding the
+  root-owned lock is not yet seen.*
 - **The preflight is copied to `/usr/local/bin/archive-preflight`,** not run from the clone, because
   `update.sh` will flip between two worktrees ([§9f](#9f-what-updatesh-does)), and a symlink into one
   would follow the flip.
@@ -5443,7 +5687,7 @@ portable rig. Seen by Claude on 2026-10-04, over read-only SSH on the Pi or in o
 | BUILD.md §8 | No pull step | *Added 2026-10-04.* Name the 🎒 pull step, `NN-portable-pull`, after both the writer's step and `update.sh`'s step. ~~Its number is not assigned yet~~ *Its number is assigned: `60-portable-pull` (2026-10-04, evening)* ([§9m](#9m--the-portable-rigs-archive-drive)). *Done 2026-10-10, in the stale sweep: BUILD.md §8's list of step scripts names it* |
 | README "What is here" | No `tools/` path | *Added 2026-10-04.* The new top-level `tools/` path for the pull wrapper. ~~Its exact name is not chosen yet~~ *It is `tools/pull-archive` (2026-10-04, evening)* ([§9m](#9m--the-portable-rigs-archive-drive)). *Done 2026-10-10, in the stale sweep: the README's "What is here" has a `tools/` row naming `pull-archive` and `adsb-extract`* |
 | PLAN.md [§9k](#9k-the-first-deliverable-in-order), items 2 and 3 | 2: "`05-config` + `10-decoder`"; 3: "`update.sh` + the timers + `status.json` + the job that advances `stable`" | *Added 2026-10-04 ([§9m](#9m--the-portable-rigs-archive-drive)).* Item 2: `05-config` is widened. It creates the `adsb-receiver` system user, the `adsb-operator` group with the installing user, and the `tmpfiles.d` entry for `/run/adsb-receiver`. Item 3: `update.sh` needs its own `TimeoutStartSec`, and it must roll back on SIGTERM ([§9f](#9f-what-updatesh-does)). *Update 2026-10-04: item 2's `05-config` half is done, in commit `47ed4ed`; `10-decoder` is not. Item 3 is not done* *Update 2026-10-04 (evening): item 3 is built, with its own `TimeoutStartSec=` and a rollback on SIGTERM, not yet run on hardware. §9k item 3 now names `bootstrap.sh`, `50-updater` and `60-portable-pull` too* *Update 2026-10-10: item 3 has run on the 🎒 portable; §9k item 3 says where it is recorded. No rollback on SIGTERM is recorded on hardware* *Done 2026-10-11, in the stale sweep: [§9k](#9k-the-first-deliverable-in-order) items 2 and 3 record both as built, each with its commit and where its run on the 🎒 portable is recorded* |
-| `setup/lib.sh`, `parse_args` and `require_role` | `--verify` and `--help` only; `require_role` always dies on a mismatch | *Added 2026-10-04.* `parse_args` gains `--skip-other-role`, and `lib.sh` gains the constant `ADSB_RC_OTHER_ROLE`, an unused value below 126 and not 3. With the flag, `require_role` on a mismatch logs the skip and exits that code. `require_absent` is unchanged ([§9b](#9b-one-bash-script-per-build-step)). *Done 2026-10-04, in commit `47ed4ed`. `ADSB_RC_OTHER_ROLE` is 100* |
+| `setup/lib.sh`, `parse_args` and `require_role` | `--verify` and `--help` only; `require_role` always dies on a mismatch | *Added 2026-10-04.* `parse_args` gains `--skip-other-role`, and `lib.sh` gains the constant `ADSB_RC_OTHER_ROLE`, an unused value below 126 and not 3. With the flag, `require_role` on a mismatch logs the skip and exits that code. `require_absent` is unchanged ([§9b](#9b-one-bash-script-per-build-step)). *Done 2026-10-04, in commit `47ed4ed`. `ADSB_RC_OTHER_ROLE` was 100 then; it is 117 since 2026-10-15, and the code alone is no longer the skip ([§9b](#9b-one-bash-script-per-build-step)'s 2026-10-15 change)* |
 | `.github/workflows/ci.yml` | Two step checks: the denylist grep, and `parse_args` plus `verify()` in every step | *Added 2026-10-04.* A third check: in every step containing `require_role`, the first non-comment command after `parse_args` and `require_root` is the `require_role` call ([§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable)). *Done 2026-10-04, in commit `47ed4ed`* |
 | BUILD.md §8 step 2 | "Confirm `gpsd` has a fix, `chronyc sources` shows GPS disciplining the clock, and the Pi still knows the time after a power cycle **with the network unplugged**" | *Added 2026-10-04.* When this step names `20-portable-clock`, say that the script's verify checks only the install tier, and that these checks stay human gates under the sky ([§9c](#9c-every-step-ends-in-a-check-of-the-observable-effect)). *Done 2026-10-10, in the stale sweep: BUILD.md §8 step 2 names `20-portable-clock`, says its verify is install tier only, and leaves the three checks to you, under the sky* |
 | `setup/lib.sh`, `ADSB_DENY_PATHS` | No `/etc/fstab`; its comment says the list is "Written as in the PLAN §9h table" | *Added 2026-10-04.* Add `/etc/fstab` (**(Chris)**, [§9h](#9h--the-stationary-rigs-home-and-remote)). CI reads this array for its grep of `setup/steps/`. *Done 2026-10-04, in commit `47ed4ed`* |
