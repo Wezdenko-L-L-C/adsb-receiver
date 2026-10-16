@@ -70,11 +70,17 @@ getent group "$GROUP_NAME" >/dev/null || die "no group $GROUP_NAME: run setup/st
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
-# install_if_changed <src> <dst> <mode> <owner:group>: render, diff, install (PLAN §9f). Sets
+# install_if_changed <src> <dst> <mode> <owner:group> [check...]: render, diff, install (PLAN
+# §9f), by a temporary file in the destination's directory and a rename (50-updater's), so sudo or
+# a daemon-reload never reads a half-written file. A check, when given, runs on the temporary file
+# (its path appended) before the rename; if it fails, the temporary file is removed and the step
+# dies with the destination untouched. The temporary name holds a '.', so sudo skips it in
+# /etc/sudoers.d (sudoers(5): #includedir skips names containing '.' or ending in '~'). Sets
 # CHANGED to 0 or 1.
 CHANGED=0
 install_if_changed() {
-  local src=$1 dst=$2 mode=$3 owner=$4
+  local src=$1 dst=$2 mode=$3 owner=$4 tmp
+  shift 4
   guard_path "$dst"
   CHANGED=0
   if [[ -f $dst ]] && cmp -s "$src" "$dst" \
@@ -82,9 +88,26 @@ install_if_changed() {
     log "$dst is unchanged"
     return 0
   fi
-  run install -D -m "$mode" -o "${owner%%:*}" -g "${owner##*:}" "$src" "$dst"
+  # The temporary name ends in "~": run-parts --lsbsysinit (pam_motd's, over
+  # /etc/update-motd.d) and sudo's includedir skip such a name, and no unit,
+  # tmpfiles.d or drop-in reader takes it (it lacks their suffix). One left by a
+  # killed run is removed first, under the name before 2026-10-15 too (no "~",
+  # which run-parts would run); a failure here removes its own.
+  tmp=$(dirname "$dst")/.$(basename "$dst").adsb-new~
+  rm -f -- "$tmp" "${tmp%"~"}"
+  run install -D -m "$mode" -o "${owner%%:*}" -g "${owner##*:}" "$src" "$tmp" \
+    || { rm -f -- "$tmp"; die "could not write $tmp; $dst was not changed"; }
+  if (($#)); then
+    log "$* on $tmp, before the rename (raw output follows)"
+    if ! "$@" "$tmp"; then
+      rm -f -- "$tmp"
+      die "$* failed on the installed copy of $src; $dst was not changed"
+    fi
+    echo "----"
+  fi
+  run mv -f "$tmp" "$dst" || { rm -f -- "$tmp"; die "could not rename $tmp to $dst; $dst was not changed"; }
   CHANGED=1
-  log "$dst changed; installed"
+  log "$dst changed; installed by rename"
 }
 
 pkg_installed() {
@@ -145,7 +168,8 @@ install_sudoers() {
   log "visudo -cf on the rendered rule (raw output follows)"
   visudo -cf "$WORK/sudoers" || die "the rendered sudoers rule does not parse; nothing was installed"
   echo "----"
-  install_if_changed "$WORK/sudoers" "$SUDOERS" 0440 root:root
+  # visudo -cf again on the copy with its final owner and mode, before it is renamed into place.
+  install_if_changed "$WORK/sudoers" "$SUDOERS" 0440 root:root visudo -cf
   if ((CHANGED)); then
     log "visudo -c on the whole configuration (raw output follows)"
     visudo -c || die "sudo's whole configuration does not parse after installing $SUDOERS, which parsed on its own (visudo -cf above). Read visudo's message above for the file it names; if that is $SUDOERS, remove it at once (rm $SUDOERS). Until it is fixed, sudo may refuse everyone"

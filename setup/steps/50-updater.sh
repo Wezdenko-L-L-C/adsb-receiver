@@ -16,10 +16,11 @@
 #     old version. ➡️ A new updater takes effect at the next run.
 #   - /etc/systemd/system/adsb-update.service (Type=oneshot) and adsb-update.timer.
 #   - /etc/update-motd.d/50-adsb-receiver, the login banner (from setup/files/motd-banner.sh),
-#     which pam_motd runs at each SSH login. Seen on mobile-adsb, 2026-10-04: /etc/pam.d/sshd
-#     line 33 has `pam_motd.so motd=/run/motd.dynamic` without noupdate, and /run/motd.dynamic was
-#     rewritten at an SSH login with 10-uname's output. The banner times out its own commands, so
-#     a hung systemctl or lslocks cannot stall a login.
+#     which pam_motd runs at each SSH login, as root. Seen on mobile-adsb, 2026-10-04:
+#     /etc/pam.d/sshd line 33 has `pam_motd.so motd=/run/motd.dynamic` without noupdate, and
+#     /run/motd.dynamic was rewritten at an SSH login with 10-uname's output; as root, 2026-10-15
+#     (the banner's header has the evidence). The banner times out its own commands, so a hung
+#     systemctl or lslocks cannot stall a login.
 #   Every file by write-then-rename in its own directory, so a login or a daemon-reload never
 #   reads a half-written one.
 # ⛔ It never starts or restarts adsb-update.service: that unit may be the one running this step,
@@ -31,7 +32,10 @@
 #    rig under the operator's hands: the step enables the timer, which then starts at the next
 #    boot, and prints the command to start it now.
 #
-# What has run on hardware: nothing. ⚠️ Unverified on the Pi: all of it.
+# What has run on hardware: the step as of `398ad28`, on the 🎒 portable, mobile-adsb, under
+# update.sh: at 11:18 on 2026-10-10, the run that applied `398ad28`, every step's install and verify
+# were ok, this one's included (PLAN §9f's records).
+# ⚠️ Unverified: all of it on the 🏠 stationary, which is not built.
 
 set -euo pipefail
 # shellcheck source=setup/lib.sh
@@ -71,9 +75,16 @@ install_if_changed() {
     log "$dst is unchanged"
     return 0
   fi
-  tmp=$(dirname "$dst")/.$(basename "$dst").adsb-new
-  run install -D -m "$mode" -o "${owner%%:*}" -g "${owner##*:}" "$src" "$tmp"
-  run mv -f "$tmp" "$dst"
+  # The temporary name ends in "~": run-parts --lsbsysinit (pam_motd's, over
+  # /etc/update-motd.d) and sudo's includedir skip such a name, and no unit,
+  # tmpfiles.d or drop-in reader takes it (it lacks their suffix). One left by a
+  # killed run is removed first, under the name before 2026-10-15 too (no "~",
+  # which run-parts would run); a failure here removes its own.
+  tmp=$(dirname "$dst")/.$(basename "$dst").adsb-new~
+  rm -f -- "$tmp" "${tmp%"~"}"
+  run install -D -m "$mode" -o "${owner%%:*}" -g "${owner##*:}" "$src" "$tmp" \
+    || { rm -f -- "$tmp"; die "could not write $tmp; $dst was not changed"; }
+  run mv -f "$tmp" "$dst" || { rm -f -- "$tmp"; die "could not rename $tmp to $dst; $dst was not changed"; }
   CHANGED=1
   log "$dst changed; installed by rename"
 }
@@ -86,9 +97,11 @@ install_updater() {
     log "$DST is unchanged"
     return 0
   fi
-  local tmp=${DST%/*}/.adsb-update.new
-  run install -D -m 0755 -o root -g root "$SRC" "$tmp"
-  run mv -f "$tmp" "$DST"
+  local tmp=${DST%/*}/.adsb-update.new~
+  rm -f -- "$tmp" "${tmp%"~"}"
+  run install -D -m 0755 -o root -g root "$SRC" "$tmp" \
+    || { rm -f -- "$tmp"; die "could not write $tmp; $DST was not changed"; }
+  run mv -f "$tmp" "$DST" || { rm -f -- "$tmp"; die "could not rename $tmp to $DST; $DST was not changed"; }
   log "$DST changed; installed by rename. It takes effect at the next run"
 }
 

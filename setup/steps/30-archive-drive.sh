@@ -147,15 +147,19 @@ find_device() {
   log "the archive drive: $DEV, ext4, label $LABEL"
 }
 
-# live_opts_missing: print which of the unit's options the live mount at $MP
-# lacks (noatime, errors=remount-ro); print nothing when it has them all. Reads
-# findmnt and, for errors=, /proc/fs/ext4/<dev>/options (see verify).
+# The per-mount flags the unit sets, which findmnt lists for the live mount.
+NOEXEC_OPTS=(nosuid nodev noexec)
+
+# live_opts_missing: print which of noatime, errors=remount-ro, nosuid, nodev
+# and noexec, a list written here to match render_units' Options= (not read from
+# the unit), the live mount at $MP lacks; print nothing when it has them all. Reads findmnt and, for errors=, /proc/fs/ext4/<dev>/options
+# (see verify).
 live_opts_missing() {
   local opts kname procopts o
   opts=$(findmnt -nr -o OPTIONS --mountpoint "$MP" | tail -n1) || true
   kname=$(basename "$(realpath -- "$DEV")")
   procopts=$(cat "/proc/fs/ext4/$kname/options" 2>/dev/null) || true
-  for o in noatime errors=remount-ro; do
+  for o in noatime errors=remount-ro "${NOEXEC_OPTS[@]}"; do
     if [[ ,$opts, != *,"$o",* ]] && ! grep -qx -- "$o" <<<"$procopts"; then
       printf '%s ' "$o"
     fi
@@ -202,8 +206,9 @@ Where=$MP
 Type=ext4
 # No discard: continuous TRIM over USB mass storage is often unsupported, and
 # it can stall a cheap controller. The weekly fstrim.timer skips a device
-# without TRIM (PLAN §9m).
-Options=noatime,errors=remount-ro
+# without TRIM (PLAN §9m). nosuid,nodev,noexec: the drive is data only, and
+# one carried in from elsewhere may hold anything.
+Options=noatime,errors=remount-ro,nosuid,nodev,noexec
 
 [Install]
 WantedBy=multi-user.target
@@ -270,9 +275,18 @@ install_drive_dirs() {
   for d in beast spool; do
     path=$MP/$d
     guard_path "$path"
+    # ⛔ Never a symlink: chown and chmod follow one, so a drive carrying
+    #    beast -> /some/root/file would hand that file to the writer's user, and
+    #    the writer would record wherever it points. The drive comes from
+    #    outside the rig, so this refuses rather than repairs. This -L test is
+    #    the protection; chmod below has no form that spares a link's target,
+    #    and the chown's -h only keeps it from following one. The target is the
+    #    drive's text, so it is printed quoted (%q), control characters escaped.
+    [[ ! -L $path ]] \
+      || die "$path is a symbolic link (to $(printf '%q' "$(readlink -- "$path")")); it must be a real directory on the drive. Look at what it points to, remove the link (sudo rm $path), then run this step again"
     [[ -d $path ]] || run mkdir "$path"
     if [[ $(stat -c '%U:%G' "$path") != "$USER_NAME:$GROUP_NAME" ]]; then
-      run chown "$USER_NAME:$GROUP_NAME" "$path"
+      run chown -h "$USER_NAME:$GROUP_NAME" "$path"
     fi
     # 2770: the group can read and delete without root; setgid passes the group
     # on; no sticky bit, which would stop the group deleting (PLAN §9m).
@@ -322,6 +336,25 @@ verify() {
     || die "$MP is mounted without noatime. If $UNIT_DIR/$MOUNT_UNIT has it, the live mount is stale: unmount and start the unit, or reboot"
   [[ ,$opts, != *,nobarrier,* ]] \
     || die "$MP is mounted nobarrier; the design needs barriers on (PLAN §9m). Remove it from the mount options"
+  # nosuid, nodev, noexec, as the live mount has them. A rig whose drive was
+  # mounted before the unit carried them keeps the old flags until it is
+  # remounted: install_units never restarts a mounted unit (PLAN §9m) and
+  # records the reboot instead. That one case warns, so an update does not roll
+  # back for want of a reboot it cannot do; any other lack fails.
+  local o lack=()
+  for o in "${NOEXEC_OPTS[@]}"; do
+    [[ ,$opts, == *,"$o",* ]] || lack+=("$o")
+  done
+  if ((${#lack[@]} == 0)); then
+    pass "$MP is mounted ${NOEXEC_OPTS[*]}"
+  elif grep -qxF -- "the archive mount unit $MOUNT_UNIT changed while mounted" "$ADSB_REBOOT_FLAG" 2>/dev/null \
+       && grep -qE '^Options=(.*,)?nosuid(,.*)?$' "$UNIT_DIR/$MOUNT_UNIT" \
+       && grep -qE '^Options=(.*,)?nodev(,.*)?$' "$UNIT_DIR/$MOUNT_UNIT" \
+       && grep -qE '^Options=(.*,)?noexec(,.*)?$' "$UNIT_DIR/$MOUNT_UNIT"; then
+    warn "$MP is mounted without ${lack[*]}. $UNIT_DIR/$MOUNT_UNIT carries them, and $ADSB_REBOOT_FLAG records that the unit changed while mounted, so the next mount, after the reboot, should take them"
+  else
+    die "$MP is mounted without ${lack[*]}. If $UNIT_DIR/$MOUNT_UNIT has them, the live mount is stale: unmount and start the unit, or reboot; otherwise run this step without --verify"
+  fi
 
   # The labeled filesystem mounted anywhere else too, for instance a desktop
   # auto-mount under /media. Pi OS Lite was seen not to auto-mount the drive
@@ -408,9 +441,10 @@ verify() {
 
   local d out
   log "stat beast/ spool/ (raw output follows)"
-  stat -c '%U:%G %a %n' "$MP/beast" "$MP/spool" 2>&1 || true
+  stat -c '%U:%G %a %F %n' "$MP/beast" "$MP/spool" 2>&1 || true
   echo "----"
   for d in beast spool; do
+    [[ ! -L $MP/$d ]] || die "$MP/$d is a symbolic link; it must be a real directory on the drive. Remove the link (sudo rm $MP/$d), then run this step without --verify"
     out=$(stat -c '%U:%G %a' "$MP/$d" 2>/dev/null) || true
     [[ $out == "$USER_NAME:$GROUP_NAME 2770" ]] \
       || die "$MP/$d is '${out:-missing}', not $USER_NAME:$GROUP_NAME 2770; run this step without --verify"

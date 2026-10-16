@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # bin/adsb-at-home, the home-gated opener's ExecCondition= (PLAN §9f's 2026-10-04 (night) update),
-# run for real against a stubbed nmcli. The stub prints a fixture in nmcli's terse format and
-# records its arguments, so a case can show the SSID never reached a child's command line. By
+# run for real against a stubbed nmcli. The stub prints a fixture in nmcli's terse format, the
+# SSID as hex (the ssid-hex field the script asks for), and records its arguments, so a case can show the SSID never reached a child's command line. By
 # hand it prints "at home", "not at home" or "cannot tell" (exit 0, 1, 2); under its unit
 # (ADSB_HOME_STATE set) every verdict but "at home" is a tagged ADSB-HOME-UPDATE line, and the
 # verdict goes to the state file the login banner reads.
@@ -23,12 +23,12 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 STATION_LINE = "readonly STATION=/etc/adsb-receiver/station.yml"
 OWNER_LINE = "readonly OWNER_UID=0   # who must own the state's directory: root"
-SECRET = "Sec:ret\\Net"   # a colon and a backslash, both escaped in nmcli's terse output
+SECRET = "Sec:ret\\Net"   # a colon and a backslash: in hex, neither is special
 
 
-def terse(ssid):
-    """nmcli's terse escaping of one value: '\\' -> '\\\\', ':' -> '\\:'."""
-    return ssid.replace("\\", "\\\\").replace(":", "\\:")
+def hx(ssid):
+    """nmcli's ssid-hex field for an SSID: its UTF-8 bytes as hex digits (upper case assumed)."""
+    return ssid.encode("utf-8").hex().upper()
 
 
 class AtHome(unittest.TestCase):
@@ -89,7 +89,7 @@ class AtHome(unittest.TestCase):
 
     def test_unset_is_not_at_home_and_asks_nothing(self):
         self.config("")
-        self.nmcli([f"yes:{terse(SECRET)}"])
+        self.nmcli([f"yes:{hx(SECRET)}"])
         self.assert_verdict(*self.run_it(), home=False)
         self.assertEqual(self.nmcli_calls(), [])
 
@@ -103,8 +103,8 @@ class AtHome(unittest.TestCase):
 
     def test_non_strings_read_as_unset(self):
         # An unquoted yes is YAML's true; a number and a list are not SSIDs either.
-        for value, fixture in (("yes", ["yes:yes", "yes:True"]), ("1234", ["yes:1234"]),
-                               ("[a, b]", ["yes:a"])):
+        for value, fixture in (("yes", [f"yes:{hx('yes')}", f"yes:{hx('True')}"]),
+                               ("1234", [f"yes:{hx('1234')}"]), ("[a, b]", [f"yes:{hx('a')}"])):
             with self.subTest(value=value):
                 self.config(f"update:\n  home_ssid: {value}\n")
                 self.nmcli(fixture)
@@ -112,7 +112,7 @@ class AtHome(unittest.TestCase):
         self.assertEqual(self.nmcli_calls(), [])
 
     def test_unreadable_station_yml_is_cannot_tell(self):
-        self.nmcli(["yes:anything"])
+        self.nmcli([f"yes:{hx('anything')}"])
         self.assert_cannot_tell(*self.run_it())
         self.station.write_text("update: [unclosed\n")
         self.assert_cannot_tell(*self.run_it())
@@ -122,25 +122,50 @@ class AtHome(unittest.TestCase):
     def test_the_yes_line_among_duplicated_no_lines(self):
         # The shape seen on the 🎒 portable Pi on 2026-10-05: one yes: line, no: lines per band.
         self.config(f'update:\n  home_ssid: "{SECRET.replace(chr(92), chr(92) * 2)}"\n')
-        self.nmcli(["no:Neighbor", "no:Neighbor", f"yes:{terse(SECRET)}", "no:Other", "no:Other"])
+        self.nmcli([f"no:{hx('Neighbor')}", f"no:{hx('Neighbor')}", f"yes:{hx(SECRET)}",
+                    f"no:{hx('Other')}", f"no:{hx('Other')}"])
         rc, out, err = self.run_it()
         self.assert_verdict(rc, out, err, home=True)
         self.assertNotIn(SECRET, out + err)
+        self.assertNotIn(hx(SECRET), out + err)
 
     def test_the_ssid_on_a_no_line_only_is_not_at_home(self):
         self.config('update:\n  home_ssid: "HomeNet"\n')
-        self.nmcli(["no:HomeNet", "no:HomeNet", "yes:Hotspot"])
+        self.nmcli([f"no:{hx('HomeNet')}", f"no:{hx('HomeNet')}", f"yes:{hx('Hotspot')}"])
         self.assert_verdict(*self.run_it(), home=False)
 
-    def test_escaping_is_undone_not_compared_raw(self):
-        # The configured value spelled the way nmcli escapes it is a different SSID.
-        self.config("update:\n  home_ssid: 'Sec\\:ret'\n")
-        self.nmcli(["yes:Sec\\:ret"])
+    def test_the_ssid_is_compared_as_hex_not_as_text(self):
+        # The plain SSID on a yes: line is not its hex, so it matches nothing.
+        self.config('update:\n  home_ssid: "HomeNet"\n')
+        self.nmcli(["yes:HomeNet"])
         self.assert_verdict(*self.run_it(), home=False)
+
+    def test_a_neighbors_ssid_cannot_forge_a_yes_line(self):
+        # An SSID holding a newline and "yes:<home>" was the forgery the plain field allowed, had
+        # nmcli left the newline unescaped; as hex it stays on its own no: line.
+        self.config('update:\n  home_ssid: "HomeNet"\n')
+        self.nmcli([f"no:{hx(chr(10) + 'yes:HomeNet')}",
+                    f"no:{hx('x' + chr(10) + 'yes:' + hx('HomeNet'))}", f"yes:{hx('Hotspot')}"])
+        self.assert_verdict(*self.run_it(), home=False)
+
+    def test_utf8_and_the_hex_digits_case(self):
+        self.config('update:\n  home_ssid: "Café Ω"\n')
+        with self.subTest("upper case"):
+            self.nmcli([f"yes:{hx('Café Ω')}"])
+            self.assert_verdict(*self.run_it(), home=True)
+        with self.subTest("lower case"):
+            self.nmcli([f"yes:{hx('Café Ω').lower()}"])
+            self.assert_verdict(*self.run_it(), home=True)
+        with self.subTest("the same text in another encoding is a different SSID"):
+            self.nmcli([f"yes:{'Café Ω'.encode('utf-16-le').hex().upper()}"])
+            self.assert_verdict(*self.run_it(), home=False)
+        with self.subTest("not hex at all"):
+            self.nmcli(["yes:not hex"])
+            self.assert_verdict(*self.run_it(), home=False)
 
     def test_a_second_yes_line_can_match(self):
         self.config('update:\n  home_ssid: "HomeNet"\n')
-        self.nmcli(["yes:Other", "yes:HomeNet"])
+        self.nmcli([f"yes:{hx('Other')}", f"yes:{hx('HomeNet')}"])
         self.assert_verdict(*self.run_it(), home=True)
 
     # --- no Wi-Fi ---
@@ -148,10 +173,10 @@ class AtHome(unittest.TestCase):
     def test_ethernet_only_no_nmcli_and_a_failing_nmcli(self):
         self.config('update:\n  home_ssid: "HomeNet"\n')
         with self.subTest("Ethernet only: no yes: line"):
-            self.nmcli(["no:HomeNet"])
+            self.nmcli([f"no:{hx('HomeNet')}"])
             self.assert_verdict(*self.run_it(), home=False)
         with self.subTest("nmcli fails (NetworkManager not running): cannot tell"):
-            self.nmcli(["yes:HomeNet"], rc=8)
+            self.nmcli([f"yes:{hx('HomeNet')}"], rc=8)
             self.assert_cannot_tell(*self.run_it())
         with self.subTest("no nmcli at all: no Wi-Fi, not at home (ruled)"):
             (self.bin / "nmcli").unlink()
@@ -162,9 +187,9 @@ class AtHome(unittest.TestCase):
     def test_under_the_unit_one_tagged_line_and_the_state_file(self):
         state = self.state
         cases = (
-            ("", ["yes:HomeNet"], 1, "ADSB-HOME-UPDATE off: ", "off"),
-            ('update:\n  home_ssid: "HomeNet"\n', ["yes:Other"], 1, "ADSB-HOME-UPDATE not-at-home: ", "not-at-home"),
-            ('update:\n  home_ssid: "HomeNet"\n', ["yes:HomeNet"], 0, "at home", "at-home"),
+            ("", [f"yes:{hx('HomeNet')}"], 1, "ADSB-HOME-UPDATE off: ", "off"),
+            ('update:\n  home_ssid: "HomeNet"\n', [f"yes:{hx('Other')}"], 1, "ADSB-HOME-UPDATE not-at-home: ", "not-at-home"),
+            ('update:\n  home_ssid: "HomeNet"\n', [f"yes:{hx('HomeNet')}"], 0, "at home", "at-home"),
         )
         for text, fixture, rc_want, line, word in cases:
             with self.subTest(word=word):
@@ -174,22 +199,24 @@ class AtHome(unittest.TestCase):
                 self.assertEqual((rc, err, len(out.splitlines())), (rc_want, "", 1))
                 self.assertTrue(out.startswith(line), out)
                 self.assertNotIn("HomeNet", out)
+                self.assertNotIn(hx("HomeNet"), out)
                 got = state.read_text().split()
                 self.assertEqual((len(got), got[0]), (2, word))
                 self.assertEqual(oct(state.stat().st_mode & 0o777), "0o644")
         with self.subTest(word="cannot-tell"):
-            self.nmcli(["yes:HomeNet"], rc=8)
+            self.nmcli([f"yes:{hx('HomeNet')}"], rc=8)
             rc, out, err = self.run_it(unit=True)
             self.assertEqual(rc, 2)
             self.assertTrue(out.startswith("ADSB-HOME-UPDATE cannot-tell: "), out)
             self.assertEqual(state.read_text().split()[0], "cannot-tell")
         self.assertNotIn("HomeNet", state.read_text())
+        self.assertNotIn(hx("HomeNet"), state.read_text())
 
     # --- ⛔ no write outside a directory only root (here, the test's user) may write ---
 
     def test_an_unsafe_state_directory_is_cannot_tell_and_nothing_is_written(self):
         self.config('update:\n  home_ssid: "HomeNet"\n')
-        self.nmcli(["yes:HomeNet"])
+        self.nmcli([f"yes:{hx('HomeNet')}"])
         with self.subTest("group- and other-writable"):
             self.home.chmod(0o777)
             rc, out, err = self.run_it(unit=True)
@@ -213,7 +240,7 @@ class AtHome(unittest.TestCase):
         victim.write_text("untouched\n")
         self.state.symlink_to(victim)
         self.config('update:\n  home_ssid: "HomeNet"\n')
-        self.nmcli(["yes:HomeNet"])
+        self.nmcli([f"yes:{hx('HomeNet')}"])
         rc, out, _ = self.run_it(unit=True)
         self.assertEqual((rc, out), (0, "at home\n"))
         self.assertEqual(victim.read_text(), "untouched\n")
@@ -225,11 +252,11 @@ class AtHome(unittest.TestCase):
 
     def test_the_ssid_is_never_an_argument_of_nmcli(self):
         self.config('update:\n  home_ssid: "HomeNet"\n')
-        self.nmcli(["yes:HomeNet"])
+        self.nmcli([f"yes:{hx('HomeNet')}"])
         self.run_it()
-        self.nmcli(["yes:Elsewhere"])
+        self.nmcli([f"yes:{hx('Elsewhere')}"])
         self.run_it()
-        self.assertEqual(self.nmcli_calls(), ["-t -f active,ssid dev wifi list --rescan no"] * 2)
+        self.assertEqual(self.nmcli_calls(), ["-t -f active,ssid-hex dev wifi list --rescan no"] * 2)
 
 
 if __name__ == "__main__":

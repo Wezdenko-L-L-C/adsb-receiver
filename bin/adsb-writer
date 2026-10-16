@@ -641,7 +641,17 @@ class Writer:
         self.status["frames_in_file"] = self.frames if self.fh is not None else 0
         tmp = self.status_path + ".tmp"
         try:
-            with open(tmp, "w") as f:
+            # The directory is the adsb-operator group's to write (2770), so a member could
+            # leave a symlink or a hard link at the .tmp name: opened by name, the writer would
+            # truncate what it points to. So the old name is unlinked and a new file made with
+            # O_EXCL (which never opens an existing path, a symlink included); one re-planted
+            # between the two makes the open fail, and the status is skipped, as below.
+            try:
+                os.unlink(tmp)
+            except FileNotFoundError:
+                pass
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o666)
+            with os.fdopen(fd, "w") as f:
                 json.dump(self.status, f, indent=1, sort_keys=True)
                 f.write("\n")
             os.replace(tmp, self.status_path)

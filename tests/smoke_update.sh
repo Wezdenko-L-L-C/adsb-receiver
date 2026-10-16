@@ -26,7 +26,7 @@
 set -uo pipefail
 # The number of check cases a full run makes. Bump it when cases are added or removed: a run that
 # makes fewer (a section skipped by an early return, a wait loop that timed out) fails.
-readonly EXPECTED_CHECKS=255
+readonly EXPECTED_CHECKS=280
 ((EUID != 0)) || { echo "refusing to run as root: the sandbox remaps real system paths by sed"; exit 1; }
 # The sandbox is not under systemd; update.sh adds a <N> journal prefix to its marker line when it is.
 unset INVOCATION_ID
@@ -238,7 +238,7 @@ R=$SB/src/proj; mkdir -p "$R/setup/steps" "$R/setup/foundation" "$R/config"
 cp "$REAL"/config/station.*.example.yml "$R/config/"
 {
 cat <<EOF
-ADSB_RC_OTHER_ROLE=100
+ADSB_RC_OTHER_ROLE=117
 ADSB_RUN_DIR=$SB/run
 ADSB_REBOOT_FLAG=$SB/run/reboot-required
 ADSB_RECORDING_LOCK=$SB/run/recording.lock
@@ -254,7 +254,12 @@ mk() { cat >"$R/setup/steps/$1.sh" <<EOF
 #!/usr/bin/env bash
 n=$1
 echo "\$0 \$* ADSB_UPDATE_RUN=\${ADSB_UPDATE_RUN:-unset}"
-[[ \${1:-} == --skip-other-role && \$n == 20-other ]] && exit 100
+# 20-other is the other role's step: require_role's skip line, as lib.sh prints it, then its code.
+[[ \${1:-} == --skip-other-role && \$n == 20-other ]] && { source setup/lib.sh
+  echo "==> skipped: this step is for the stationary rig; station.yml says portable"; exit "\$ADSB_RC_OTHER_ROLE"; }
+# A tool failing with the role-skip code (apt-get's 100 was the old one): no skip line, so a failure.
+[[ \${1:-} == --skip-other-role && -e setup/RCSKIP-\$n ]] && { source setup/lib.sh
+  echo "E: Unable to locate package nothing (deliberate)"; exit "\$ADSB_RC_OTHER_ROLE"; }
 [[ \${1:-} == --skip-other-role && -e setup/IFAIL-\$n ]] && { echo "deliberate install failure"; exit 1; }
 [[ \${1:-} == --skip-other-role && -e setup/SLEEP-\$n ]] && { echo SLEEPING; sleep 30; echo "slept through"; }
 [[ \${1:-} == --skip-other-role && -e setup/HOLD-\$n ]] && { 9<&- setsid flock -w 60 "$SB/run/recording.lock" sleep 8 </dev/null >/dev/null 2>&1 & }
@@ -347,6 +352,8 @@ check "C2 rebooted" grep -q "FAKE REBOOT" "$SB/out.txt"
 A1=$(sha)
 check "C2 05-config installed the seed, and it is gone from the worktrees" \
   [ "$(seeds)/$([ -f "$SB/etc/station.yml" ] && echo installed)" = 0/installed ]
+check "C2 20-other: install skipped (role) by its skip line and code, verify not run" \
+  [ "$(S 's["steps"]["20-other"]["install"]+"|"+s["steps"]["20-other"]["verify"]')" = "skipped (role)|not run" ]
 
 echo "== D. bootstrap re-run on the built rig, flag gains a line: never reboots"
 run bash "$B" --role portable
@@ -358,6 +365,17 @@ rm -f "$SB/reboot-step"
 echo "== E. timer unchanged: exit 0, status untouched"
 m=$(mt); sleep 1; run bash "$U"
 check "E exit 0 and untouched" [ "$RC/$(mt)" = "0/$m" ]
+
+echo "== E2. 40-c's install exits the role-skip code from a failing command, with no skip line: failed, rolled back (2)"
+touch "$R/setup/RCSKIP-40-c"; commit "e2: a tool exits the role-skip code"
+run bash "$U"
+check "E2 exit 2, rolled back at 40-c" [ "$RC/$(S 's["result"]+"|"+s["failed_step"]')" = "2/rolled_back|40-c" ]
+check "E2 40-c recorded failed (exit 117), not skipped; its verify not run" \
+  [ "$(S 's["steps"]["40-c"]["install"]+"|"+s["steps"]["40-c"]["verify"]')" = "failed (exit 117)|not run" ]
+check "E2 20-other in the same run still skipped (role)" [ "$(S 's["steps"]["20-other"]["install"]')" = "skipped (role)" ]
+check "E2 the rollback ran the applied tree's 20-other as a skip, and passed" [ "$(S 's["rollback"]["result"]')" = ok ]
+check "E2 said the code came without the skip line" grep -q "40-c exited 117, the role-skip code, without require_role's skip line" "$SB/out.txt"
+rm -f "$R/setup/RCSKIP-40-c"   # committed with F's change
 
 echo "== F. new commit with a new step 45-new and a 40-c verify failure: rolled back (2)"
 mk 45-new; touch "$R/setup/FAIL-40-c"; commit "four: bad"
@@ -462,25 +480,32 @@ run bash "$WT/setup/update.sh" --bootstrap --role portable --set dongles.adsb=00
 python3 -c 'import yaml,sys; d=yaml.safe_load(open(sys.argv[1])); print(repr(d["dongles"]["adsb"]))' "$SB/etc/station.yml" >"$SB/q.txt" 2>&1
 check "Q 00000001 is a string" grep -qx "'00000001'" "$SB/q.txt"
 
-echo "== R. stationary soak: stable's tip applies only once it is soak_days old"
+echo "== R. stationary soak: stable's tip applies only once this rig has seen it soak_days (its first sight, not its commit date)"
 rm -rf "${SB:?}/opt" "${SB:?}/var" "${SB:?}/log" "${SB:?}/run" "${SB:?}/etc/station.yml"; mkdir -p "$SB/opt" "$SB/var" "$SB/log" "$SB/run"
-old=$(date -u -d '-10 days' +%Y-%m-%dT%H:%M:%SZ)
-echo "# old" >>"$R/setup/steps/00-a.sh"; git -C "$R" add -A
-GIT_COMMITTER_DATE=$old GIT_AUTHOR_DATE=$old gc commit -qm old; push main
-git -C "$R" push -q -f "$SB/src/origin.git" main:stable
+SEEN=$SB/var/stable-tip-seen
+echo "# r built" >>"$R/setup/steps/00-a.sh"; commit "r: built"
 R1=$(sha)
 run bash "$B" --role stationary --no-reboot --set position.latitude=1.5 --set position.longitude=2.5 --set position.altitude_m=3
 check "R first build at stable's tip, no gate" [ "$RC/$(S 's["applied_rev"]')" = "0/$R1" ]
-echo "# young" >>"$R/setup/steps/00-a.sh"; commit young
-git -C "$R" push -q -f "$SB/src/origin.git" main:stable
+# A tip whose commit date is 10 days old: by its commit date it would apply at once; by its first
+# sight here it waits the whole soak.
+old=$(date -u -d '-10 days' +%Y-%m-%dT%H:%M:%SZ)
+echo "# old-dated" >>"$R/setup/steps/00-a.sh"; git -C "$R" add -A
+GIT_COMMITTER_DATE=$old GIT_AUTHOR_DATE=$old gc commit -qm "r: dated 10 days ago"; push main
+run bash "$U" --check
+check "R --check: a tip no timer run has seen is under the soak (10), and says the timer records it" \
+  rc_has 10 "^not pending: stable's tip $(sha | cut -c1-12) has not been seen by a timer run yet" "$SB/out.txt"
+check "R --check recorded nothing" [ ! -e "$SEEN" ]
 run bash "$U"
-check "R young tip: unchanged, exit 0" [ "$RC" = 0 ]
+check "R the 10-day-old commit, first seen now: unchanged, exit 0" [ "$RC" = 0 ]
 check "R says under soak" grep -q "under update.soak_days" "$SB/out.txt"
+check "R the timer recorded its first sight of the tip, now" \
+  python3 -c 'import sys,time; s,e=open(sys.argv[1]).read().split(); sys.exit(not (s==sys.argv[2] and abs(int(e)-time.time())<300))' "$SEEN" "$(sha)"
 check "R old non-tip commit not applied" [ "$(cat "$SB/var/applied-rev")" = "$R1" ]
-old2=$(date -u -d '-8 days' +%Y-%m-%dT%H:%M:%SZ)
-GIT_COMMITTER_DATE=$old2 gc commit -q --amend --no-edit; push main; git -C "$R" push -q -f "$SB/src/origin.git" main:stable
+# Seen 8 days ago: past the stationary's 7.
+printf '%s %s\n' "$(sha)" "$(( $(date +%s) - 8 * 86400 ))" >"$SEEN"
 run bash "$U"
-check "R aged tip is the candidate; the gate holds (no clock-preflight): exit 4" [ "$RC" = 4 ]
+check "R a tip seen 8 days ago is the candidate; the gate holds (no clock-preflight): exit 4" [ "$RC" = 4 ]
 check "R candidate named" grep -q "candidate: $(sha | cut -c1-12)" "$SB/out.txt"
 
 sig_run() { # <signal> <cmd...>: run it in its own session, send the signal to the group at SLEEPING
@@ -677,10 +702,11 @@ check "Z status.json's channel is stable" [ "$(S 's["channel"]')" = stable ]
 
 echo "== Y. update.soak_days in station.yml overrides the role default, both ways"
 set_soak() { sed -i '/^update:/,$d' "$SB/etc/station.yml"; printf 'update:\n  soak_days: %s\n' "$1" >>"$SB/etc/station.yml"; }
-dated() { # <days ago> <message>: a commit dated that long ago, pushed to main and stable
-  local d; d=$(date -u -d "-$1 days" +%Y-%m-%dT%H:%M:%SZ)
+dated() { # <days ago> <message>: a commit pushed to main and stable, which this rig first saw that
+  # long ago: the soak counts from stable-tip-seen, not the commit date (Chris, 2026-10-15)
   echo "# $2" >>"$R/setup/steps/00-a.sh"; git -C "$R" add -A
-  GIT_COMMITTER_DATE=$d GIT_AUTHOR_DATE=$d gc commit -qm "$2"; push main
+  gc commit -qm "$2"; push main
+  printf '%s %s\n' "$(sha)" "$(( $(date +%s) - $1 * 86400 ))" >"$SB/var/stable-tip-seen"
 }
 echo "-- Y1. a stationary with update.soak_days: 0 takes a young tip; the label names the file"
 fresh_rig; commit "y1: built"
@@ -712,6 +738,58 @@ set_soak 2; dated 0 "y4: young"
 run bash "$U"
 check "Y4 the portable's young tip waits (exit 0), applied unchanged" [ "$RC $(S 's["applied_rev"]')" = "0 $Y4" ]
 check "Y4 the NOTE names the file's 2 days" grep -q "under update.soak_days (2, update.soak_days in" "$SB/out.txt"
+
+echo "== RW. a rewound or a diverged stable: the timer refuses it (exit 0, status.json unchanged); --rev applies it"
+fresh_rig; echo "# rw a" >>"$R/setup/steps/00-a.sh"; commit "rw: a"; RWA=$(sha)
+run bash "$B" --role portable --no-reboot
+check "RW bootstrap applied a (0)" [ "$RC $(S 's["applied_rev"]')" = "0 $RWA" ]
+echo "# rw b" >>"$R/setup/steps/00-a.sh"; commit "rw: b"; RWB=$(sha)
+run bash "$U"
+check "RW the timer applied b, which descends from a (0)" [ "$RC $(S 's["applied_rev"]')" = "0 $RWB" ]
+git -C "$R" push -q -f "$SB/src/origin.git" "$RWA:refs/heads/stable"
+h=$(md5sum <"$SB/var/status.json"); m=$(mt); sleep 1
+run env INVOCATION_ID=smoke bash "$U"
+check "RW a rewound stable: refused, exit 0, status.json unchanged" [ "$RC/$(md5sum <"$SB/var/status.json")/$(mt)" = "0/$h/$m" ]
+check "RW its line, at priority warning (<4>), names the --rev that applies it" \
+  grep -q "^<4>ADSB-UPDATE-SKIPPED rewind: stable's tip ${RWA:0:12} does not descend from the applied ${RWB:0:12} .*sudo adsb-update --rev ${RWA:0:12}. Nothing was written" "$SB/out.txt"
+check "RW applied-rev is still b" [ "$(cat "$SB/var/applied-rev")" = "$RWB" ]
+run bash "$U" --check
+check "RW --check: not pending (14), a timer run would refuse it" rc_has 14 "^not pending: a timer run would refuse it: " "$SB/out.txt"
+run bash "$U" --retry
+check "RW --retry refuses it too (0), applied still b" [ "$RC $(cat "$SB/var/applied-rev")" = "0 $RWB" ]
+run bash "$U" --rev "$RWA"
+check "RW --rev a applies the rewind on purpose (0)" [ "$RC $(S 's["applied_rev"]')" = "0 $RWA" ]
+# Diverged: d on a, beside b, while b is applied (a squash or a rebase of what b was).
+run bash "$U" --rev "$RWB"
+git -C "$R" checkout -q -b rw-side "$RWA"; echo "# rw d" >>"$R/setup/steps/00-a.sh"; gc commit -qam "rw: d"; RWD=$(sha)
+git -C "$R" checkout -q main
+git -C "$R" push -q -f "$SB/src/origin.git" rw-side "$RWD:refs/heads/stable"
+h=$(md5sum <"$SB/var/status.json"); m=$(mt); sleep 1
+run bash "$U"
+check "RW a diverged stable: refused, exit 0, status.json unchanged, b still applied" \
+  [ "$RC/$(md5sum <"$SB/var/status.json")/$(mt)/$(cat "$SB/var/applied-rev")" = "0/$h/$m/$RWB" ]
+check "RW its line says d does not descend from b" \
+  grep -q "^ADSB-UPDATE-SKIPPED rewind: stable's tip ${RWD:0:12} does not descend from the applied ${RWB:0:12}" "$SB/out.txt"
+run bash "$U" --rev "$RWD"
+check "RW --rev d applies it (0)" [ "$RC $(S 's["applied_rev"]')" = "0 $RWD" ]
+check "RW the portable (soak 0) never wrote stable-tip-seen" [ ! -e "$SB/var/stable-tip-seen" ]
+echo "-- RW2. git cannot tell the ancestry (merge-base exits 128): a loud failure (1), nothing applied or written"
+# A git on PATH that fails `merge-base` as a missing commit does (fatal, 128) and is the real git
+# otherwise.
+mkdir -p "$SB/gitfail"
+# shellcheck disable=SC2016  # $@ and $a belong to the stub, expanded when it runs
+printf '#!/usr/bin/env bash\nfor a in "$@"; do [[ $a == merge-base ]] && { echo "fatal: Not a valid commit name (stub)" >&2; exit 128; }; done\nexec %q "$@"\n' "$(command -v git)" >"$SB/gitfail/git"
+chmod +x "$SB/gitfail/git"
+echo "# rw e" >>"$R/setup/steps/00-a.sh"; commit "rw: e"
+h=$(md5sum <"$SB/var/status.json"); m=$(mt); sleep 1
+run env PATH="$SB/gitfail:$PATH" INVOCATION_ID=smoke bash "$U"
+check "RW2 exit 1, status.json unchanged, applied-rev still d" \
+  [ "$RC/$(md5sum <"$SB/var/status.json")/$(mt)/$(cat "$SB/var/applied-rev")" = "1/$h/$m/$RWD" ]
+check "RW2 its line is at priority err (<3>) and says git could not tell" \
+  grep -q "^<3>xx  FAIL: git could not tell whether stable's tip $(sha | cut -c1-12) descends from the applied ${RWD:0:12} (merge-base exit 128" "$SB/out.txt"
+check "RW2 no refusal line: it is not taken for a rewind" lacks "ADSB-UPDATE-SKIPPED rewind" "$SB/out.txt"
+run env PATH="$SB/gitfail:$PATH" bash "$U" --check
+check "RW2 --check: 13, a timer run would fail too" rc_has 13 "^not pending: a timer run here would fail too, before any step: git could not tell" "$SB/out.txt"
 
 echo "== W. the bootstrap on a recording rig: the pull window ends the session on a first build (PLAN §9e's (b))"
 # hold_lock <cgroup path>: a flock process holds the recording lock (lslocks names its PID, which
@@ -899,10 +977,13 @@ check "CK7 the timer run: failed (1), the same reason recorded" \
 rm -f "$SB/opt/applied" "$R/setup/IFAIL-40-c"; commit "ck7: done"
 
 echo "== HU. the home-gated opener (bin/adsb-home-update) behind its predicate (bin/adsb-at-home)"
-# The SSID carries a colon and a backslash, which nmcli's terse output escapes.
+# The SSID carries a colon and a backslash. bin/adsb-at-home reads nmcli's ssid-hex field, so the
+# stub prints each SSID as the hex of its bytes.
 SSID='Sec:ret\Home'
+hexof() { printf '%s' "$1" | od -An -tx1 | tr -d ' \n' | tr a-f A-F; }
+SSID_HEX=$(hexof "$SSID")
 set_home() { sed -i '/^update:/,$d' "$SB/etc/station.yml"; printf 'update:\n  home_ssid: "Sec:ret\\\\Home"\n' >>"$SB/etc/station.yml"; }
-at_home() { printf 'no:Neighbor\nyes:Sec\\:ret\\\\Home\nno:Neighbor\n' >"$SB/nmcli.out"; }
+at_home() { printf 'no:%s\nyes:%s\nno:%s\n' "$(hexof Neighbor)" "$SSID_HEX" "$(hexof Neighbor)" >"$SB/nmcli.out"; }
 # unit_run: as adsb-home-update.service runs them: the ExecCondition=, then, only if it passed,
 # the opener, with the unit's Environment= paths, and its unit reading activating meanwhile. Every
 # output is kept for the SSID checks.
@@ -982,7 +1063,7 @@ check "HU5 not-pending (0), carrying --check's line" \
 check "HU5 no window was started" lacks "^start adsb-pull-window.service$" "$SB/systemctl.log"
 
 echo "-- HU6. not at home (a hotspot): one tagged line, nothing fires"
-printf 'yes:Hotspot\nno:Sec\\:ret\\\\Home\n' >"$SB/nmcli.out"; : >"$SB/updater.log"; : >"$SB/systemctl.log"
+printf 'yes:%s\nno:%s\n' "$(hexof Hotspot)" "$SSID_HEX" >"$SB/nmcli.out"; : >"$SB/updater.log"; : >"$SB/systemctl.log"
 unit_run
 check "HU6 not-at-home (1), one tagged line" hu_line "^ADSB-HOME-UPDATE not-at-home: "
 check "HU6 exit 1, the opener never ran" [ "$RC/$(wc -l <"$SB/out.txt")" = 1/1 ]
@@ -1024,13 +1105,14 @@ check "HU11 error (1): not dispatched, so no update ran" \
 check "HU11 exit 1, the window stopped, the marker gone" \
   [ "$RC/$(grep -cxF 'stop adsb-pull-window.service' "$SB/systemctl.log")/$([ -e "$SB/home/window-opened-by" ] && echo marker)" = "1/1/" ]
 
-# hu_clean: no output, log, state or run file holds the SSID, escaped or not (the fixtures aside).
+# hu_clean: no output, log, state or run file holds the SSID, as text, escaped or in hex (the
+# fixtures aside).
 hu_clean() {
   local f files=()
   for f in "$SB/hu-all.txt" "$SB/systemctl.log" "$SB/updater.log" "$SB/window-update.out" "$SB/var" "$SB/log" "$SB/run" "$SB/home"; do
     [[ -e $f ]] && files+=("$f")
   done
-  ! grep -rqF -e "$SSID" -e 'Sec\:ret' "${files[@]}" && [ "$(sort -u "$SB/nmcli.log")" = "-t -f active,ssid dev wifi list --rescan no" ]
+  ! grep -rqiF -e "$SSID" -e 'Sec\:ret' -e "$SSID_HEX" "${files[@]}" && [ "$(sort -u "$SB/nmcli.log")" = "-t -f active,ssid-hex dev wifi list --rescan no" ]
 }
 check "HU8 the SSID is in no output, log, status or run file, and never on nmcli's command line" hu_clean
 

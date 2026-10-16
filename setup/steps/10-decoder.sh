@@ -122,11 +122,13 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 # install_if_changed <src> <dst> <mode> <owner:group>: render, diff, install
-# (PLAN §9f). Installs only when the content, mode or owner differs, and logs
-# which. Sets CHANGED to 0 or 1.
+# (PLAN §9f), by a temporary file in the destination's directory and a rename
+# (50-updater's), so a daemon-reload never reads a half-written unit. Installs
+# only when the content, mode or owner differs, and logs which. Sets CHANGED to
+# 0 or 1.
 CHANGED=0
 install_if_changed() {
-  local src=$1 dst=$2 mode=$3 owner=$4
+  local src=$1 dst=$2 mode=$3 owner=$4 tmp
   guard_path "$dst"
   CHANGED=0
   if [[ -f $dst ]] && cmp -s "$src" "$dst" \
@@ -134,9 +136,18 @@ install_if_changed() {
     log "$dst is unchanged"
     return 0
   fi
-  run install -D -m "$mode" -o "${owner%%:*}" -g "${owner##*:}" "$src" "$dst"
+  # The temporary name ends in "~": run-parts --lsbsysinit (pam_motd's, over
+  # /etc/update-motd.d) and sudo's includedir skip such a name, and no unit,
+  # tmpfiles.d or drop-in reader takes it (it lacks their suffix). One left by a
+  # killed run is removed first, under the name before 2026-10-15 too (no "~",
+  # which run-parts would run); a failure here removes its own.
+  tmp=$(dirname "$dst")/.$(basename "$dst").adsb-new~
+  rm -f -- "$tmp" "${tmp%"~"}"
+  run install -D -m "$mode" -o "${owner%%:*}" -g "${owner##*:}" "$src" "$tmp" \
+    || { rm -f -- "$tmp"; die "could not write $tmp; $dst was not changed"; }
+  run mv -f "$tmp" "$dst" || { rm -f -- "$tmp"; die "could not rename $tmp to $dst; $dst was not changed"; }
   CHANGED=1
-  log "$dst changed; installed"
+  log "$dst changed; installed by rename"
 }
 
 # pkg_installed <pkg>: dpkg says it is installed. No `grep -q` at the end of a
@@ -590,7 +601,11 @@ sdr_on_usb() {
   local d v p
   for d in /sys/bus/usb/devices/*; do
     [[ -f $d/idVendor && -f $d/idProduct ]] || continue
-    v=$(<"$d/idVendor"); p=$(<"$d/idProduct")
+    # A device that vanishes between the -f test and the read is skipped, as in
+    # 00-drivers, and the failed redirect's message is kept off the output. (An
+    # empty v or p would fail the vendor test anyway; this makes the skip explicit.)
+    { v=$(<"$d/idVendor"); } 2>/dev/null || continue
+    { p=$(<"$d/idProduct"); } 2>/dev/null || continue
     if [[ $v == 0bda && ( $p == 2838 || $p == 2832 ) ]]; then
       printf '%s %s:%s\n' "$(basename "$d")" "$v" "$p"
     fi

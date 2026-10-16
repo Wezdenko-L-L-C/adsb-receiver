@@ -33,7 +33,9 @@
 #     setgid directory is still group adsb-operator.
 #   - The installing user (SUDO_USER) joins adsb-operator (Chris, 2026-10-04).
 #   - /etc/tmpfiles.d/adsb-receiver.conf: /run/adsb-receiver and the recording
-#     lock file, /run/adsb-receiver/recording.lock (PLAN §9f, §9i).
+#     lock file, /run/adsb-receiver/recording.lock (PLAN §9f, §9i), both
+#     root:root (0755 and 0644): root writes there by name, so the writer's user
+#     must not own the directory (lib.sh, beside ADSB_RUN_DIR).
 
 set -euo pipefail
 # shellcheck source=setup/lib.sh
@@ -95,18 +97,28 @@ PY
 }
 
 # install_if_changed <src> <dst> <mode> <owner:group>: render, diff, install
-# (PLAN §9f). Installs only when the content, mode or owner differs, and logs
-# which.
+# (PLAN §9f), by a temporary file in the destination's directory and a rename
+# (50-updater's), so a reader never sees a half-written station.yml. Installs
+# only when the content, mode or owner differs, and logs which.
 install_if_changed() {
-  local src=$1 dst=$2 mode=$3 owner=$4
+  local src=$1 dst=$2 mode=$3 owner=$4 tmp
   guard_path "$dst"
   if [[ -f $dst ]] && cmp -s "$src" "$dst" \
      && [[ $(stat -c '%U:%G %a' "$dst") == "$owner ${mode#0}" ]]; then
     log "$dst is unchanged"
     return 0
   fi
-  run install -D -m "$mode" -o "${owner%%:*}" -g "${owner##*:}" "$src" "$dst"
-  log "$dst changed; installed"
+  # The temporary name ends in "~": run-parts --lsbsysinit (pam_motd's, over
+  # /etc/update-motd.d) and sudo's includedir skip such a name, and no unit,
+  # tmpfiles.d or drop-in reader takes it (it lacks their suffix). One left by a
+  # killed run is removed first, under the name before 2026-10-15 too (no "~",
+  # which run-parts would run); a failure here removes its own.
+  tmp=$(dirname "$dst")/.$(basename "$dst").adsb-new~
+  rm -f -- "$tmp" "${tmp%"~"}"
+  run install -D -m "$mode" -o "${owner%%:*}" -g "${owner##*:}" "$src" "$tmp" \
+    || { rm -f -- "$tmp"; die "could not write $tmp; $dst was not changed"; }
+  run mv -f "$tmp" "$dst" || { rm -f -- "$tmp"; die "could not rename $tmp to $dst; $dst was not changed"; }
+  log "$dst changed; installed by rename"
 }
 
 install_station_yml() {
@@ -178,15 +190,23 @@ install_group_and_user() {
 
 install_tmpfiles() {
   # The lock file is created here, not by its users, so neither root's
-  # update.sh nor the writer races to create it. It is believed, not checked
-  # here, that flock(1) can lock a file it opened read-only, so that 0644 is
-  # enough for both. On tmpfs: a crash or a
-  # reboot leaves no stale lock (PLAN §9m).
+  # update.sh nor the writer races to create it. Both root's. The writer cannot
+  # create a file in a root directory, and need not: flock(1) opens an existing
+  # file read-only and locks that (seen on the workstation, util-linux 2.41.3,
+  # as a user on a root-owned 0644 file in a root-owned directory; not seen on
+  # the Pi). On tmpfs: a crash or a reboot leaves no stale lock (PLAN §9m).
+  # On a rig built before 2026-10-15 the directory and the file exist, owned by
+  # adsb-receiver. tmpfiles.d(5) (systemd 259, read on the workstation): "By
+  # default, the ownership of listed inodes is set to the specified user/group
+  # regardless of whether it is created anew, or already existed", and the same
+  # of the mode; seen for an existing file's mode under `f` on the workstation,
+  # not on the Pi. So both are re-owned here, and a rollback to an older tree,
+  # whose entry names adsb-receiver, re-owns them back. The verify reads both.
   cat >"$WORK/tmpfiles.conf" <<EOF
 # Rendered by setup/steps/05-config.sh. Do not edit; re-run the step.
-# The recording lock (PLAN §9f, §9i, §9m).
-d $RUN_DIR 0755 $USER_NAME $GROUP_NAME -
-f $LOCK 0644 $USER_NAME $GROUP_NAME -
+# The recording lock (PLAN §9f, §9i, §9m). root:root: root writes here by name.
+d $RUN_DIR 0755 root root -
+f $LOCK 0644 root root -
 EOF
   install_if_changed "$WORK/tmpfiles.conf" "$TMPFILES" 0644 root:root
   # Changes nothing when the directory and file are already right.
@@ -248,11 +268,12 @@ verify() {
   log "stat $RUN_DIR $LOCK (raw output follows)"
   stat -c '%U:%G %a %F %n' "$RUN_DIR" "$LOCK" 2>&1 || true
   echo "----"
-  [[ -d $RUN_DIR && $(stat -c '%U:%G %a' "$RUN_DIR") == "$USER_NAME:$GROUP_NAME 755" ]] \
-    || die "$RUN_DIR is missing or not $USER_NAME:$GROUP_NAME 0755; run: systemd-tmpfiles --create $TMPFILES"
-  [[ -f $LOCK && $(stat -c '%U:%G %a' "$LOCK") == "$USER_NAME:$GROUP_NAME 644" ]] \
-    || die "$LOCK is missing or not $USER_NAME:$GROUP_NAME 0644; run: systemd-tmpfiles --create $TMPFILES"
-  pass "$RUN_DIR and $LOCK exist, $USER_NAME:$GROUP_NAME, 0755 and 0644"
+  # -L first: stat and -d / -f follow a symlink, and these must be real.
+  [[ ! -L $RUN_DIR && -d $RUN_DIR && $(stat -c '%U:%G %a' "$RUN_DIR") == "root:root 755" ]] \
+    || die "$RUN_DIR is missing, a symlink, or not root:root 0755; run: systemd-tmpfiles --create $TMPFILES"
+  [[ ! -L $LOCK && -f $LOCK && $(stat -c '%U:%G %a' "$LOCK") == "root:root 644" ]] \
+    || die "$LOCK is missing, a symlink, or not root:root 0644; run: systemd-tmpfiles --create $TMPFILES"
+  pass "$RUN_DIR and $LOCK exist, root:root, 0755 and 0644"
 }
 
 # check_login_has_group <gid>: a new group membership reaches a login only at

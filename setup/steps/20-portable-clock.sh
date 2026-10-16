@@ -148,22 +148,40 @@ EOF
   die "no $RTC: the RTC is not wired into boot yet (see above)"
 }
 
-# find_puck: exactly one device under /dev/serial/by-id. Sets PUCK. The by-id
-# name is the adapter's own, so it survives a ttyUSB renumbering; it names this
+# find_puck: the GPS puck's path. Sets PUCK. The DEVICES path that
+# $GPSD_DEFAULTS already configures wins while it exists: a built rig keeps its
+# puck when a second USB-serial adapter is plugged in, where "exactly one"
+# would hold every update at this step although gpsd has its puck (a review,
+# 2026-10-15). Only with nothing configured, or the configured device gone, is
+# the puck found as exactly one device under /dev/serial/by-id. The by-id name
+# is the adapter's own, so it survives a ttyUSB renumbering; it names this
 # puck's serial number, which is why it is found here, not written in the repo.
 PUCK=
 find_puck() {
-  local devs=()
+  local devs=() conf
+  # The same read as the verify's.
+  conf=$(sed -nE 's/^DEVICES="?([^"]*)"?[[:space:]]*$/\1/p' "$GPSD_DEFAULTS" 2>/dev/null | tail -n1) || true
+  if [[ -n $conf && -e $conf ]]; then
+    PUCK=$conf
+    log "the GPS puck, as $GPSD_DEFAULTS configures it: $PUCK -> $(readlink -f "$PUCK")"
+    return 0
+  fi
+  if [[ -n $conf ]]; then
+    log "$GPSD_DEFAULTS configures DEVICES=\"$conf\", which does not exist now; looking under $BY_ID"
+  fi
   if [[ -d $BY_ID ]]; then
     shopt -s nullglob
     devs=("$BY_ID"/*)
     shopt -u nullglob
   fi
   log "ls $BY_ID (raw): ${devs[*]:-(none)}"
-  ((${#devs[@]} > 0)) || die "nothing under $BY_ID: plug in the GPS puck"
+  ((${#devs[@]} > 0)) || die "nothing under $BY_ID: plug in the GPS puck${conf:+ (the configured one is $conf)}"
   if ((${#devs[@]} > 1)); then
     printf '%s\n' "${devs[@]}" >&2
-    die "${#devs[@]} serial devices under $BY_ID (listed above); unplug all but the GPS puck, then run this step again"
+    if [[ -n $conf ]]; then
+      die "${#devs[@]} serial devices under $BY_ID (listed above), and the configured $conf is not among them. Plug that puck back in (this step accepts $conf whatever else is plugged in), or unplug all but the GPS puck you mean, then run this step again"
+    fi
+    die "${#devs[@]} serial devices under $BY_ID (listed above), and $GPSD_DEFAULTS configures none; unplug all but the GPS puck, then run this step again"
   fi
   PUCK=${devs[0]}
   log "the GPS puck: $PUCK -> $(readlink -f "$PUCK")"

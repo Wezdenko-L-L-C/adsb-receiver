@@ -10,8 +10,8 @@
 #
 # ⛔ The marker lives in the opener's own directory, /run/adsb-home-update (lib.sh's
 #    ADSB_HOME_DIR, root:root 0755, step 70's tmpfiles.d), never in /run/adsb-receiver, which the
-#    writer's user owns: there a planted symlink would turn root's write by name into a write
-#    anywhere (security review, 2026-10-09). Belt and braces, should that directory ever be
+#    writer's user owned until 2026-10-15: there a planted symlink would have turned root's write
+#    by name into a write anywhere (security review, 2026-10-09). Belt and braces, should that directory ever be
 #    misconfigured: before anything else, the run refuses (decision error, exit 1, nothing done)
 #    unless the directory is a real directory, not a symlink, owned by root and writable by no one
 #    else; and the marker is written after `rm -f`, with noclobber, so the write creates a new file
@@ -32,8 +32,9 @@
 #      holder, as update.sh and bootstrap.sh take it; a writer still waiting on the lock is
 #      believed to be listed after its holder, not seen;
 #   4. `adsb-update --check` (no lock, writes nothing; stdout is its verdict, stderr its progress,
-#      read apart): 0 pending; 10, 11, 12 not pending (unchanged or under the soak, the 24 h
-#      backoff, the fetch failed); 13 a timer run would itself fail here, before any step (it says
+#      read apart): 0 pending; 10, 11, 12, 14 not pending (unchanged or under the soak, the 24 h
+#      backoff, the fetch failed, a rewind the timer refuses, whose line names the --rev that
+#      applies it: the build's mapping, not ruled); 13 a timer run would itself fail here, before any step (it says
 #      why: such a rig needs a hand, and a window would change nothing); anything else, "could
 #      not tell";
 #   5. if pending: writes the marker (content "adsb-home-update"); reads adsb-update.service's
@@ -221,7 +222,7 @@ PY
 }
 
 main() {
-  local win upd rc line holder inv0 inv st job t0 t0e b code result how word out
+  local win upd rc line holder inv0 inv st job t0 t1 t0e b code result how word out
 
   if ((EUID != 0)); then say error "run as root; adsb-home-update.service runs it"; exit 1; fi
   if [[ $MARK != /* || $LOCK != /* ]]; then
@@ -264,7 +265,7 @@ main() {
   line=$(grep -v '^[[:space:]]*$' "$TMPD/out" | tail -n1) || line=''
   case $rc in
     0) ;;
-    10|11|12) say not-pending "$line"; exit 0 ;;
+    10|11|12|14) say not-pending "$line"; exit 0 ;;
     13) say run-would-fail "$line"; exit 1 ;;
     124) say error "adsb-update --check did not finish in ${CHECK_BOUND} s, so whether an update is pending is unknown; nothing opened"; exit 1 ;;
     *) line=$(grep -E '^xx ' "$TMPD/err" | tail -n1 | sed -E 's/^xx +//') || line=''
@@ -302,14 +303,17 @@ main() {
     fi
     sleep "$POLL"
   done
+  # Timed from the dispatch: bounded() has already taken the dispatch wait out of the budget, so
+  # counting from t0 too would charge it twice.
+  t1=$SECONDS
   b=$(bounded "$UPDATE_BOUND")
   while :; do
     st=$(systemctl show -p ActiveState --value "$UPDATE" 2>/dev/null) || st=''
     job=$(systemctl list-jobs --no-legend "$UPDATE" 2>/dev/null | grep -F "$UPDATE") || job=''
     [[ ($st == inactive || $st == failed) && -z $job ]] && break
-    if ((SECONDS - t0 >= b)); then
+    if ((SECONDS - t1 >= b)); then
       close_window trap || true
-      say error "opened the pull window ($line), but $UPDATE was still ${st:-unknown}${job:+ (a start job queued)} after $((SECONDS - t0)) s, the most the opener's 55 min allows; $CLOSE_MSG"
+      say error "opened the pull window ($line), but $UPDATE was still ${st:-unknown}${job:+ (a start job queued)} $((SECONDS - t1)) s after its dispatch, the most the opener's 55 min allows; $CLOSE_MSG"
       exit 1
     fi
     sleep "$POLL"
@@ -318,11 +322,12 @@ main() {
   # Its outcome.
   code=$(systemctl show -p ExecMainStatus --value "$UPDATE" 2>/dev/null) || code=''
   result=$(status_since "$t0e")
-  how="$UPDATE ran ($(( SECONDS - t0 )) s), exit ${code:-?}${result:+, status.json: $result}"
+  # Timed from its dispatch (t1), as its bound is: the dispatch wait is not the update's.
+  how="$UPDATE ran ($(( SECONDS - t1 )) s), exit ${code:-?}${result:+, status.json: $result}"
   rc=1
   case $code in
     0) if [[ $result == applied ]]; then word=opened-applied; else word=opened-unchanged
-         how+=", and wrote no new status.json: unchanged, skipped in its backoff, the lock held, or offline; its own journal says which"; fi
+         how+=", and wrote no new status.json: unchanged, skipped in its backoff, a rewind refused, the lock held, or offline; its own journal says which"; fi
        rc=0 ;;
     2) word=opened-rolled-back ;;
     3) word=opened-incomplete ;;

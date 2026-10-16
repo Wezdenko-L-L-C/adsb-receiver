@@ -23,9 +23,10 @@
 #   - /etc/tmpfiles.d/adsb-home-update.conf, making /run/adsb-home-update (lib.sh's ADSB_HOME_DIR)
 #     root:root 0755, at every boot and at install (systemd-tmpfiles --create on that file alone).
 #     The opener's marker and its predicate's state file live there. ⛔ Not in /run/adsb-receiver
-#     (05-config's), which is adsb-receiver:adsb-operator 0755: its owner is the writer's user,
-#     and a symlink planted there would turn a root write by name into a write anywhere (security
-#     review, 2026-10-09). A tmpfiles.d entry rather than RuntimeDirectory=: the directory must
+#     (05-config's), which was adsb-receiver:adsb-operator 0755 until 2026-10-15: its owner was
+#     the writer's user, and a symlink planted there would turn a root write by name into a write
+#     anywhere (security review, 2026-10-09). It is root:root now too (lib.sh, ADSB_RUN_DIR); the
+#     opener keeps a directory of its own all the same. A tmpfiles.d entry rather than RuntimeDirectory=: the directory must
 #     outlive each run of the oneshot, since the banner reads the state between runs. Its own
 #     file, not 05-config's: the opener is portable-only. ⚠️ Belief, from systemd's
 #     documentation, not seen: `d` also corrects the owner and mode of a directory already there.
@@ -125,9 +126,16 @@ install_if_changed() {
     log "$dst is unchanged"
     return 0
   fi
-  tmp=$(dirname "$dst")/.$(basename "$dst").adsb-new
-  run install -D -m "$mode" -o "${owner%%:*}" -g "${owner##*:}" "$src" "$tmp"
-  run mv -f "$tmp" "$dst"
+  # The temporary name ends in "~": run-parts --lsbsysinit (pam_motd's, over
+  # /etc/update-motd.d) and sudo's includedir skip such a name, and no unit,
+  # tmpfiles.d or drop-in reader takes it (it lacks their suffix). One left by a
+  # killed run is removed first, under the name before 2026-10-15 too (no "~",
+  # which run-parts would run); a failure here removes its own.
+  tmp=$(dirname "$dst")/.$(basename "$dst").adsb-new~
+  rm -f -- "$tmp" "${tmp%"~"}"
+  run install -D -m "$mode" -o "${owner%%:*}" -g "${owner##*:}" "$src" "$tmp" \
+    || { rm -f -- "$tmp"; die "could not write $tmp; $dst was not changed"; }
+  run mv -f "$tmp" "$dst" || { rm -f -- "$tmp"; die "could not rename $tmp to $dst; $dst was not changed"; }
   CHANGED=1
   log "$dst changed; installed by rename"
 }
@@ -135,8 +143,8 @@ install_if_changed() {
 render_tmpfiles() {
   cat >"$WORK/tmpfiles" <<EOF
 # Rendered by setup/steps/70-portable-home-update.sh. Do not edit; re-run the step. PLAN §9f.
-# The home-gated opener's own runtime directory: root's alone to write. Not /run/adsb-receiver,
-# which the writer's user owns (the step's header).
+# The home-gated opener's own runtime directory: root's alone to write. Not /run/adsb-receiver
+# (the step's header).
 d $ADSB_HOME_DIR 0755 root root -
 EOF
 }

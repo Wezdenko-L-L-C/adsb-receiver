@@ -2,11 +2,21 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # The login banner, installed by setup/steps/50-updater.sh as /etc/update-motd.d/50-adsb-receiver.
-# pam_motd runs /etc/update-motd.d at each SSH login. PLAN §9f, §9m. ~~As root~~ *Corrected
-# 2026-10-09: a code review found that it runs as the login, not root (not seen on the Pi); so it
-# reads nothing root-only, and station.yml (root:root 0600, step 05) not at all.* Seen on mobile-adsb,
-# 2026-10-04: /etc/pam.d/sshd line 33 has `pam_motd.so motd=/run/motd.dynamic` without noupdate,
-# and /run/motd.dynamic was rewritten at an SSH login with 10-uname's output.
+# pam_motd runs /etc/update-motd.d at each SSH login, as root. Seen on mobile-adsb, 2026-10-04:
+# /etc/pam.d/sshd line 33 has `pam_motd.so motd=/run/motd.dynamic` without noupdate, and
+# /run/motd.dynamic was rewritten at an SSH login with 10-uname's output. As root, seen there
+# 2026-10-15 (libpam-modules 1.7.0-5): pam_motd.so carries `run-parts --lsbsysinit
+# /etc/update-motd.d > /run/motd.dynamic.new`, a redirect into root-owned /run, and
+# /run/motd.dynamic (root:root 644) was rewritten at an SSH login. A code review of 2026-10-09
+# had said it runs as the login; that was wrong. PLAN §9f, §9m.
+# ⛔ It reads no station.yml, by choice: nothing from the config reaches a login's screen.
+# ⛔ Being root, it opens no file by a name someone else could point elsewhere: writer.json, in the
+#    writer's 2770 directory, and status.json are opened with O_NOFOLLOW and must be regular
+#    files; the reboot flag is not read if it is a symlink (its directory is root's since
+#    2026-10-15, lib.sh's ADSB_RUN_DIR, so none can be planted there).
+# ⛔ Every value it prints passes through a filter first: each control character (C0, DEL and C1,
+#    so every terminal escape sequence's introducer) becomes '?'. The files it reads are written by
+#    root and the writer, but their values come from tools, drives and the radio.
 #
 # It reads and prints; it changes nothing, and it never fails a login: no `set -e`, every command
 # guarded, and it always exits 0. A login waits for it, so every command that could hang
@@ -18,7 +28,7 @@
 #     does not exist), the two trap lines of PLAN §9e's 2026-10-05 (a): the pin, and the one
 #     command out of it, with --role from status.json's role (only portable or stationary is
 #     printed), or the generic sentence when it is neither. The ruled text reads the role from
-#     station.yml, which the login cannot read; status.json's is the role update.sh read from it.
+#     station.yml, which this does not read (above); status.json's is the role update.sh read from it.
 #     The ruled text
 #     abbreviates the URL as "…/setup/bootstrap.sh"; the banner prints BUILD.md §8's whole URL, so
 #     the line can be copied (the implementer's reading, not ruled);
@@ -35,12 +45,21 @@
 #     /run/adsb-home-update/home-update-state (it may have changed since; tmpfs, so none before the
 #     first check after a boot), and the timer's next check. ⛔ Never the SSID.
 # The one-run notes in status.json (such as the RTC charge-path line) are not shown here.
-# ⚠️ Lines from status.json are printed as stored. None carries a config value or a position
-#    today; nothing here filters them.
+# ⚠️ Lines from status.json are printed as stored, but for the control-character filter above.
+#    None carries a config value or a position today; nothing else here filters them.
 
 # t <command...>: the command, stopped after 5 s (and killed 2 s later) if it hangs.
 t() {
   if command -v timeout >/dev/null; then timeout -k 2 5 "$@"; else "$@"; fi
+}
+
+# clean <text>: the text with each control character replaced by '?': C0 and DEL byte by byte,
+# and C1 (U+0080 to U+009F) as UTF-8 encodes it. Bytes, whatever the login's locale.
+clean() {
+  local LC_ALL=C s=$1
+  s=${s//[[:cntrl:]]/?}
+  s=${s//$'\xc2'[$'\x80'-$'\x9f']/?}
+  printf '%s' "$s"
 }
 
 STATUS=/var/lib/adsb-receiver/status.json
@@ -65,8 +84,12 @@ else
   [[ -e $APPLIED || -L $APPLIED ]] && applied_exists=1
   ARCHIVE_MOUNTED=$archive_mounted APPLIED_EXISTS=$applied_exists \
     t python3 - "$STATUS" <<'PY' 2>/dev/null || echo "  status.json: unreadable"
-import json, os, sys
-s = json.load(open(sys.argv[1]))
+import json, os, re, stat, sys
+# O_NOFOLLOW, and a regular file only (O_NONBLOCK, so a FIFO cannot hold the login).
+fd = os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+if not stat.S_ISREG(os.fstat(fd).st_mode):
+    sys.exit(1)
+s = json.load(os.fdopen(fd))
 out = []
 rev = (s.get("applied_rev") or "")[:12] or "none"
 out.append(f"  role {s.get('role')}, channel {s.get('channel')}; applied {rev}")
@@ -114,13 +137,16 @@ if fa.get("result") in ("refused", "failed") and os.environ.get("ARCHIVE_MOUNTED
         out.append(f"    by hand, after checking the device: {fa['manual']}")
 if s.get("log"):
     out.append(f"  log: {s['log']}")
-print("\n".join(out))
+# The header's filter: C0, DEL and C1 become '?'.
+print("\n".join(re.sub(r"[\x00-\x1f\x7f-\x9f]", "?", line) for line in out))
 PY
 fi
 
-if [[ -s $FLAG ]]; then
+if [[ -s $FLAG && ! -L $FLAG ]]; then
   echo "  REBOOT REQUIRED:"
-  sed 's/^/    /' "$FLAG" 2>/dev/null
+  while IFS= read -r reason || [[ -n $reason ]]; do
+    printf '    %s\n' "$(clean "$reason")"
+  done <"$FLAG" 2>/dev/null
 elif [[ -e /run/reboot-required ]]; then
   echo "  REBOOT REQUIRED (by the system's packages)"
 fi
@@ -129,16 +155,21 @@ pid=$(t lslocks -r -n -o PID,PATH 2>/dev/null | awk -v p="$LOCK" '$2 == p { prin
 if [[ -n $pid ]]; then
   holder=$(sed -nE 's#^0::.*/([^/]+\.(service|scope))$#\1#p' "/proc/$pid/cgroup" 2>/dev/null | head -n1)
   started=$(t ps -o lstart= -p "$pid" 2>/dev/null | sed 's/^ *//')
-  echo "  recording lock: held by ${holder:-PID $pid} (process started ${started:-?})"
+  echo "  recording lock: held by $(clean "${holder:-PID $pid}") (process started $(clean "${started:-?}"))"
 else
   echo "  recording lock: free (not recording)"
 fi
 if [[ -r $WRITER_JSON ]] && command -v python3 >/dev/null; then
   t python3 - "$WRITER_JSON" <<'PY' 2>/dev/null
-import json, sys
-w = json.load(open(sys.argv[1]))
-print(f"  writer: {w.get('state')}, file {w.get('current_file')}, {w.get('frames_in_file')} frames"
-      f" (as of {w.get('updated_at')})")
+import json, os, re, stat, sys
+# Written by the writer in a directory its group may write: never followed (the header).
+fd = os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+if not stat.S_ISREG(os.fstat(fd).st_mode):
+    sys.exit(1)
+w = json.load(os.fdopen(fd))
+line = (f"  writer: {w.get('state')}, file {w.get('current_file')}, {w.get('frames_in_file')} frames"
+        f" (as of {w.get('updated_at')})")
+print(re.sub(r"[\x00-\x1f\x7f-\x9f]", "?", line))
 PY
 fi
 
@@ -148,6 +179,7 @@ next=$(t systemctl list-timers --no-pager --no-legend adsb-update.timer 2>/dev/n
 if [[ $(t systemctl show -p LoadState --value adsb-home-update.timer 2>/dev/null) == loaded ]]; then
   hs=''
   [[ -r $HOME_STATE ]] && read -r hs hs_at <"$HOME_STATE" 2>/dev/null
+  hs_at=$(clean "${hs_at:-}")
   case $hs in
     off) echo "  home update: off, update.home_ssid is not set (as of $hs_at; may have changed since)" ;;
     at-home|not-at-home) echo "  home update: on; last check: ${hs//-/ } (as of $hs_at; may have changed since)" ;;

@@ -9,7 +9,8 @@
 #   0  ready
 #   2  not ready, for a reason outside the rig, printed: no labeled device, more
 #      than one, not mounted, not ext4, mounted read-only, beast/ or spool/
-#      cannot be created, the probe failed for a reason other than a full drive
+#      a symbolic link or cannot be created, the probe failed for a reason
+#      other than a full drive
 #   1  the check itself could not run: not root, station.yml unreadable or
 #      missing its archive keys, a required tool missing, no adsb-receiver user
 # It prints its raw evidence.
@@ -26,8 +27,12 @@
 #     (two guards, below).
 #
 # 📋 PLAN §9m records a refusal as `recording: refused`, with the reason, in
-#    status.json and the login banner. status.json is not built (PLAN §9k
-#    item 3); the record lands there later. This script writes no status.json.
+#    status.json and the login banner. That field is not built. What is: at
+#    each update run, setup/update.sh's readiness() runs this script and keeps
+#    its exit code, a status word and its last line in status.json's
+#    readiness{}, and the banner prints them, as of that run. A refusal at the
+#    writer's own start is in the writer's journal only. This script writes no
+#    status.json.
 #
 # Self-contained: installed outside the repo, it cannot source setup/lib.sh.
 
@@ -113,7 +118,12 @@ read -r src mfstype opts <<<"$fm"
 
 # A missing beast/ or spool/ is created (Chris, 2026-10-04): a spare drive,
 # formatted by hand with the label, then records with no step run.
+# ⛔ Never a symlink: -d, chown and chmod follow one, and the writer would then
+#    record wherever it points. The drive comes from outside the rig, so this is
+#    "not ready" (2), not a repair.
 for d in beast spool; do
+  [[ ! -L $MP/$d ]] \
+    || notready "$MP/$d is a symbolic link, not a directory on the drive; the writer would record wherever it points. Look at it (ls -l $MP), remove the link (sudo rm $MP/$d), and run this again"
   if [[ ! -d $MP/$d ]]; then
     { mkdir -- "$MP/$d" && chown "$USER_NAME:$GROUP_NAME" "$MP/$d" && chmod 2770 "$MP/$d"; } \
       || notready "could not create $MP/$d (check dmesg)"

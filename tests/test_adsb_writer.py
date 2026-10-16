@@ -161,6 +161,25 @@ class WriterTest(WriterTestBase):
         self.assertEqual(st["state"], "stopped")
         self.assertIsNone(st["current_file"])
 
+    def test_a_link_at_the_status_tmp_name_is_not_followed(self):
+        # The status directory is the group's to write: a symlink or a hard link planted at the
+        # .tmp name must not be opened, so what it points to is left as it was.
+        victim = os.path.join(self.tmp.name, "victim")
+        for kind in ("symlink", "hardlink"):
+            with self.subTest(kind=kind):
+                with open(victim, "w") as fh:
+                    fh.write("untouched\n")
+                tmp = self.status + ".tmp"
+                (os.symlink if kind == "symlink" else os.link)(victim, tmp)
+                w = self.make()
+                w.write_status(force=True)
+                with open(victim) as fh:
+                    self.assertEqual(fh.read(), "untouched\n")
+                self.assertFalse(os.path.lexists(tmp))
+                with open(self.status) as fh:
+                    self.assertIn("updated_at", json.load(fh))
+                os.unlink(self.status)
+
     def test_position_never_reaches_the_status_file(self):
         line = "position 10.5 20.5 100.0 3 2026-10-04T12:03:17.000Z"
         w = self.make(probe=lambda: ["clock ref=TEST", line])

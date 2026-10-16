@@ -15,28 +15,44 @@ ADSB_REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 ADSB_ETC=/etc/adsb-receiver
 
 # The exit code of a step run with --skip-other-role on the other role's rig
-# (PLAN §9b). Any unused value below 126 would do. ⛔ Not 3: station_get exits 3
-# for an absent key. setup/update.sh records it as "skipped (role)" (PLAN §9f),
-# reading this value from the candidate's own lib.sh.
-ADSB_RC_OTHER_ROLE=100
+# (PLAN §9b). ⛔ Not 3: station_get exits 3 for an absent key. ⛔ Not 100, its
+# value until 2026-10-15: apt-get exits 100 on any error, `run` passes a code
+# through, and set -e exits with the failing command's, so a failed install read
+# as a role skip. ⚠️ No value is unused: any tool may exit with any code. So the
+# code alone is never the skip: setup/update.sh records "skipped (role)" (PLAN
+# §9f) only for this code AND, as the last line the step printed in that call,
+# require_role's own "==> skipped: this step is for the ..." line, the step's
+# first output (CI checks require_role comes first). ⛔ Keep that line's text:
+# update.sh matches it, in old trees too, on a rollback. update.sh reads this
+# value from the tree it runs, the candidate's or, on a rollback, the applied
+# one's, so the two always agree; 117 is outside apt's 100 and curl's codes.
+ADSB_RC_OTHER_ROLE=117
 
 # The run directory's paths, written down here once. Steps and bootstrap.sh
 # read them from here; update.sh and the login banner, which source nothing,
 # carry copies, and CI compares those copies with these values.
+# The run directory is root:root 0755, the lock file in it root:root 0644
+# (05-config's tmpfiles.d entry). ⛔ Not owned by adsb-receiver, the writer's
+# user, as it was until 2026-10-15: root writes here by name (need_reboot's
+# append, update.sh's lock and its read of the flag), and a compromised writer
+# could have planted a symlink for root to follow (a review, 2026-10-15; the same
+# hazard ADSB_HOME_DIR was made for). The writer needs only to open the existing
+# lock file to flock it, which a read-only open allows.
+ADSB_RUN_DIR=/run/adsb-receiver
 # The reboot flag (PLAN §9f: update.sh never reboots; it records that a reboot is
 # needed). On tmpfs, so a reboot clears it, which is exactly its meaning.
-ADSB_RUN_DIR=/run/adsb-receiver
 ADSB_REBOOT_FLAG=$ADSB_RUN_DIR/reboot-required
 # The recording lock (PLAN §9f, §9m): held by the writer while it runs, and by
 # update.sh while it runs.
 # shellcheck disable=SC2034  # read by the steps and bootstrap.sh
 ADSB_RECORDING_LOCK=$ADSB_RUN_DIR/recording.lock
 # The home-gated opener's own runtime directory (PLAN §9f's 2026-10-04 (night)
-# update), root:root 0755, made by step 70's own tmpfiles.d file. ⛔ Not
-# ADSB_RUN_DIR: that is owned by adsb-receiver, the writer's user, so a
-# compromised writer could plant a symlink there, and a root write by name
-# would follow it (found by a security review, 2026-10-09). Only root writes
-# here. It outlives each run of the oneshot: the banner reads the state between.
+# update), root:root 0755, made by step 70's own tmpfiles.d file. It was made
+# apart from ADSB_RUN_DIR because that was owned by adsb-receiver, the writer's
+# user, where a compromised writer could plant a symlink for a root write by
+# name to follow (found by a security review, 2026-10-09); ADSB_RUN_DIR is
+# root's too since 2026-10-15 (above). Only root writes here. It outlives each
+# run of the oneshot: the banner reads the state between.
 # shellcheck disable=SC2034  # read by step 70
 ADSB_HOME_DIR=/run/adsb-home-update
 # The opener's marker: the opener writes it before it starts the pull window and
@@ -46,8 +62,9 @@ ADSB_HOME_DIR=/run/adsb-home-update
 # shellcheck disable=SC2034  # read by step 70
 ADSB_WINDOW_MARK=$ADSB_HOME_DIR/window-opened-by
 # The opener's predicate's last verdict, "<at-home|not-at-home|off|cannot-tell>
-# <UTC time>", world-readable, for the login banner, which runs as the login and
-# so cannot read station.yml. Written by bin/adsb-at-home under its unit (step
+# <UTC time>", world-readable, for the login banner, which runs as root but
+# reads no station.yml, so that no config value can reach a login's screen
+# (setup/files/motd-banner.sh's header). Written by bin/adsb-at-home under its unit (step
 # 70 passes the path in Environment=); the banner carries a copy.
 # shellcheck disable=SC2034  # read by step 70
 ADSB_HOME_STATE=$ADSB_HOME_DIR/home-update-state
@@ -177,8 +194,15 @@ station_has() {
 # ADSB_RC_OTHER_ROLE. A step calls it before any other command after
 # parse_args and require_root, so a skip never half-runs; CI checks that order.
 require_role() {
-  local want=$1 got
-  got=$(station_get station.role) || die "station.yml has no station.role"
+  local want=$1 got rc=0
+  got=$(station_get station.role) || rc=$?
+  case $rc in
+    0) ;;
+    3) die "station.yml has no station.role" ;;
+    # station_get's own message, if any, is above: no station.yml, a python3 or
+    # python3-yaml missing (a traceback), or a file that does not parse.
+    *) die "could not read station.role from station.yml (exit $rc): see above; check python3 and python3-yaml are installed and the file parses" ;;
+  esac
   [[ $got == "$want" ]] && return 0
   if ((SKIP_OTHER_ROLE)); then
     log "skipped: this step is for the $want rig; station.yml says ${got:-null}"
@@ -229,9 +253,12 @@ guard_path() {
   return 0
 }
 
-# guard_unit <unit>: die if the unit is denylisted.
+# guard_unit <unit>: die if the unit is denylisted, as a service or a socket:
+# ssh.socket starts sshd on demand (Debian's socket activation), so it is the
+# same foundation under another suffix.
 guard_unit() {
   local u=${1%.service} deny
+  u=${u%.socket}
   for deny in "${ADSB_DENY_UNITS[@]}"; do
     [[ $u == "$deny" ]] && die "refusing to touch $1: it is foundation (setup/foundation/), not a step's"
   done

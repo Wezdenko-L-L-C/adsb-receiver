@@ -327,6 +327,10 @@ main() {
     fi
     "${gc[@]}" -C "$repo" fetch --quiet "$checkout" HEAD
     git -C "$repo" cat-file -e "$sha^{commit}"
+    # A warning, not the timer's refusal of a rewind (setup/update.sh, is_forward): the bootstrap
+    # is attended, run by hand from this checkout, so building off stable is a choice someone is
+    # watching, as --rev is. ⚠️ Once built, the timer refuses a stable tip that does not descend
+    # from this commit, so the rig stays here until a --rev to stable's tip or a bootstrap from it.
     if ! git -C "$repo" merge-base --is-ancestor "$sha" "origin/$channel" 2>/dev/null; then
       echo "!!  ${sha:0:12} (the checkout's HEAD) is not on origin/$channel, the rigs' channel (CI may still be running); building it anyway, because you ran this from that checkout" >&2
     fi

@@ -9,16 +9,20 @@
 # It compares the active Wi-Fi SSID with update.home_ssid in /etc/adsb-receiver/station.yml.
 #   - Unset, null, empty, or not a string (an unquoted yes is YAML's true; a list; a number):
 #     "off". The opener is opt-in. Step 70's verify refuses a set value that is not a string.
-#   - The SSID comes from `nmcli -t -f active,ssid dev wifi list --rescan no`, and only from lines
-#     beginning "yes:". ✅ Seen on the 🎒 portable Pi, 2026-10-05: `nmcli -t -f active,ssid dev
-#     wifi` prints one "yes:" line for the active network, plus "no:" lines, duplicated per band.
-#     ✅ Read on the portable Pi 2026-10-09: `nmcli -t -f active dev wifi list --rescan no` works
-#     there, and printed one "yes" and three "no" lines. ✅ The two together, read on the portable
-#     Pi 2026-10-09 (PLAN §9f's readings): `nmcli -t -f active,ssid dev wifi list --rescan no`
-#     gives exactly one "yes:" line. --rescan no reads NetworkManager's list as it is and asks for no
-#     scan. In terse mode nmcli escapes ':' as '\:' and '\' as '\\' inside a value (nmcli's
-#     documentation; ⚠️ not seen with such an SSID), so the value is unescaped before the
-#     comparison. More than one "yes:" line (two Wi-Fi devices): at home if any matches.
+#   - The SSID comes from `nmcli -t -f active,ssid-hex dev wifi list --rescan no`, as hex, and only
+#     from lines beginning "yes:"; it is compared with the hex of update.home_ssid's UTF-8 bytes,
+#     ignoring the hex digits' case. The list holds every network in range, so a neighbor names
+#     most of its SSIDs: in hex no SSID byte (a newline, a ':', a '\') can split a line or forge a
+#     "yes:" one, so whether nmcli escapes them stops mattering. Until 2026-10-15 it read the plain
+#     ssid field and undid nmcli's terse escaping; whether nmcli escapes a newline was never tested.
+#     ✅ Seen on the 🎒 portable Pi, 2026-10-05: `nmcli -t -f active,ssid dev wifi` prints one
+#     "yes:" line for the active network, plus "no:" lines, duplicated per band. ✅ Read there
+#     2026-10-09 (PLAN §9f's readings): `nmcli -t -f active,ssid dev wifi list --rescan no` gives
+#     exactly one "yes:" line. ✅ Read there 2026-10-15, nmcli 1.52.1: the same command with
+#     ssid-hex works, and returned the same 4 lines as with ssid, 1 of them active. ⚠️ The hex
+#     digits' case there was not recorded, hence the case-blind comparison. --rescan no reads
+#     NetworkManager's list as it is and asks for no scan. More than one "yes:" line (two Wi-Fi
+#     devices): at home if any matches.
 #
 # Verdicts and exit codes (ExecCondition= reads 1 to 254 as "skip, not failed", 255 as a failure:
 # systemd's documentation, ⚠️ not seen on the Pi's systemd 257; so never 255):
@@ -35,11 +39,12 @@
 #     cannot-tell: ...", since the opener does not run then. "At home" stays a plain line: the
 #     opener's line that follows is that decision's;
 #   - it writes the verdict and the time, "<at-home|not-at-home|off|cannot-tell> <UTC>", to that
-#     file, which the login banner reads: the banner runs as the login, and station.yml is root's
-#     alone. It is as of the last check, so possibly stale. The file lives in the opener's own
-#     directory, /run/adsb-home-update (lib.sh's ADSB_HOME_DIR, root:root 0755, step 70's
-#     tmpfiles.d), never in /run/adsb-receiver, which the writer's user owns: there a planted
-#     symlink would turn a root write by name into a write anywhere (security review, 2026-10-09).
+#     file, which the login banner reads: the banner reads no station.yml, so that no config
+#     value reaches a login's screen. It is as of the last check, so possibly stale. The file
+#     lives in the opener's own directory, /run/adsb-home-update (lib.sh's ADSB_HOME_DIR,
+#     root:root 0755, step 70's tmpfiles.d), never in /run/adsb-receiver, which the writer's user
+#     owned until 2026-10-15: there a planted symlink would have turned a root write by name into
+#     a write anywhere (security review, 2026-10-09).
 #     Belt and braces, should that directory ever be misconfigured: it writes only if the
 #     directory is a real directory (not a symlink), owned by root and writable by no one else;
 #     otherwise it writes nothing and the verdict becomes cannot-tell (exit 2), naming why. The
@@ -105,8 +110,8 @@ verdict() {
 }
 
 command -v python3 >/dev/null 2>&1 || verdict cannot-tell 2 "python3 is missing, so station.yml cannot be read; nothing opened"
-# The configured SSID. The YAML is read in Python; only the value comes back, on stdout. Exit 4:
-# off (no string value); anything else: unreadable.
+# The configured SSID, as the hex of its UTF-8 bytes. The YAML is read in Python; only that comes
+# back, on stdout. Exit 4: off (no string value); anything else: unreadable.
 rc=0
 want=$(timeout 10 python3 - "$STATION" 2>/dev/null <<'PY'
 import sys
@@ -115,11 +120,12 @@ try:
     with open(sys.argv[1]) as fh:
         doc = yaml.safe_load(fh) or {}
     v = (doc.get("update") or {}).get("home_ssid") if isinstance(doc, dict) else None
+    if not isinstance(v, str) or not v:
+        sys.exit(4)
+    h = v.encode("utf-8").hex().upper()
 except Exception:
     sys.exit(1)
-if not isinstance(v, str) or not v:
-    sys.exit(4)
-sys.stdout.write(v)
+sys.stdout.write(h)
 PY
 ) || rc=$?
 case $rc in
@@ -131,29 +137,14 @@ esac
 
 command -v nmcli >/dev/null 2>&1 || verdict not-at-home 1 "no nmcli, so no Wi-Fi: not at home"
 rc=0
-out=$(timeout 10 nmcli -t -f active,ssid dev wifi list --rescan no 2>/dev/null) || rc=$?
+out=$(timeout 10 nmcli -t -f active,ssid-hex dev wifi list --rescan no 2>/dev/null) || rc=$?
 ((rc == 0)) || verdict cannot-tell 2 "nmcli exited $rc$( ((rc == 124)) && echo ' (timed out after 10 s)'); nothing opened"
 
-# unescape <terse value>: nmcli's terse escaping undone, in bash: a backslash takes the next
-# character literally. Sets REPLY.
-unescape() {
-  local s=$1 r='' c
-  while [[ -n $s ]]; do
-    c=${s:0:1}
-    if [[ $c == "\\" && ${#s} -ge 2 ]]; then
-      r+=${s:1:1}
-      s=${s:2}
-    else
-      r+=$c
-      s=${s:1}
-    fi
-  done
-  REPLY=$r
-}
-
+# A line is "yes:" and hex digits only; anything else on a yes: line matches nothing.
 while IFS= read -r line; do
   [[ $line == yes:* ]] || continue
-  unescape "${line#yes:}"
-  [[ $REPLY == "$want" ]] && verdict at-home 0 ""
+  got=${line#yes:}
+  [[ $got =~ ^[0-9A-Fa-f]+$ ]] || continue
+  [[ ${got^^} == "$want" ]] && verdict at-home 0 ""
 done <<<"$out"
 verdict not-at-home 1 "the active Wi-Fi network, if any, is not update.home_ssid; nothing opened"

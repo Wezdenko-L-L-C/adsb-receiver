@@ -438,8 +438,14 @@ check_renderer() {
   # The main process is the renderer, unprivileged, with NoNewPrivs.
   local mpid cmd uid nnp
   mpid=$(sed -n 's/^MainPID=//p' <<<"$show")
-  [[ $mpid =~ ^[1-9][0-9]*$ && -r /proc/$mpid/cmdline ]] \
-    || die "$UNIT has no main process to read (MainPID=${mpid:-?}); check: journalctl -u $UNIT -n 50, then re-run this step"
+  [[ $mpid =~ ^[0-9]+$ ]] \
+    || die "$UNIT's MainPID is not a number (MainPID=${mpid:-?}); check: systemctl show $UNIT, then re-run this step"
+  # MainPID=0 (systemd's "none") or no /proc entry: it exited after the unit
+  # settled, as a resize exit does, so the caller settles and checks again.
+  if ((mpid == 0)) || [[ ! -d /proc/$mpid ]]; then
+    log "the main process (MainPID=$mpid) is gone; it exited after the unit settled"
+    return 10
+  fi
   cmd=$(tr '\0' ' ' <"/proc/$mpid/cmdline" 2>/dev/null) || cmd=''
   uid=$(awk '$1 == "Uid:" { print $2 }' "/proc/$mpid/status" 2>/dev/null) || uid=''
   nnp=$(awk '$1 == "NoNewPrivs:" { print $2 }' "/proc/$mpid/status" 2>/dev/null) || nnp=''

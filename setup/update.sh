@@ -8,12 +8,17 @@
 # adsb-update.service (a oneshot, from adsb-update.timer and from the pull window). Run by hand as
 # root for the by-hand modes. Self-contained: it sources nothing, because from /usr/local/sbin
 # there is no ../lib.sh. The one value it needs from the steps' contract, ADSB_RC_OTHER_ROLE, it
-# reads from the tree being run's own setup/lib.sh, so it interprets the exit code that tree emits.
+# reads from the tree being run's own setup/lib.sh, so it interprets the exit code that tree emits;
+# and it counts that code as a role skip only beside require_role's skip line (role_skipped).
 #
 #   adsb-update                      timer mode: update to the rig's channel, if it moved
 #   adsb-update --retry              timer mode, but retry a candidate that failed within 24 h
 #   adsb-update --rev <sha>          by hand: apply one commit from a pushed branch (a Pi test
 #                                    before it reaches main); the channel returns at the next run
+#                                    only if stable's tip descends from that commit: one that
+#                                    does not (squashed or rebased before it reached stable, or
+#                                    off stable altogether) holds the rig there, the timer
+#                                    refusing the rewind, until one --rev to stable's tip
 #   adsb-update --check              is an update pending? Run by the home-gated opener
 #                                    (bin/adsb-home-update); prints one line, writes nothing
 #   update.sh --bootstrap --role portable|stationary [--set key.path=value]... [--config FILE]
@@ -22,11 +27,15 @@
 #
 # In order (PLAN §9f): take the recording lock (flock -n; held means a recording session, so exit
 # 0 having changed nothing) → check `applied` → heal an interrupted apt → fetch → resolve the
-# candidate (both roles: stable's tip, only once its commit date is update.soak_days old: 0 on the
-# 🎒 portable, 7 on the 🏠 stationary, unless station.yml sets it; 0 is no age check at all, so it
-# never reads the clock) → unchanged, or a candidate that failed in the last 24 h, means exit
-# having written nothing to the rig's applied state (timer mode) → a detached worktree for the
-# candidate, under /opt/adsb-receiver/worktrees/<sha12> → every step with --skip-other-role, then
+# candidate (both roles: stable's tip, only once this rig has seen that tip for update.soak_days:
+# 0 on the 🎒 portable, 7 on the 🏠 stationary, unless station.yml sets it. The first sight is
+# recorded in /var/lib/adsb-receiver/stable-tip-seen, "<sha> <epoch>", by the timer run that sees
+# a tip it has not recorded (Chris, 2026-10-15); 0 is no age check at all, so it never reads the
+# clock or that file) → unchanged, under the soak, a candidate that does not descend from the
+# applied commit (a rewind, refused: ADSB-UPDATE-SKIPPED rewind, Chris, 2026-10-15; --rev is
+# the way back), or one that failed in the last 24 h, means exit having written nothing to the
+# rig's applied state (timer mode; the soak's first-sight record aside) → a detached worktree for
+# the candidate, under /opt/adsb-receiver/worktrees/<sha12> → every step with --skip-other-role, then
 # every step's --verify --skip-other-role → flip the `applied` symlink, write applied-rev, then
 # status.json, last, atomically. Any failure, or SIGTERM, SIGINT or SIGHUP: flip back, rewrite
 # applied-rev, re-run the applied steps, record failed_step.
@@ -86,9 +95,11 @@
 # candidate, a bootstrap re-run, or the steps that read it, run by hand.
 #
 # Exit codes: 0 applied, unchanged, a candidate skipped in its 24 h backoff, (timer) the lock held,
-# or (portable timer) no network; 1 failed, including not root, (by hand) the lock held, no build
-# on this rig, and a damaged `applied`; 2 rolled back; 3 incomplete (first build); 4 not ready (the
-# stationary gate held the update back); 64 bad usage; 128+N (143 SIGTERM, 130 SIGINT, 129 SIGHUP)
+# (timer) a rewind refused, or (portable timer) no network; 1 failed, including not root, (by
+# hand) the lock held, no build on this rig, a damaged `applied`, and (timer) git unable to tell
+# whether the candidate descends from the applied commit (logged at priority err, nothing
+# written); 2 rolled back; 3 incomplete (first build); 4 not ready (the stationary gate held the
+# update back); 64 bad usage; 128+N (143 SIGTERM, 130 SIGINT, 129 SIGHUP)
 # when a signal arrived before anything changed (nothing recorded then), or during a first build
 # (recorded as incomplete). --check has its own, below.
 #
@@ -107,16 +118,20 @@
 #     portable opener's question).
 #   - Where a timer run would itself fail before any step (no build on the rig; `applied`
 #     dangling with applied-rev unusable, where the run would record failed; the pinned commit
-#     missing from the clone; no clone; no origin/stable; station.yml unreadable), --check says so
+#     missing from the clone; no clone; no origin/stable; station.yml unreadable; git unable to
+#     tell whether the candidate descends from the applied commit), --check says so
 #     on stdout, "not pending: a timer run here would fail too, before any step: <why>", and exits
 #     13: the rig needs a hand, and a window would change nothing.
 #   - A signal ends it at once, with 128+N, its fetch killed: it has written nothing, so there is
 #     nothing to clean up. (Its fetch runs in the background so that `wait` can be interrupted;
 #     that `timeout` passes the signal on to git is GNU timeout's documented behavior, not seen.)
-# Exit codes: 0 pending; 10 not pending (the channel is unchanged, or its tip is under the soak);
-# 11 not pending (the candidate failed within 24 h: the backoff); 12 not pending (the fetch
-# failed); 13 not pending, a timer run would fail (above); 1 could not tell (not root, a tool
-# missing), with an "xx  FAIL:" line on stderr; 64 bad usage; 128+N after a signal.
+# Exit codes: 0 pending; 10 not pending (the channel is unchanged, or its tip is under the soak,
+# or not yet seen by a timer run, which starts its soak: --check records nothing); 11 not pending
+# (the candidate failed within 24 h: the backoff); 12 not pending (the fetch failed); 13 not
+# pending, a timer run would fail (above); 14 not pending, a timer run would refuse the candidate
+# as a rewind (it does not descend from the applied commit; only --rev applies it); 1 could not
+# tell (not root, a tool missing), with an "xx  FAIL:" line on stderr; 64 bad usage; 128+N after
+# a signal.
 #
 # status.json's trigger and opened_by (the same update), read once, when the run takes the lock:
 #   - adsb-pull-window.service active, activating or deactivating: trigger window, and opened_by
@@ -144,6 +159,10 @@ readonly WT_DIR=$BASE/worktrees
 readonly APPLIED=$BASE/applied
 readonly STATE=/var/lib/adsb-receiver
 readonly APPLIED_REV=$STATE/applied-rev
+# The soak's clock (Chris, 2026-10-15): "<sha> <epoch>", the tip of stable a timer run last saw and
+# when it first saw it. Read and written only with a soak above 0, so never on a portable that
+# keeps the default (soak 0 returns before it, in resolve_candidate).
+readonly TIP_SEEN=$STATE/stable-tip-seen
 readonly STATUS=$STATE/status.json
 readonly WRITER_JSON=$STATE/writer/writer.json
 readonly LOG_ROOT=/var/log/adsb-receiver
@@ -161,6 +180,8 @@ readonly HOME_UNIT=adsb-home-update.service
 readonly FIRST_STEP=50-updater
 # The soak's role default, the one difference between the roles' channel (PLAN §9g's 2026-10-05
 # update); update.soak_days in station.yml overrides it. The portable template never carries it.
+# The days count from this rig's first sight of stable's tip (TIP_SEEN), not from its commit date
+# (Chris, 2026-10-15): a commit dated long ago, or by a skewed clock, still waits the whole soak.
 readonly SOAK_DAYS_PORTABLE=0 SOAK_DAYS_STATIONARY=7
 readonly FETCH_TIMEOUT=300
 readonly PREFLIGHT_TIMEOUT=120
@@ -169,6 +190,7 @@ readonly BACKOFF_SECS=86400   # a failed candidate is skipped this long after it
 readonly RC_FAILED=1 RC_ROLLED_BACK=2 RC_INCOMPLETE=3 RC_NOT_READY=4 RC_USAGE=64
 # --check's "not pending" codes (the header).
 readonly RC_CHECK_NONE=10 RC_CHECK_BACKOFF=11 RC_CHECK_NO_FETCH=12 RC_CHECK_WOULD_FAIL=13
+readonly RC_CHECK_REWIND=14
 
 # --- State ---------------------------------------------------------------------
 
@@ -195,7 +217,7 @@ FOUND_RTC=''       # the RTC overlay's outcome, first build only
 FETCH_OK=0 LOCKED=0 TERMINATED=0 TERM_SIG='' STATUS_WRITTEN=0 FLIPPED=0 FAILED_ON_PURPOSE=0
 MAIN_PID=$BASHPID
 STAGE=start        # start, steps, flip, rollback, finished
-OTHER_RC=100
+OTHER_RC=117      # read_other_rc replaces it from each tree's lib.sh before any step runs
 declare -A INSTALL=() VERIFY=() SECS=()
 
 # --- Output --------------------------------------------------------------------
@@ -452,7 +474,8 @@ PY
 take_lock() {
   if [[ ! -e $LOCK ]]; then
     # Before 05-config's tmpfiles.d entry exists (a first build). That entry then sets the owner
-    # and mode; flock(1) locks a file opened read-only, so root owning it now is harmless.
+    # and mode it makes for good, root:root 0755 and 0644 (lib.sh's ADSB_RUN_DIR): the writer's
+    # flock(1) opens the existing file read-only, which is all a lock needs.
     install -d -m 0755 "$RUN_DIR"
     : >>"$LOCK"
   fi
@@ -585,7 +608,7 @@ channel_of() { echo stable; }
 # resolve_candidate: CAND for the mode and the rig's channel. Returns 1 when the channel has no
 # eligible commit (stable's tip is younger than the soak), which a built rig treats as unchanged.
 resolve_candidate() {
-  local tip days def src f tip_ct now age
+  local tip days def src f now age seen
   CHANNEL=$(channel_of "$ROLE")
   if [[ $MODE == bootstrap ]]; then
     # The commit setup/bootstrap.sh chose and runs this from. On a first build, either role, that
@@ -629,26 +652,91 @@ resolve_candidate() {
   # which bash arithmetic would read as octal, and 08 or 09 as an error, failing the comparison
   # below silently so the rig never updated.
   days=$((10#$days))
-  # A soak of 0 is no age check at all, not "aged at least zero seconds": that would depend on the
-  # Pi's clock being past the commit date (PLAN §9g's 2026-10-05 update). Nothing below runs.
+  # A soak of 0 is no age check at all, not "aged at least zero seconds": that depended on the
+  # Pi's clock being past the commit date (PLAN §9g's 2026-10-05 update), and would now depend on
+  # its clock and TIP_SEEN. Nothing below runs: the 🎒 portable on its default never reads the
+  # clock here, and never reads or writes TIP_SEEN.
   if ((days == 0)); then
     log "soak 0: the channel's tip is the candidate ($src)"
     CAND=$tip
     return 0
   fi
-  # Soak (PLAN §9g's evening update): stable's TIP, and only once the tip's commit date is soak_days
-  # old. Never "the newest commit older than soak_days": that would apply a bad commit the day it
+  # Soak (PLAN §9g's evening update): stable's TIP, and only once this rig has seen that same tip
+  # for soak_days (Chris, 2026-10-15: counted from the first sight, TIP_SEEN, not from the commit
+  # date). Never "the newest commit older than soak_days": that would apply a bad commit the day it
   # turned old, whatever younger revert followed it. With the tip, a revert on main (the brake)
-  # resets the clock, and the bad commit is never applied alone.
-  tip_ct=$(git -C "$REPO" log -1 --format=%ct "$tip") || fail "could not read the commit date of stable's tip"
+  # moves the tip, which restarts the clock, and the bad commit is never applied alone.
   now=$(date +%s)
-  age=$((now - tip_ct))
+  if seen=$(read_tip_seen "$tip"); then
+    if ((seen > now)) && [[ $MODE != check ]]; then
+      # Recorded by a clock that was ahead and has since been set right: counted from now, or the
+      # tip would wait out the clock's error as well as the soak. The implementer's choice, not ruled.
+      warn "the first sight of $(sha12 "$tip") is recorded at $seen, after now ($now): the clock was ahead then. Its soak counts from now"
+      write_tip_seen "$tip" "$now"
+      seen=$now
+    fi
+  elif [[ $MODE == check ]]; then
+    # --check writes nothing, so it cannot start the clock; the next timer run does.
+    NOTE="stable's tip $(sha12 "$tip") has not been seen by a timer run yet, so its soak (update.soak_days $days, $src) has not started; the next timer run records it, and it applies $days days after that"
+    return 1
+  else
+    write_tip_seen "$tip" "$now"
+    seen=$now
+    log "first sight of stable's tip $(sha12 "$tip"): its soak of $days days counts from now ($TIP_SEEN)"
+  fi
+  age=$((now - seen))
+  ((age >= 0)) || age=0
   if ((age >= days * 86400)); then
     CAND=$tip
     return 0
   fi
-  NOTE="stable's tip $(sha12 "$tip") is $((age / 86400)) days old, under update.soak_days ($days, $src; the role default is 0 on the portable, 7 on the stationary, unless station.yml sets it); it applies once it has been quiet that long"
+  NOTE="stable's tip $(sha12 "$tip") was first seen here $((age / 86400)) days ago, under update.soak_days ($days, $src; the role default is 0 on the portable, 7 on the stationary, unless station.yml sets it); it applies once this rig has seen it that long"
   return 1
+}
+
+# read_tip_seen <sha>: print the epoch TIP_SEEN records for that SHA; return 1 if it records
+# another, or none, or is unreadable.
+read_tip_seen() {
+  local sha='' ep=''
+  { read -r sha ep <"$TIP_SEEN"; } 2>/dev/null || [[ -n $sha ]] || return 1
+  [[ $sha == "$1" && $ep =~ ^[0-9]{1,12}$ ]] || return 1
+  echo "$((10#$ep))"
+}
+
+# write_tip_seen <sha> <epoch>: TIP_SEEN, atomically, as write_applied_rev writes applied-rev.
+write_tip_seen() {
+  install -d -m 0755 "$STATE"
+  printf '%s %s\n' "$1" "$2" >"$TIP_SEEN.new"
+  chmod 0644 "$TIP_SEEN.new"
+  mv -f "$TIP_SEEN.new" "$TIP_SEEN"
+}
+
+# is_forward <applied> <candidate>: 0 if the candidate descends from the applied commit (or is
+# it); 1 if it does not (a rewind or a rewritten history); 2 if git could not tell (merge-base
+# exited neither 0 nor 1: the applied commit missing from the clone, say). Sets FORWARD_WHY on 1
+# and 2. The callers refuse on 1 quietly (exit 0) and fail loudly on 2 (exit 1, or --check's 13):
+# a rig that cannot read its own history needs a hand, and must not look merely unchanged.
+FORWARD_WHY=''
+is_forward() {
+  local rc=0 err
+  err=$(git -C "$REPO" merge-base --is-ancestor "$1" "$2" 2>&1) || rc=$?
+  case $rc in
+    0) return 0 ;;
+    1) FORWARD_WHY="stable's tip $(sha12 "$2") does not descend from the applied $(sha12 "$1") (stable was rewound, or its history rewritten by a squash, rebase or force-push; or the applied commit came from --rev off stable)"
+       return 1 ;;
+    *) FORWARD_WHY="git could not tell whether stable's tip $(sha12 "$2") descends from the applied $(sha12 "$1") (merge-base exit $rc: $(head -n1 <<<"$err")), so nothing is applied; look at the clone, $REPO (is the applied commit in it?)"
+       return 2 ;;
+  esac
+}
+
+# rewind_refused: the timer's refusal of a candidate that is not ahead of the applied commit
+# (Chris, 2026-10-15). Exit 0, like the lock-held exit, so it is told apart by its line, which
+# starts ADSB-UPDATE-SKIPPED and, under systemd, carries priority warning (<4>): a hand is needed.
+rewind_refused() {
+  local pre=''
+  [[ -n ${INVOCATION_ID:-} ]] && pre='<4>'
+  printf '%sADSB-UPDATE-SKIPPED rewind: %s. The timer never moves the rig backwards or sideways; to apply it on purpose: sudo adsb-update --rev %s. Nothing was written\n' \
+    "$pre" "$FORWARD_WHY" "$(sha12 "$CAND")"
 }
 
 # ensure_worktree <sha>: a detached worktree at the SHA, reused if it is already there (`reset
@@ -753,6 +841,20 @@ PY
 
 # --- Steps -----------------------------------------------------------------------
 
+# role_skipped <exit code> <log> <bytes the log held before the call>: true only if the step
+# exited OTHER_RC AND the last line it wrote in that call is require_role's skip line (lib.sh).
+# The code alone is not enough: no exit code is unused, and until 2026-10-15 it was 100, which is
+# apt-get's for any error, so a failed install was recorded as a role skip and its verify not run.
+# require_role is a role-gated step's first command (CI checks it) and exits right after the line,
+# so on a real skip the line is the step's last output, and a tool failing later prints its own.
+# The offset keeps the install pass's lines, in the same log, out of the verify pass's reading.
+role_skipped() {
+  local last
+  (($1 == OTHER_RC)) || return 1
+  last=$(tail -c +"$(($3 + 1))" -- "$2" 2>/dev/null | tail -n 1) || return 1
+  [[ $last =~ ^'==> skipped: this step is for the '[a-z]+' rig; station.yml says ' ]]
+}
+
 # read_other_rc <worktree>: set OTHER_RC to ADSB_RC_OTHER_ROLE as that tree's lib.sh defines it.
 # Returns 1 if it cannot be read; the caller records that as a failure explicitly.
 read_other_rc() {
@@ -804,7 +906,7 @@ run_one() {
 # on, collecting FAILED_STEPS, and returns 1 if any failed. <label> prefixes the log names
 # (rollback- for a rollback), and a rollback's results go to ROLLBACK_FAILED_STEP only.
 run_steps() {
-  local wt=$1 label=$2 s name rc t0 any=0 phase logf
+  local wt=$1 label=$2 s name rc t0 any=0 phase logf off skip
   local -a steps
   mapfile -t steps < <(step_list "$wt")
   if ((${#steps[@]} == 0)) || ! read_other_rc "$wt"; then
@@ -832,9 +934,15 @@ run_steps() {
       logf=$RUN_LOGS/$label$name.log
       t0=$SECONDS
       rc=0
+      off=$(stat -c %s -- "$logf" 2>/dev/null) || off=0
       run_one "$wt" "$s" "$phase" "$logf" "${label%-}" || rc=$?
+      skip=0
+      if ((rc != 0)) && role_skipped "$rc" "$logf" "$off"; then skip=1; fi
+      if ((rc == OTHER_RC && !skip)); then
+        warn "$name exited $rc, the role-skip code, without require_role's skip line as its last output: a failure, not a skip"
+      fi
       if [[ $label == rollback- ]]; then
-        if ((rc != 0 && rc != OTHER_RC)); then
+        if ((rc != 0 && !skip)); then
           ROLLBACK_FAILED_STEP="$name ($phase, exit $rc)"
           return 1
         fi
@@ -843,7 +951,7 @@ run_steps() {
       SECS[$name]=$(( ${SECS[$name]:-0} + SECONDS - t0 ))
       local verdict
       if ((rc == 0)); then verdict=ok
-      elif ((rc == OTHER_RC)); then verdict="skipped (role)"
+      elif ((skip)); then verdict="skipped (role)"
       else verdict="failed (exit $rc)"
       fi
       if ((TERMINATED)) && ((rc != 0)); then verdict="terminated (exit $rc)"; fi
@@ -1316,6 +1424,17 @@ check_pending() {
     printf 'not pending: %s is still %s, which is applied\n' "$CHANNEL" "$(sha12 "$CAND")"
     exit "$RC_CHECK_NONE"
   fi
+  # The timer's rewind refusal (main), asked the same way.
+  if [[ -n $OLD_SHA ]]; then
+    local frc=0
+    is_forward "$OLD_SHA" "$CAND" || frc=$?
+    if ((frc == 1)); then
+      printf 'not pending: a timer run would refuse it: %s; only sudo adsb-update --rev %s applies it\n' "$FORWARD_WHY" "$(sha12 "$CAND")"
+      exit "$RC_CHECK_REWIND"
+    fi
+    # A timer run would fail here (main): --check's 13, through fail().
+    ((frc == 0)) || fail "$FORWARD_WHY"
+  fi
   if in_backoff; then
     printf 'not pending: %s\n' "$BACKOFF_MSG"
     exit "$RC_CHECK_BACKOFF"
@@ -1415,6 +1534,25 @@ main() {
   if [[ $MODE == timer && $FIRST_BUILD -eq 0 && $CAND == "$OLD_SHA" ]]; then
     log "unchanged: $CHANNEL is still $(sha12 "$CAND"), which is applied. Nothing was written to the rig's applied state"
     STAGE=finished; release_lock; writer_start_rule; exit 0
+  fi
+  # Never backwards or sideways on the timer (Chris, 2026-10-15): timer mode, --retry included, on a
+  # built rig. --rev is the deliberate way back or aside; a first build has nothing to rewind from.
+  if [[ $MODE == timer && $FIRST_BUILD -eq 0 && -n $OLD_SHA ]]; then
+    local frc=0
+    is_forward "$OLD_SHA" "$CAND" || frc=$?
+    if ((frc == 1)); then
+      rewind_refused
+      STAGE=finished; release_lock; writer_start_rule; exit 0
+    elif ((frc != 0)); then
+      # Loud: exit 1, so the unit shows failed, at journal priority err (<3>) under systemd. Before
+      # anything changes and before RESULT is set, so on_exit writes no status.json (which would
+      # also start the 24 h backoff and quiet the next runs) and `applied` is untouched.
+      local prio=''
+      [[ -n ${INVOCATION_ID:-} ]] && prio='<3>'
+      printf '%sxx  FAIL: %s\n' "$prio" "$FORWARD_WHY" >&2
+      FAILED_ON_PURPOSE=1
+      exit "$RC_FAILED"
+    fi
   fi
   # The 24 h backoff (PLAN §9f's evening update): a candidate that failed or rolled back is not tried again by
   # the timer until a day after that run; then once a day, until the channel moves.
