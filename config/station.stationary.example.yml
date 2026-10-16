@@ -55,20 +55,31 @@ dongles:
   vhf: null
 
 archive:
-  # ⛔ This is why the stationary rig exists. Do not run it onto the SD card.
+  # ℹ️ Both rigs archive (PLAN §9m). ⛔ Do not run it onto the SD card.
+  # ⚠️ Planned: no code reads `enabled` yet, so setting it changes nothing.
   enabled: false
   # The archive lives at /var/lib/adsb-receiver/archive, a fixed interface path
   # (PLAN §9i), not a key. What backs that path on this rig, its boot SSD or a
   # separate mount, is not decided (PLAN §9m).
-  format: beast               # ⛔ not a bespoke format — BUILD.md §9
+  # ⛔ Not a bespoke format — BUILD.md §9. ⚠️ Planned: no code reads `format`
+  #    yet; the archive writer (bin/adsb-writer) writes BEAST and nothing else.
+  format: beast
 
-  # ⛔ Retention is enforced HERE, by the writer, not by a cron job somebody
-  #    forgets. An unbounded archive fills the disk and then silently stops
-  #    recording, which is the one failure that costs you the data.
+  # ⚠️ Retention is planned, not enforced: no code reads `retention_days` yet.
+  #    Enforcing it in the writer, not in a cron job somebody forgets, is
+  #    issue #2. An unbounded archive fills the disk and then stops recording,
+  #    which is the one failure that costs you the data.
+  # What protects the disk today is min_free_gb alone, the writer's backstop,
+  #    in GiB: below it, the writer expires the oldest closed files, but only
+  #    if deleting every closed file would bring free space back above it;
+  #    otherwise it deletes nothing and refuses to record (bin/adsb-writer,
+  #    "SPACE"). The preflight warns.
   retention_days: 365
   min_free_gb: 20             # start expiring early rather than hitting zero
 
 feeders:
+  # ⚠️ Planned: no code reads this block yet, and no feeder client is
+  #    installed by any step.
   # ⛔ Credentials — never commit real values.
   # ℹ️ Feeding usually earns a better API allowance than registering alone, and
   #    it is the rent for a public good this kind of project leans on.

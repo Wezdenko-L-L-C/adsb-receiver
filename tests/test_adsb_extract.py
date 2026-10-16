@@ -129,6 +129,55 @@ class ExtractTest(unittest.TestCase):
         self.assertNotIn("not a keepalive", text)
         self.assertIn("nothing to fit", text)
 
+    # 9 bytes as stored, but 0x1a 0x1a pairs leave 5 after the type once
+    # unescaped: under the counter and signal byte.
+    MALFORMED = b"\x1a\x33" + b"\x1a\x1a" * 2 + b"\x00\x00\x00"
+
+    def test_check_skips_a_malformed_frame_without_a_crash(self):
+        self.assertGreaterEqual(len(self.MALFORMED), 9)
+        w = self.writer()
+        w.begin("start test")
+        t = utc_ns(2026, 10, 4, 12, 3, 20)
+        w.frame(t, self.MALFORMED)
+        self.record_minute(w, t)
+        w.finish("SIGTERM")
+        out = io.StringIO()
+        extract.check(self.paths()[0], out)
+        text = out.getvalue()
+        self.assertIn("(600 frames, 2 events)", text)
+        self.assertIn("malformed (under 7 bytes after the type, once unescaped), not fitted: 1", text)
+        self.assertIn("segment 1: 600 frames", text)
+
+    def test_extract_skips_a_malformed_frame_without_a_crash(self):
+        import contextlib
+        w = self.writer()
+        w.begin("start test")
+        t = utc_ns(2026, 10, 4, 12, 3, 20)
+        w.frame(t, beast(0x32, 1000, 30, SHORT))
+        w.frame(t + 1, self.MALFORMED)
+        w.frame(t + 2, beast(0x32, 1001, 30, SHORT))
+        w.finish("SIGTERM")
+        out, err, beast_out = io.StringIO(), io.StringIO(), io.BytesIO()
+        with contextlib.redirect_stderr(err):
+            frames, _events = extract.extract(self.archive, t, 5, out, beast_out)
+        self.assertEqual(frames, 2)
+        self.assertEqual(len(W.BeastParser().feed(beast_out.getvalue())), 2)
+        self.assertIn("; 1 malformed frame(s) skipped", err.getvalue())
+
+    def test_find_files_skips_a_name_that_is_no_real_time(self):
+        import contextlib
+        day = os.path.join(self.archive, "2026-13-40")
+        os.makedirs(day)
+        bogus = os.path.join(day, "20261340T250000Z.beast.pcap")
+        real = os.path.join(day, "20261004T120000Z.beast.pcap")
+        for p in (bogus, real):
+            open(p, "wb").close()
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            found = extract.find_files(self.archive)
+        self.assertEqual(found, [(utc_ns(2026, 10, 4, 12, 0, 0), real)])
+        self.assertIn(f"{bogus}: not a real UTC second in the name; skipped", err.getvalue())
+
     def test_candidates_include_the_file_before_the_window(self):
         files = [(utc_ns(2026, 10, 4, 12, 0, 0), "a"), (utc_ns(2026, 10, 4, 12, 0, 0), "a.torn"),
                  (utc_ns(2026, 10, 4, 12, 10, 0), "b"), (utc_ns(2026, 10, 4, 12, 20, 0), "c")]
@@ -248,10 +297,7 @@ class ExtractTest(unittest.TestCase):
         self.assertNotIn("!! no frames", text)
 
     def test_decode_malformed_frame_fails_without_a_crash(self):
-        # 9 bytes as stored, but 0x1a 0x1a pairs leave 5 after the type once
-        # unescaped: under the counter and signal byte.
-        short = b"\x1a\x33" + b"\x1a\x1a" * 2 + b"\x00\x00\x00"
-        self.assertGreaterEqual(len(short), 9)
+        short = self.MALFORMED
         status, text = self.decode_file([beast(0x33, 1000, 40, df17(0x4840D6)), short, b"\x1a"])
         self.assertEqual(status, 1)
         self.assertIn("3 BEAST frames, 1 long, DF17/18 1/1 CRC-valid", text)

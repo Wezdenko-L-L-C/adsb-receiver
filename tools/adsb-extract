@@ -55,6 +55,12 @@
 # Candidate files are chosen by name, YYYYMMDDTHHMMSSZ being the second each
 # was opened: those opened inside the window, plus every file opened at the
 # latest second before it, which holds the window's start.
+# A name that fits the pattern but is no real UTC second (month 13, hour 25)
+# is skipped, with a line on stderr.
+#
+# A malformed frame (as --decode defines it) is never decoded, in any mode:
+# --check reports how many and leaves them out of the fit, and DIR TIME leaves
+# them out of the CSV and the BEAST output and gives the count on stderr.
 #
 # ⛔ Stage 2, decoding positions from the frames, is not here.
 
@@ -112,8 +118,17 @@ def read_pcap(path):
     return out, note
 
 
+def malformed(raw):
+    """True for a BEAST frame under the 6-byte counter and the signal byte
+    after the type, once unescaped (the count matches replace()'s
+    left-to-right pairs): damaged, and decode_frame would index past its end.
+    The one guard every mode uses before decode_frame."""
+    return len(raw) - 2 - raw.count(b"\x1a\x1a", 2) < 7
+
+
 def decode_frame(raw):
-    """(type, counter, signal, data) from a raw, escaped BEAST frame."""
+    """(type, counter, signal, data) from a raw, escaped BEAST frame.
+    ⛔ Only for a frame malformed() passes."""
     body = raw[2:].replace(b"\x1a\x1a", b"\x1a")
     return raw[1], int.from_bytes(body[0:6], "big"), body[6], body[7:]
 
@@ -154,7 +169,13 @@ def find_files(root):
         for name in names:
             m = NAME_RE.match(name)
             if m:
-                found.append((stem_ns(m.group(1)), os.path.join(dirpath, name)))
+                path = os.path.join(dirpath, name)
+                try:
+                    opened = stem_ns(m.group(1))
+                except ValueError:  # the digits fit the pattern, but no such date or time
+                    print(f"{path}: not a real UTC second in the name; skipped", file=sys.stderr)
+                    continue
+                found.append((opened, path))
     found.sort()
     return found
 
@@ -172,7 +193,7 @@ def extract(root, t_ns, window_s, out_csv, beast_out=None):
     files = candidates(find_files(root), lo, hi)
     w = csv.writer(out_csv)
     w.writerow(["wall_time_utc", "kind", "beast_type", "counter", "signal", "data_hex", "event", "file"])
-    frames = events = 0
+    frames = events = bad = 0
     for path in files:
         records, note = read_pcap(path)
         if note:
@@ -182,7 +203,8 @@ def extract(root, t_ns, window_s, out_csv, beast_out=None):
                 continue
             rel = os.path.relpath(path, root)
             if payload[:1] == b"\x1a":
-                if len(payload) < 9:
+                if malformed(payload):
+                    bad += 1
                     continue
                 typ, counter, sig, data = decode_frame(payload)
                 w.writerow([iso_ns(ts), "frame", f"0x{typ:02x}", counter, sig, data.hex(), "", rel])
@@ -192,7 +214,8 @@ def extract(root, t_ns, window_s, out_csv, beast_out=None):
             else:
                 w.writerow([iso_ns(ts), "event", "", "", "", "", payload.decode("utf-8", "replace"), rel])
                 events += 1
-    print(f"{len(files)} file(s) read; {frames} frames and {events} events in the window", file=sys.stderr)
+    print(f"{len(files)} file(s) read; {frames} frames and {events} events in the window"
+          + (f"; {bad} malformed frame(s) skipped" if bad else ""), file=sys.stderr)
     return frames, events
 
 
@@ -220,7 +243,8 @@ def fit(points):
 
 def check(path, out=sys.stdout):
     records, note = read_pcap(path)
-    frames = [(ts, p) for ts, p in records if p[:1] == b"\x1a" and len(p) >= 9]
+    beast_frames = [(ts, p) for ts, p in records if p[:1] == b"\x1a"]
+    frames = [(ts, p) for ts, p in beast_frames if not malformed(p)]
     events = [p.decode("utf-8", "replace") for _, p in records if p[:1] != b"\x1a"]
     print(f"{path}: {len(records)} records ({len(frames)} frames, {len(events)} events); "
           f"{note or 'complete'}", file=out)
@@ -232,6 +256,9 @@ def check(path, out=sys.stdout):
         kinds[k] = kinds.get(k, 0) + 1
     if kinds:
         print("  events: " + ", ".join(f"{k} {v}" for k, v in sorted(kinds.items())), file=out)
+    if len(beast_frames) > len(frames):
+        print(f"  malformed (under 7 bytes after the type, once unescaped), not fitted: "
+              f"{len(beast_frames) - len(frames)}", file=out)
     segments, cur, last = [], [], None
     keepalives = zero_other = 0
     for ts, p in frames:
@@ -300,18 +327,15 @@ def decode(path):
     addresses = set()
     kinds = {}
     keepalives = 0
-    malformed = 0
+    bad = 0
     for _ts, p in records:
         if p[:1] != b"\x1a":
             k = p.decode("utf-8", "replace").split(" ", 1)[0]
             kinds[k] = kinds.get(k, 0) + 1
             continue
         st["frames"] += 1
-        # Under the 6-byte counter and the signal byte once unescaped (the
-        # count matches replace()'s left-to-right pairs): damaged, and
-        # decode_frame would index past its end. Counted, never decoded.
-        if len(p) - 2 - p.count(b"\x1a\x1a", 2) < 7:
-            malformed += 1
+        if malformed(p):  # counted, never decoded
+            bad += 1
             continue
         typ, counter, sig, data = decode_frame(p)  # unescaped: 0x1a 0x1a is one byte
         if is_keepalive(typ, counter, sig, data):
@@ -349,8 +373,8 @@ def decode(path):
     invalid = st["df1718"] - st["valid"]
     if invalid:
         reasons.append(f"{invalid} CRC-invalid DF17/18 frame(s)")
-    if malformed:
-        reasons.append(f"{malformed} malformed frame(s)")
+    if bad:
+        reasons.append(f"{bad} malformed frame(s)")
     return st, addresses, reasons, warning
 
 

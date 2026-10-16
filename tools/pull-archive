@@ -15,7 +15,8 @@
 #    which deletes each source file only after it transferred: a move, not a copy (Chris). *.part
 #    and lost+found are excluded; .torn files are included. Owner, group and mode are not copied
 #    (the Pi's group means nothing here); --fsync, where this rsync has it, puts each file on disk
-#    here before its source is deleted.
+#    here before its source is deleted. --safe-links: a symlink pointing outside the tree, or an
+#    absolute one, is not copied and stays on the rig, without a line (the writer makes none).
 # 3. Prunes the emptied date directories on the drive, only while the writer is stopped.
 # 4. Closes the window, in a trap, so it closes even when rsync fails; the trap is set before the
 #    window is opened. Closing waits on the rig while the update is activating (the unit's
@@ -28,7 +29,9 @@
 # 5. Decodes what this pull moved, after the window is closed so it adds nothing to the recording
 #    gap: tools/adsb-extract --decode (beside this script) over exactly the beast/ files rsync
 #    named as transferred (its --out-format), where they now sit here; never the whole destination,
-#    which grows every pull. spool/ is not decoded (it is not the archive's pcap). PLAN §9m, the
+#    which grows every pull. Only a name of the writer's own form (YYYY-MM-DD/, then its file
+#    name) is decoded; any other is warned about and left out (rsync escapes a newline in a name,
+#    so it cannot split a line). spool/ is not decoded (it is not the archive's pcap). PLAN §9m, the
 #    content level of the review. With no python3 here, or nothing moved, it says so and skips. If
 #    --decode exits non-zero it warns loudly, naming the files to look at, but the exit status
 #    stays rsync's: the move succeeded, and a .torn file is an expected outcome of a power cut.
@@ -39,7 +42,9 @@
 # Before the window opens: rsync is on this workstation's PATH and the destination is writable, so
 # a pull that cannot move anything never ends a recording session. ssh sends keepalives
 # (ServerAliveInterval=15, ServerAliveCountMax=4), so a link that died silently ends the ssh in
-# about a minute instead of leaving it waiting.
+# about a minute instead of leaving it waiting. An ssh failure (exit 255) while checking for beast/
+# or spool/ ends the run, exit 1, rather than reading as "not on the rig"; the trap still closes the
+# window. One while pruning is warned about, and the run goes on.
 # It prints rsync's statistics for what moved, the count of files left on the drive, and the total
 # now in the destination (everything there, not only this pull).
 # ⚠️ Once moved, this workstation holds the only copy until it is uploaded onward (PLAN §9m).
@@ -72,7 +77,9 @@ ssh_pi() { ssh "${ssh_opts[@]}" "$host" "$@"; }
 # rsync options: a move that neither hangs on a dead link nor fails on the Pi's group. Each file
 # it transfers is named on its own line, prefixed, for step 5.
 moved_prefix='moved: '
-rsync_opts=(-a --no-g --no-o --no-p --remove-source-files --stats --human-readable --timeout=60
+# A closed archive file as the writer names it, under its date directory (bin/adsb-writer's CLOSED_RE).
+archive_name_re='^[0-9]{4}-[0-9]{2}-[0-9]{2}/[0-9]{8}T[0-9]{6}Z(\.[0-9]+)?\.beast\.pcap((\.[0-9]+)?\.torn)?$'
+rsync_opts=(-a --no-g --no-o --no-p --safe-links --remove-source-files --stats --human-readable --timeout=60
             --out-format="$moved_prefix%n"
             -e "ssh ${ssh_opts[*]}" --exclude '*.part' --exclude 'lost+found')
 # The help text is captured first: under pipefail, `rsync --help | grep -q` can fail when grep
@@ -158,9 +165,20 @@ echo "==> the writer is ${state:-unknown}"
 status=0
 moved=()  # the archive files this pull moved, as paths here
 for d in beast spool; do
-  if ! ssh_pi test -d "$archive/$d"; then
+  # test exits 1 for a directory that is not there; ssh exits 255 when it could not ask.
+  rc=0
+  ssh_pi test -d "$archive/$d" || rc=$?
+  if ((rc == 1)); then
     echo "==> $archive/$d is not on the rig; skipped"
     continue
+  elif ((rc != 0)); then
+    if ((rc == 255)); then
+      echo "xx  the ssh connection to the rig failed (exit 255) while checking for $archive/$d: stopping the pull" >&2
+    else
+      echo "xx  could not check for $archive/$d on the rig (exit $rc): stopping the pull" >&2
+    fi
+    ((${#moved[@]} == 0)) || echo "xx  ${#moved[@]} archive file(s) already moved here were not decoded: tools/adsb-extract --decode them" >&2
+    exit 1
   fi
   echo "==> moving $host:$archive/$d/ to $dest/$d/"
   # Captured, not piped, so rsync's own exit status is kept; its statistics are printed after.
@@ -174,7 +192,11 @@ for d in beast spool; do
       "$moved_prefix"*)
         n=$((n + 1))
         name=${line#"$moved_prefix"}
-        if [[ $d == beast && ( $name == *.beast.pcap || $name == *.torn ) ]]; then moved+=("$dest/$d/$name"); fi
+        if [[ $d == beast && $name =~ $archive_name_re ]]; then
+          moved+=("$dest/$d/$name")
+        elif [[ $d == beast ]]; then
+          printf '!!  moved, but not an archive file name, so not decoded: %q\n' "$name" >&2
+        fi
         ;;
       *) printf '%s\n' "$line" ;;
     esac
@@ -184,7 +206,13 @@ done
 
 # Only with the writer stopped: a prune between the writer's mkdir and its open would kill it.
 echo "==> pruning emptied directories on the rig"
-ssh_pi "st=\$(systemctl is-active $writer); case \$st in inactive|failed) find '$archive/beast' '$archive/spool' -mindepth 1 -type d -empty -delete 2>/dev/null ;; *) echo \"!!  the writer is \$st: not pruning\" >&2 ;; esac; echo 'files left on the drive:' \$(find '$archive/beast' '$archive/spool' -type f 2>/dev/null | wc -l)" || true
+prune_rc=0
+ssh_pi "st=\$(systemctl is-active $writer); case \$st in inactive|failed) find '$archive/beast' '$archive/spool' -mindepth 1 -type d -empty -delete 2>/dev/null ;; *) echo \"!!  the writer is \$st: not pruning\" >&2 ;; esac; echo 'files left on the drive:' \$(find '$archive/beast' '$archive/spool' -type f 2>/dev/null | wc -l)" || prune_rc=$?
+if ((prune_rc == 255)); then
+  echo "!!  the ssh connection to the rig failed (exit 255) while pruning: emptied directories may remain there, and the count of files left on the drive is unknown" >&2
+elif ((prune_rc != 0)); then
+  echo "!!  the prune on the rig exited $prune_rc: emptied directories may remain there" >&2
+fi
 echo "==> the destination now holds $(find "$dest" -type f | wc -l) files, $(du -sh -- "$dest" | cut -f1), in $dest (everything there, not only this pull)"
 close_window
 
