@@ -23,7 +23,10 @@
 #     and the pin's debian/ copies on 2026-10-04). `--device 0`, as ran.
 #     ⚠️ Since 2026-10-10 /etc/default/readsb differs from upstream's in
 #     NET_OPTIONS too: readsb's sockets bind to loopback, and its input
-#     listeners are off (Chris, 2026-10-10). Why, in render_readsb.
+#     listeners are off (Chris, 2026-10-10). Since 2026-10-27 NET_OPTIONS
+#     also carries a gpsd connector: readsb takes the receiver position from
+#     the rig's gpsd, live and exact (Chris, 2026-10-27, #35). Why, in
+#     render_readsb.
 #   - A drop-in, /etc/systemd/system/readsb.service.d/adsb-receiver.conf: ours,
 #     not upstream's. systemd's exponential restart backoff: a rig with no
 #     stick backs off from every 15 s toward one attempt every 2 minutes
@@ -36,6 +39,11 @@
 #     ⚠️ That installer always fetches tar1090-db, the aircraft database, from
 #     that repo's master. The database is NOT pinned; only tar1090 is.
 #     Accepted, Chris 2026-10-04: it is lookup data, not code.
+#   - tar1090's installer also enables a second lighttpd door on port 8504
+#     (the conf-enabled link 95-tar1090-otherport.conf, which no package owns).
+#     After the installer runs, this step removes that link and restarts
+#     lighttpd: :80 is the one LAN door (Chris, PLAN §5 ruling 7). Why after,
+#     in close_tar1090_otherport.
 #
 # Network: a re-run with every package installed, the readsb stamp matching
 # and tar1090 current touches no network. These paths do:
@@ -94,6 +102,10 @@ DEFAULTS=/etc/default/readsb
 JSON_DIR=/run/readsb
 TAR1090_DIR=/usr/local/share/tar1090
 TAR1090_URL=http://127.0.0.1/tar1090/
+# tar1090's second door, port 8504 (close_tar1090_otherport).
+OTHERPORT_LINK=/etc/lighttpd/conf-enabled/95-tar1090-otherport.conf
+# Where readsb's gpsd connector dials (render_readsb).
+GPSD_ADDR=127.0.0.1:2947
 READSB_USER=readsb
 
 # readsb's own list for this commit is `required_packages` in its source, plus
@@ -115,7 +127,8 @@ BUILD_PKGS=(git ca-certificates gcc make libc6-dev pkg-config libusb-1.0-0-dev
 # unzip appear only in a fallback for a failed git clone (line 112), which it
 # does not install.
 WEB_PKGS=(lighttpd curl jq python3)
-# iproute2: the verify reads readsb's listeners with its `ss` (2026-10-10).
+# iproute2: the verify reads readsb's listeners with its `ss` (2026-10-10),
+# and since 2026-10-27 readsb's gpsd connection and lighttpd's listeners too.
 VERIFY_PKGS=(iproute2)
 
 WORK=$(mktemp -d)
@@ -373,16 +386,51 @@ EOF
   #    readsb_restart_reason's mtime check finds it newer than the running
   #    readsb and restarts it. What a rig showed when it did is recorded in
   #    PLAN §5, #30's ruling 2, not here (§9c).
+  # ⭐ NET_OPTIONS' --net-connector 127.0.0.1,2947,gpsd_in: readsb follows the
+  #    rig's gpsd live and takes the receiver position from it, exact, at home
+  #    and away, with no home check (Chris, 2026-10-27, #35). It supersedes the
+  #    home/away accuracy gate and the field-only range outline of 2026-10-10.
+  #    Both roles carry it. Read in readsb's source at the pin, not seen on a
+  #    rig:
+  #    - net_io.c, handle_gpsd(): a fix's lat, lon and altitude are stored as
+  #      gpsd sent them; --json-location-accuracy's rounding is never applied
+  #      to them. readsb then writes receiver.json and gpsd.json into
+  #      /run/readsb, which tar1090's lighttpd config serves at
+  #      /tar1090/data/. gpsd.json stays served (ruled 2026-10-27).
+  #    - The connector dials at startup and, while a dial fails, backs off from
+  #      a fraction of a second to one try every --net-connector-delay (default
+  #      15 s), with no limit (net_io.c). So a rig whose gpsd comes up later
+  #      (step 20 runs after this one) is followed without a readsb restart.
+  #    - The stationary rig runs no gpsd (20-portable-clock is portable-only,
+  #      and no stationary clock step exists), so there the connector dials a
+  #      closed loopback port and is inert; the stationary's position source
+  #      stays open (#33). Without silent_fail readsb logs the first 9 failed
+  #      dials, then the 10th and every 200th (net_io.c,
+  #      suppressConnectError()). No silent_fail token: it would also hide a
+  #      gpsd failure on the portable.
+  #    A rig with the old file gets this one as it got the 2026-10-10 change:
+  #    install_if_changed installs it, and readsb_restart_reason's mtime check
+  #    restarts readsb.
+  # ℹ️ JSON_OPTIONS is unchanged. Under gpsd_in there is no range outline:
+  #    readsb disables outline.json when no location is valid at startup
+  #    (readsb.c, around line 2660), and a gpsd fix only comes after startup,
+  #    so --range-outline-hours is inert here. The token is kept; no outline is
+  #    the accepted cost (2026-10-27). --json-location-accuracy 2 is readsb's
+  #    "exact", and receiver.json carries lat and lon only when the accuracy is
+  #    not 0 (json_out.c), so 0 would take the position off the map. Also read
+  #    in the source at the pin.
   cat >"$WORK/readsb.default" <<'EOF'
 # Rendered by setup/steps/10-decoder.sh. Do not edit; a hand edit is reverted
 # on the next run. Change the step instead.
 # Read by readsb.service as EnvironmentFile=. The values are the ones the
 # portable rig ran on 2026-10-03, apart from NET_OPTIONS: since 2026-10-10
-# readsb listens on loopback only, with no input ports. Why, in the step.
+# readsb listens on loopback only, with no input ports, and since 2026-10-27
+# it takes the receiver position, exact, from gpsd on 127.0.0.1:2947 (inert
+# where no gpsd runs). Why, in the step.
 
 RECEIVER_OPTIONS="--device 0 --device-type rtlsdr --gain auto --ppm 0"
 DECODER_OPTIONS="--max-range 450 --write-json-every 1"
-NET_OPTIONS="--net --net-bind-address 127.0.0.1 --net-ro-port 30002 --net-sbs-port 30003 --net-bo-port 30005"
+NET_OPTIONS="--net --net-bind-address 127.0.0.1 --net-ro-port 30002 --net-sbs-port 30003 --net-bo-port 30005 --net-connector 127.0.0.1,2947,gpsd_in"
 JSON_OPTIONS="--json-location-accuracy 2 --range-outline-hours 24"
 EOF
 }
@@ -553,6 +601,33 @@ install_tar1090() {
   run install -m 0644 -o root -g root "$WORK/tstamp" "$TAR1090_STAMP"
 }
 
+# close_tar1090_otherport: :8504 closes, and :80 is the one LAN door (Chris,
+# PLAN §5 ruling 7). tar1090's install.sh at the pin writes
+# 95-tar1090-otherport.conf, its whole web config inside
+# $SERVER["socket"] == ":8504" (lines 237-243), and links it into
+# conf-enabled on every run (line 358). The link was seen on the portable on
+# 2026-10-27, owned by no package. Only the conf-enabled link is removed;
+# the conf-available copy is the installer's and is inert unlinked. Called
+# after install_tar1090, every run, so a reinstall that re-creates the link
+# is undone in the same run whatever a later pin's installer does.
+# A restart, not a reload (ours, 2026-10-27): the installer itself restarts
+# lighttpd (line 471), and whether lighttpd's graceful reload closes a
+# listener its new config dropped is unverified; a restart's is not in doubt.
+close_tar1090_otherport() {
+  guard_path "$OTHERPORT_LINK"
+  if [[ ! -e $OTHERPORT_LINK && ! -L $OTHERPORT_LINK ]]; then
+    log "$OTHERPORT_LINK is absent: lighttpd is not told to serve port 8504"
+    return 0
+  fi
+  if [[ -L $OTHERPORT_LINK ]]; then
+    log "$OTHERPORT_LINK is a symlink to $(readlink "$OTHERPORT_LINK"); removing it, so port 8504 closes"
+  else
+    log "$OTHERPORT_LINK is a file, not the installer's symlink; removing it anyway, so port 8504 closes"
+  fi
+  run rm -f -- "$OTHERPORT_LINK"
+  unit restart lighttpd
+}
+
 install_step() {
   refuse_apt_readsb
   apt_ensure "${BUILD_PKGS[@]}" "${WEB_PKGS[@]}" "${VERIFY_PKGS[@]}"
@@ -560,6 +635,7 @@ install_step() {
   build_readsb
   install_readsb_service
   install_tar1090
+  close_tar1090_otherport
 }
 
 # --- verify --------------------------------------------------------------------
@@ -886,6 +962,73 @@ verify() {
     || die "127.0.0.1:30005, readsb's BEAST output, did not send a byte within 10 s of a connect (exit $bo_rc); check: systemctl status readsb"
   pass "on readsb's ports, nothing listens beyond loopback and no input port is open; 127.0.0.1:30005 accepted a connect and sent a byte within 10 s"
 
+  # readsb follows gpsd (render_readsb, ruled 2026-10-27): the running readsb
+  # was started with the connector. Read from /proc/<MainPID>/cmdline, split on
+  # NUL; ⛔ only the connector's pair is printed, never the whole command line
+  # (§9c). MainPID is re-read for up to 10 s, in case readsb is between starts.
+  local rpid cmd_args=() nc_pair='' j gl line st peer proc est=''
+  rpid=
+  for ((i = 0; i <= 10; i++)); do
+    rpid=$(systemctl show -p MainPID --value readsb 2>/dev/null) || rpid=0
+    cmd_args=()
+    if [[ $rpid =~ ^[1-9][0-9]*$ ]] \
+       && mapfile -d '' -t cmd_args 2>/dev/null <"/proc/$rpid/cmdline" \
+       && ((${#cmd_args[@]} > 0)); then
+      break
+    fi
+    rpid=
+    if ((i < 10)); then sleep 1; fi
+  done
+  [[ -n $rpid ]] \
+    || die "cannot read readsb's command line for 10 s (no MainPID, or /proc/<pid>/cmdline unreadable); check: systemctl status readsb"
+  for ((j = 0; j + 1 < ${#cmd_args[@]}; j++)); do
+    if [[ ${cmd_args[j]} == --net-connector && ${cmd_args[j + 1]} == "${GPSD_ADDR/:/,},gpsd_in"* ]]; then
+      nc_pair="${cmd_args[j]} ${cmd_args[j + 1]}"
+      break
+    fi
+  done
+  log "/proc/$rpid/cmdline (readsb's MainPID), the gpsd connector pair only: ${nc_pair:-(none)}"
+  [[ -n $nc_pair ]] \
+    || die "readsb (PID $rpid) was not started with --net-connector ${GPSD_ADDR/:/,},gpsd_in; run this step without --verify, which rewrites $DEFAULTS and restarts readsb"
+  pass "readsb was started with $nc_pair"
+
+  # The connection itself, only where something listens on 127.0.0.1:2947: the
+  # portable's gpsd, perhaps through its socket unit, in which case readsb's
+  # connect is what starts gpsd. Where nothing listens (the stationary, which
+  # runs no gpsd, or a portable's first build before step 20) the connector is
+  # idle, and that is a pass. No role is read. Polled for up to 20 s: after a
+  # failed dial the connector waits up to --net-connector-delay (15 s) before
+  # the next. ⛔ Only the loopback connection's own ss line is printed.
+  ss_out=$(ss -ltnH 2>&1) || die "ss -ltnH failed: $ss_out"
+  gl=0
+  while read -r _ _ _ laddr _; do
+    if [[ $laddr == "$GPSD_ADDR" ]]; then gl=1; fi
+  done <<<"$ss_out"
+  if ((gl)); then
+    for ((i = 0; i <= 20; i++)); do
+      rpid=$(systemctl show -p MainPID --value readsb 2>/dev/null) || rpid=0
+      est=''
+      if [[ $rpid =~ ^[1-9][0-9]*$ ]] && ss_out=$(ss -tnpH 2>&1); then
+        while IFS= read -r line; do
+          read -r st _ _ _ peer proc <<<"$line"
+          if [[ $st == ESTAB && $peer == "$GPSD_ADDR" && $proc == *"pid=$rpid,"* ]]; then
+            est=$line
+            break
+          fi
+        done <<<"$ss_out"
+      fi
+      if [[ -n $est ]]; then break; fi
+      if ((i < 20)); then sleep 1; fi
+    done
+    log "ss -tnpH, readsb (PID $rpid) connected to $GPSD_ADDR (raw): ${est:-(none)}"
+    [[ -n $est ]] \
+      || die "something listens on $GPSD_ADDR (gpsd), but readsb (PID $rpid) has no established connection to it after 20 s; check: journalctl -u readsb for connector errors, and systemctl status gpsd gpsd.socket"
+    pass "readsb holds an established connection to gpsd on $GPSD_ADDR"
+  else
+    log "nothing listens on $GPSD_ADDR on this rig, so readsb's gpsd connector is idle; the stationary's position source is #33's"
+    pass "no gpsd listens on $GPSD_ADDR: readsb's gpsd connector has nothing to follow here (idle, not a fault)"
+  fi
+
   # tar1090: the pinned version is installed, its page is served, and its data
   # path serves readsb's current aircraft.json.
   local want got head code served local_now
@@ -914,6 +1057,54 @@ verify() {
   awk -v a="$served" -v b="${local_now:-0}" 'BEGIN { d = a - b; if (d < 0) d = -d; exit !(d <= 5) }' \
     || die "the served aircraft.json is not readsb's current one (now $served against $local_now); check the data alias in /etc/lighttpd/conf-enabled/88-tar1090.conf"
   pass "tar1090 is served at $TAR1090_URL, and its data path serves readsb's current aircraft.json"
+
+  # The position reaches the map: receiver.json, as tar1090 serves it, has a
+  # "lat" key. ⛔ Never printed: not the file, not lat, lon or alt_m_amsl; jq
+  # reads only whether the key is there. No key is readiness, not install
+  # (§9c's tiers): no fix yet, or no gpsd on this rig. So it warns, and the
+  # step still passes.
+  local has_lat
+  out=$(curl -fsS --max-time 10 -o "$WORK/receiver.json" "${TAR1090_URL}data/receiver.json" 2>&1) \
+    || die "${TAR1090_URL}data/receiver.json is not served: $out"
+  has_lat=$(jq 'has("lat")' "$WORK/receiver.json" 2>/dev/null) \
+    || die "${TAR1090_URL}data/receiver.json is not a JSON object (its contents are not printed); check the data alias in /etc/lighttpd/conf-enabled/88-tar1090.conf"
+  rm -f -- "$WORK/receiver.json"
+  if [[ $has_lat == true ]]; then
+    pass "receiver.json carries the receiver position (not printed)"
+  else
+    warn "no receiver position now (no fix, or no gpsd): UNVERIFIED this run"
+  fi
+
+  # Port 8504 is closed (close_tar1090_otherport, PLAN §5 ruling 7): the
+  # conf-enabled link is gone, nothing listens on 8504 on any address, and a
+  # connect to 127.0.0.1:8504 is refused. The listener is polled for up to
+  # 10 s, as readsb's files are after its restart: a verify run beside a
+  # lighttpd restart could otherwise read the old process's sockets.
+  local l8504 l80 c8504 rc8504
+  [[ ! -e $OTHERPORT_LINK && ! -L $OTHERPORT_LINK ]] \
+    || die "$OTHERPORT_LINK exists, so lighttpd serves port 8504; run this step without --verify, which removes it and restarts lighttpd"
+  for ((i = 0; i <= 10; i++)); do
+    ss_out=$(ss -ltnH 2>&1) || die "ss -ltnH failed: $ss_out"
+    l8504=''
+    l80=''
+    while read -r _ _ _ laddr _; do
+      case ${laddr##*:} in
+        8504) l8504+="$laddr " ;;
+        80) l80+="$laddr " ;;
+      esac
+    done <<<"$ss_out"
+    if [[ -z $l8504 ]]; then break; fi
+    if ((i < 10)); then sleep 1; fi
+  done
+  log "ss -ltnH, listeners on port 80 (raw): ${l80:-(none)}; on port 8504: ${l8504:-(none)}"
+  [[ -z $l8504 ]] \
+    || die "port 8504 still listens (${l8504% }) with $OTHERPORT_LINK gone; check: ss -ltnp, and grep -r 8504 /etc/lighttpd/conf-enabled"
+  rc8504=0
+  c8504=$(curl -sS --max-time 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:8504/ 2>/dev/null) || rc8504=$?
+  log "curl http://127.0.0.1:8504/: exit $rc8504, HTTP ${c8504:-?} (exit 7: connection refused)"
+  ((rc8504 == 7)) \
+    || die "a connect to 127.0.0.1:8504 was not refused (curl exit $rc8504, HTTP ${c8504:-?}); check: ss -ltnp"
+  pass "port 8504 is closed: $OTHERPORT_LINK is absent, nothing listens, a connect is refused; lighttpd's door is :80"
 }
 
 if ((VERIFY_ONLY == 0)); then
