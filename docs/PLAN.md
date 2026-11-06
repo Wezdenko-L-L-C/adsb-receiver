@@ -179,6 +179,9 @@ of this section. `acarshub` and the one-page goal stay proposed and not decided.
 *Update 2026-11-05: the receiver's position was ruled again on 2026-10-27, superseding rulings 6, 9
 and 10; see "Update 2026-10-27: #35's receiver position, exact everywhere, from gpsd live", at the
 end of this section.*
+*Update 2026-11-05: the gpsd connector's port was ruled on 2026-11-05 21:10, recorded as bounded,
+with its owner on the 🏠 stationary decided in #33; see the last bullet of "Update 2026-10-27", at
+the end of this section.*
 
 📋 The goal: **one page on the local network** showing aircraft, ACARS/VDL2 messages, and playable
 ATC audio.
@@ -296,7 +299,7 @@ in Arizona time (UTC−7), and from `date`.
      output, which the writer archives. ➡️ Anyone on the same Wi-Fi could put frames into the
      archive.
    - **The fix:** `--net-bind-address 127.0.0.1`, with the input listeners removed. It is the
-     change in step 10 ~~(not yet committed)~~: `NET_OPTIONS` in `setup/steps/10-decoder.sh`, whose
+     change in step 10: `NET_OPTIONS` in `setup/steps/10-decoder.sh`, whose
      comment carries the source reading. *Corrected 2026-10-10: committed as `425e89b` and pushed
      to `main`. The line it renders is `NET_OPTIONS="--net --net-bind-address 127.0.0.1
      --net-ro-port 30002 --net-sbs-port 30003 --net-bo-port 30005"`.*
@@ -424,12 +427,16 @@ options chosen:
 - The writer's rule stays the writer's own (✅ `bin/adsb-writer:48`: *"The position goes into the
   archive file and nowhere else: never to stderr (the journal), never to the status file."*).
 - 🏠 **Not ruled for the stationary.** The consultation kept a fixed `--lat/--lon` as the 🏠
-  stationary's follow-up, as step 10's comment already has it; it is open for #33.
+  stationary's follow-up; it is open for #33. Step 10's comment (`render_readsb`, read on
+  2026-11-05) names the 🏠 stationary's position source as open for #33,
+  gives the `Using lat: … lon: …` journal hazard (`readsb.c:121`, read in readsb's source at the
+  pin, not seen on a rig), and points here and to "Update 2026-10-27", at the end of this section.
   *Update 2026-11-05, for #33: ⚠️ a fixed `--lat/--lon` makes readsb print `Using lat: … lon: …` to
   its journal at every start, and `--quiet` does not suppress it (read in readsb's source at the
   pin; "Update 2026-10-27", at the end of this section). The journal is one of the surfaces above
   that stay forbidden to the position. Step 10 now renders the gpsd connector for the 🏠 stationary
-  too, inert there because no gpsd runs.*
+  too, inert there because no gpsd runs.* Who owns that port there is open for #33, by the
+  2026-11-05 21:10 ruling, the last bullet of "Update 2026-10-27".
 
 **The work within #30, in order:**
 
@@ -853,7 +860,7 @@ options chosen:
    08:15 ruling, under ruling 3 of the 19:27 rulings, above.
 3. The live viewer: one new readsb flag, `--net-connector`, and :8504 removed. Nothing is gated,
    by the 2026-10-27 23:17 ruling ("Update 2026-10-27", below). ✅ Read in `render_readsb` on
-   2026-11-05, on #35's branch and not yet committed: the defaults file step 10 renders carries the
+   2026-11-05: the defaults file step 10 renders carries the
    connector in `NET_OPTIONS`, and `--json-location-accuracy 2` alone in `JSON_OPTIONS`, readsb's
    exact. `--range-outline-hours` is no longer rendered, because it draws nothing under the
    connector. The :8504 removal is built in the same step.
@@ -897,16 +904,24 @@ Recorded 2026-11-05. It came after Chris asked, typed, why the design split home
   applied to a file. Chris answered the question by typing, asking why he would care. Claude then
   said the reason was audit tidiness, not risk, and that it would stay served unless he said
   otherwise. ➡️ It stays served.
-- **As built.** Read in `setup/steps/10-decoder.sh` on 2026-11-05, on #35's branch, not yet
-  committed:
+- **As built.** Read in `setup/steps/10-decoder.sh` on 2026-11-05:
   - `render_readsb`: `NET_OPTIONS` ends with the connector, and `JSON_OPTIONS` is
     `--json-location-accuracy 2` alone. The step reads no role, so both roles get the same line.
   - `close_tar1090_otherport`: tar1090's installer re-creates
     `/etc/lighttpd/conf-enabled/95-tar1090-otherport.conf` on every run, so on every run, after the
-    installer's turn, the step removes that link, and restarts lighttpd only when it removed it.
+    installer's turn, the step removes that link and restarts lighttpd. It restarts lighttpd too
+    when the link is absent but something listens on :8504 (`ss -ltnH`); with the link absent and
+    nothing on :8504 it touches nothing. When tar1090's installer fails, `install_tar1090` runs
+    `close_tar1090_otherport` in a subshell with errexit on, warns if that fails too, and then
+    fails the step with exit 1, its last line the installer's FAIL with the installer's exit code
+    `tests/test_step10_otherport.py` covers that path
+    in seven cases (the implementer's run; not re-run here). It came of Chris's request on
+    2026-11-05 that the items found along the way and not fixed be fixed: a request, not a ruling.
     ⚠️ Two known windows with :8504 open: a run that reinstalls tar1090, from the installer's own
-    lighttpd restart until the step's, seconds later; and a run whose installer fails, which stops
-    the step before the removal and leaves the link, and :8504, until the next successful run.
+    lighttpd restart until the step's, seconds later; and a run whose installer fails and whose
+    close fails as well (the `rm`, `ss` or lighttpd's restart). The step then warns, and the next
+    run's close removes the link if it is still there, or restarts lighttpd if the link is gone and
+    :8504 still listens.
 - **The verify stays install tier,** by [§9c](#9c-every-step-ends-in-a-check-of-the-observable-effect)'s
   2026-10-04 two-tier ruling. It checks only effects that depend on nothing outside the rig:
   - readsb's running command line carries the connector; only that pair is printed;
@@ -935,6 +950,45 @@ Recorded 2026-11-05. It came after Chris asked, typed, why the design split home
   home, on a foreign LAN such as a hotspot or a venue's Wi-Fi, anyone on that LAN can read the
   rig's position from :80. The 🎒 portable's field state is Wi-Fi off. Review item S7, lighttpd
   listening on all addresses, stays open.
+- **Ruled 2026-11-05 (Chris, 21:10 Arizona time, by question; the texts as put are in the private
+  pick-up record): the connector's port is recorded here as bounded, and who owns it on the 🏠
+  stationary is decided in #33.** No rig code changes for it. #33 carries it as a named input
+  ([ROADMAP.md](ROADMAP.md) item 8).
+  - **The finding,** from #35's final security review: step 10 renders
+    `--net-connector 127.0.0.1,2947,gpsd_in` for both roles. Where no gpsd runs, a local user
+    without root can bind 127.0.0.1:2947 and feed readsb any position, which reaches
+    `receiver.json` and the LAN map. Integrity only: nothing leaks, and no privilege is gained.
+  - **The bounds:**
+    - 🎒 **The portable, after step 20.** ✅ Seen by the main loop over read-only SSH, 2026-11-05 at
+      21:09: `systemctl show gpsd.socket` read `ActiveState=active` and `UnitFileState=enabled`,
+      listening on `/run/gpsd.sock`, `[::1]:2947` and `127.0.0.1:2947`, and gpsd runs as the user
+      `gpsd`. ➡️ systemd holds the port from boot, so it cannot be squatted. Step 20's install
+      enables `gpsd.socket` (`install_gpsd` in `setup/steps/20-portable-clock.sh`, read). Step 10's
+      verify fails a listener on :2947, reachable from loopback, that sends no VERSION banner within
+      10 s (read in its verify).
+    - 🎒 **The portable, before step 20.** `update.sh` runs the steps in filename order
+      (`step_list` in `setup/update.sh`, read), so on a first build the window runs from step 10's
+      install until step 20's install enables `gpsd.socket` and starts gpsd. Step 20's `rtc_gate`
+      and `find_puck` run before that, and before gpsd is installed (`install_step`, read), so a
+      first build whose step 20 fails there keeps the window open until a run gets past them.
+    - 🏠 **The stationary.** Not built. Its template has no puck and no gpsd
+      (`config/station.stationary.example.yml`'s `position:` and `clock:` comments, read), and its
+      position source is already open for #33 ("The one position source, and the surface rule",
+      above). ➡️ The port's owner there is open for #33 too.
+  - Rejected, offered to Chris and not chosen: **an owner check in step 10's verify.** It detects a
+    squatter and does not prevent one, and its failure would hold every update.
+  - Rejected: **a root-owned placeholder socket on the 🏠 stationary now.** It settles part of #33's
+    design ahead of #33, against [§9h](#9h--the-stationary-rigs-home-and-remote)'s ruling A, which
+    puts the stationary design before any stationary build; and on the 🎒 portable a second owner
+    of the port is an ordering hazard.
+  - Rejected: **gpsd on the 🏠 stationary.** A daemon with no device, against the template and
+    against the stationary clock step's verify, which checks NTP sources only
+    ([§9c](#9c-every-step-ends-in-a-check-of-the-observable-effect), "The install-tier verifies,
+    step by step").
+  - Rejected: **the connector on the 🎒 portable only.** It contradicts this block's as-built line,
+    the connector on both roles and inert where no gpsd runs; it breaks step 10's property of being
+    one shared step that reads no role ([§9b](#9b-one-bash-script-per-build-step), "Shared steps
+    are shared files"); and it gives the 🏠 stationary no position anyway.
 
 ---
 
@@ -4033,8 +4087,8 @@ PLAN was pending; this is that record.
 - **The unit and `/etc/default/readsb`** are rendered from upstream's `debian/` files at the pin,
   identical to them apart from the rendered header comment (the bodies were diffed on 2026-10-04).
   *Corrected 2026-10-10: still true for the unit; true only in part for `/etc/default/readsb`. Its
-  `NET_OPTIONS` differs from upstream's in the change in step 10 ~~(not yet committed)~~: loopback only,
-  with no input listeners, as read in ~~the working tree's~~ `setup/steps/10-decoder.sh`. See
+  `NET_OPTIONS` differs from upstream's in the change in step 10: loopback only,
+  with no input listeners, as read in `setup/steps/10-decoder.sh`. See
   [§5](#5-proposed-the-web-interface-is-three-existing-services-not-a-new-one), "Update
   2026-10-10: the interface, ruled (#30)", ruling 2. The change is committed as `425e89b` and
   pushed. The 🎒 portable's update installed the rendered file and restarted readsb at 17:34:43
@@ -4075,7 +4129,7 @@ then merged to `main` (`42b5115`, CI green), and `stable` advanced.
   location configured.
   *Update 2026-10-10: still true. On the 🎒 portable, `readsb` is ruled to read its location from
   gpsd on loopback (`--net-connector 127.0.0.1,2947,gpsd_in`), exact, with no gate, since the
-  2026-10-27 23:17 ruling. It is built in step 10 on #35's branch, not yet committed. Where no gpsd
+  2026-10-27 23:17 ruling. It is built in step 10. Where no gpsd
   runs, readsb still has no location. See
   [§5](#5-proposed-the-web-interface-is-three-existing-services-not-a-new-one), "Update
   2026-10-10: the interface, ruled (#30)" and "Update 2026-10-27: #35's receiver position, exact

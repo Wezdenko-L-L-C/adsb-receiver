@@ -148,7 +148,9 @@ stationary first, then the 🏠 remote stationary.*
    - per-station gain (§9h);
    - *added 2026-11-05:* ⚠️ a fixed `--lat/--lon` writes the position to readsb's journal at every
      start ([§5](PLAN.md#5-proposed-the-web-interface-is-three-existing-services-not-a-new-one),
-     "Update 2026-10-27: #35's receiver position, exact everywhere, from gpsd live").
+     "Update 2026-10-27: #35's receiver position, exact everywhere, from gpsd live");
+   - *added 2026-11-05:* who owns 127.0.0.1:2947, the port readsb's gpsd connector dials, on the
+     🏠 stationary, where no gpsd runs (§5, "Update 2026-10-27", the ruling of 2026-11-05 21:10).
 
    **Hands:** fable-architect. **Done when:** its rulings are recorded in PLAN.md.
    (#33)
