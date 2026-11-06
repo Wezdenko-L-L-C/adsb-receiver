@@ -176,6 +176,9 @@ the two sites is for the stationary design (ROADMAP item 8).*
 *Update 2026-10-10: decided in part. The field display, the receiver's position, readsb's ports,
 :8504 and the split of #30 are ruled in "Update 2026-10-10: the interface, ruled (#30)", at the end
 of this section. `acarshub` and the one-page goal stay proposed and not decided.*
+*Update 2026-11-05: the receiver's position was ruled again on 2026-10-27, superseding rulings 6, 9
+and 10; see "Update 2026-10-27: #35's receiver position, exact everywhere, from gpsd live", at the
+end of this section.*
 
 📋 The goal: **one page on the local network** showing aircraft, ACARS/VDL2 messages, and playable
 ATC audio.
@@ -335,6 +338,8 @@ in Arizona time (UTC−7), and from `date`.
      - *⚠️ 250 cd/m² is dim in direct sun: a reading of the figure, not seen.*
 4. **The receiver's position on the LAN map: yes.** (Chris's call; no reason given.) tar1090 shows
    the receiver position, at the accuracy of rulings 6 and 9.
+   *Update 2026-11-05: ruling 4 stands; since the 2026-10-27 23:17 ruling the accuracy is exact
+   everywhere ("Update 2026-10-27", at the end of this section).*
    - Overrode the recommendation, **physical surfaces only.** The consultation's reason for it: the
      position would go to every Wi-Fi the rig joins, including a shared field hotspot, and the exact
      position is already on the HDMI slate, where Chris reads it.
@@ -345,6 +350,8 @@ in Arizona time (UTC−7), and from `date`.
      🏠 stationary, so neither has a done-when inside the 🎒 portable's order.
 6. **Accuracy: exact in the field, rounded at home.** (Chris's call; no reason given.) It was the
    consultation's second option.
+   *Superseded 2026-10-27 23:17 (Chris): exact everywhere, with no home check ("Update
+   2026-10-27", at the end of this section).*
    - At home, `--json-location-accuracy 1`: 2 decimals, about 1 km. Away from home, `2`: exact.
    - Gated by `bin/adsb-at-home`, whose verdicts are at home, not at home, off, and cannot tell
      (✅ read in its header). Which verdict gives which accuracy is ruling 9.
@@ -374,6 +381,8 @@ in Arizona time (UTC−7), and from `date`.
      "completed".
 9. **Fail-safe: exact unless positively at home.** (Chris's call; no reason given.) Rounded only on
    the verdict "at home"; exact on "not at home", "off" and "cannot tell".
+   *Superseded 2026-10-27 23:17 (Chris), with ruling 6 ("Update 2026-10-27", at the end of this
+   section).*
    - Overrode the recommendation, **rounded unless positively not at home.** The consultation's
      reason for it: a broken or disabled check would then never put the home address on the wire.
    - ⚠️ **A consequence, accepted with the ruling, not a ruling of its own: a broken or disabled
@@ -382,6 +391,8 @@ in Arizona time (UTC−7), and from `date`.
      `bin/adsb-at-home`), so a rig with the home check left off is exact at home too.
 10. **The range outline: on in the field only,** following the same gate as the exact position.
     (Chris's call; no reason given.)
+    *Superseded 2026-10-27 23:17 (Chris): no range outline anywhere, the accepted cost of readsb
+    following gpsd live ("Update 2026-10-27", at the end of this section).*
     - Overrode the recommendation, **outline off.** The consultation's reason for it: the 🎒
       portable's 24-hour outline spans sites, so it means nothing, and its points are exact
       geometry around the true center, which would undo the rounding at home.
@@ -414,6 +425,11 @@ options chosen:
   archive file and nowhere else: never to stderr (the journal), never to the status file."*).
 - 🏠 **Not ruled for the stationary.** The consultation kept a fixed `--lat/--lon` as the 🏠
   stationary's follow-up, as step 10's comment already has it; it is open for #33.
+  *Update 2026-11-05, for #33: ⚠️ a fixed `--lat/--lon` makes readsb print `Using lat: … lon: …` to
+  its journal at every start, and `--quiet` does not suppress it (read in readsb's source at the
+  pin; "Update 2026-10-27", at the end of this section). The journal is one of the surfaces above
+  that stay forbidden to the position. Step 10 now renders the gpsd connector for the 🏠 stationary
+  too, inert there because no gpsd runs.*
 
 **The work within #30, in order:**
 
@@ -835,12 +851,90 @@ options chosen:
 
    ➡️ The field state's method was ruled the same evening, at 18:36; its one home is beside the
    08:15 ruling, under ruling 3 of the 19:27 rulings, above.
-3. The live viewer: one new readsb flag, `--net-connector`, plus gating two that already exist,
-   `--json-location-accuracy` and `--range-outline-hours`; and :8504 removed. ✅ Both existing
-   flags are in the defaults file step 10 renders, at `2` and `24`. They are inert today only
-   because readsb has no location ([§9j](#9j--verified-on-hardware-2026-10-03)).
+3. The live viewer: one new readsb flag, `--net-connector`, and :8504 removed. Nothing is gated,
+   by the 2026-10-27 23:17 ruling ("Update 2026-10-27", below). ✅ Read in `render_readsb` on
+   2026-11-05, on #35's branch and not yet committed: the defaults file step 10 renders carries the
+   connector in `NET_OPTIONS`, and `--json-location-accuracy 2` alone in `JSON_OPTIONS`, readsb's
+   exact. `--range-outline-hours` is no longer rendered, because it draws nothing under the
+   connector. The :8504 removal is built in the same step.
 4. The timeline: with database step A.
 5. ATC: blocked.
+
+**Update 2026-10-27: #35's receiver position, exact everywhere, from gpsd live. (Chris,
+2026-10-27 23:17 Arizona time, by question; the texts as put are in the private pick-up record.)**
+Recorded 2026-11-05. It came after Chris asked, typed, why the design split home from away at all.
+
+- **The ruling, in this file's words:** the receiver position is exact everywhere, at home and
+  away, with no home check. readsb follows gpsd live by `--net-connector 127.0.0.1,2947,gpsd_in`,
+  on both roles; where no gpsd runs, the connector is inert. There is no range outline anywhere,
+  and that is the accepted cost. `gpsd.json` stays served (below).
+- ➡️ **What it supersedes:** rulings 6, 9 and 10 above, and the 23:11 and 23:12 answers of the same
+  evening. Those had chosen a fixed point given to readsb at its start, exact away and rounded at
+  home, with the range outline kept in the field and journal filters to keep the point out of the
+  journal. The 23:11 plumbing answer goes with them: it served only the home/away gate, which the
+  ruling removes. Rulings 4 and 7 stand; ruling 7 is the reason :8504 is closed.
+- **Why: what readsb does at the pin.** Read in readsb's source at the pin `094720939c`, by the
+  main loop on 2026-10-27 and again by an implementer on 2026-11-05. ⚠️ None of it is seen on a
+  rig.
+  - `handle_gpsd` (`net_io.c`) stores a gpsd fix exactly, and never applies
+    `--json-location-accuracy`'s rounding to it. ➡️ The rounding at home of ruling 6 could not reach
+    a position fed from gpsd.
+  - readsb writes `gpsd.json` and `receiver.json` into `/run/readsb`, which tar1090's lighttpd
+    serves.
+  - The range outline is disabled for good when no location is valid at startup. A gpsd fix comes
+    only after startup, so under the connector no outline is ever drawn.
+  - With the flags step 10 uses, nothing at the pin logs the position. The debug lines that carry
+    it need `--devel debugGPS` (`net_io.c`, about lines 3805, 3862 and 3864, at the pin).
+  - ⚠️ **A hazard for #33's stationary design:** the `--lat/--lon` route prints
+    `Using lat: … lon: …` to the journal at every start (`readsb.c:121`, called from about line
+    2658, at the pin), and `--quiet` does not suppress it.
+- Rejected at 23:17: **`--lat/--lon` at start,** a small gate reading one GPS fix and starting
+  readsb with it. Its costs, as put: the point frozen until readsb restarts, a timer to restart it
+  when the rig moves, the position in the journal at every start, and journal filters to keep it
+  out. Its one gain was the range outline.
+- **`gpsd.json`, by question, with a typed answer.** Claude recommended blocking it with one
+  lighttpd deny, as a second door carrying raw data the map does not use: ruling 7's reason,
+  applied to a file. Chris answered the question by typing, asking why he would care. Claude then
+  said the reason was audit tidiness, not risk, and that it would stay served unless he said
+  otherwise. ➡️ It stays served.
+- **As built.** Read in `setup/steps/10-decoder.sh` on 2026-11-05, on #35's branch, not yet
+  committed:
+  - `render_readsb`: `NET_OPTIONS` ends with the connector, and `JSON_OPTIONS` is
+    `--json-location-accuracy 2` alone. The step reads no role, so both roles get the same line.
+  - `close_tar1090_otherport`: tar1090's installer re-creates
+    `/etc/lighttpd/conf-enabled/95-tar1090-otherport.conf` on every run, so on every run, after the
+    installer's turn, the step removes that link, and restarts lighttpd only when it removed it.
+    ⚠️ Two known windows with :8504 open: a run that reinstalls tar1090, from the installer's own
+    lighttpd restart until the step's, seconds later; and a run whose installer fails, which stops
+    the step before the removal and leaves the link, and :8504, until the next successful run.
+- **The verify stays install tier,** by [§9c](#9c-every-step-ends-in-a-check-of-the-observable-effect)'s
+  2026-10-04 two-tier ruling. It checks only effects that depend on nothing outside the rig:
+  - readsb's running command line carries the connector; only that pair is printed;
+  - where a listener on :2947 reachable from loopback exists, a connect to `127.0.0.1:2947` gets
+    gpsd's VERSION banner within 10 s, with or without a fix. Nothing is sent, so no position is
+    asked for. A connect alone would not do: systemd's `gpsd.socket` accepts on the port while
+    gpsd behind it is down (`gpsd_banner`'s comment);
+  - readsb holds an established connection to gpsd;
+  - a gpsd listening only on `[::1]` or a LAN address is a failure, because readsb dials IPv4
+    loopback only. Nothing listening on :2947 passes, with the connector idle;
+  - `receiver.json` is served and is a JSON object; its contents are never read or printed;
+  - :8504 is closed: no `conf-enabled` link, no listener, a connect refused.
+  - gpsd 3.25 sends its VERSION banner to every client it accepts, sockets handed over by systemd's
+    `gpsd.socket` included: read by an implementer in gpsd's source at tag `release-3.25`
+    (`gpsd/gpsd.c:2775`, `gpsd_json.c:125`, `gpsd.c:510–514`). ⚠️ Not seen on a rig.
+  - Dropped: an earlier draft that warned when there was no fix. §9c rejects exactly that, a verify
+    that passes with a warning when there is no fix.
+  - On 2026-11-05 Claude explained this and recommended the install-tier route. Chris accepted it,
+    typed, not by question, between the 20:22 and 20:34 stamps: *"That is fine. As long as the map
+    loads with the right location."*
+  - ➡️ 📋 **The observable proof is not the verify:** whether the map shows the right location is
+    checked by eye, in a browser on the LAN, at the 🎒 portable's next pull window. ⛔ The position
+    is never written down.
+- **Ruled 2026-11-05 (Chris, 20:10 Arizona time, by question; the texts as put are in the private
+  pick-up record): the exact-everywhere ruling stands.** It was put against this cost: away from
+  home, on a foreign LAN such as a hotspot or a venue's Wi-Fi, anyone on that LAN can read the
+  rig's position from :80. The 🎒 portable's field state is Wi-Fi off. Review item S7, lighttpd
+  listening on all addresses, stays open.
 
 ---
 
@@ -3980,9 +4074,12 @@ then merged to `main` (`42b5115`, CI green), and `stable` advanced.
   restart, not a comparison of the sticks. Range is not comparable, because `readsb` has no receiver
   location configured.
   *Update 2026-10-10: still true. On the 🎒 portable, `readsb` is ruled to read its location from
-  gpsd on loopback (`--net-connector 127.0.0.1,2947,gpsd_in`), at the gated accuracy; not built.
-  See [§5](#5-proposed-the-web-interface-is-three-existing-services-not-a-new-one), "Update
-  2026-10-10: the interface, ruled (#30)".*
+  gpsd on loopback (`--net-connector 127.0.0.1,2947,gpsd_in`), exact, with no gate, since the
+  2026-10-27 23:17 ruling. It is built in step 10 on #35's branch, not yet committed. Where no gpsd
+  runs, readsb still has no location. See
+  [§5](#5-proposed-the-web-interface-is-three-existing-services-not-a-new-one), "Update
+  2026-10-10: the interface, ruled (#30)" and "Update 2026-10-27: #35's receiver position, exact
+  everywhere, from gpsd live".*
 
 **Update 2026-10-10: no genuine V4; the portable runs on a genuine V3. (Chris), 2026-10-10, about
 12:35, in chat:** *"A genuine V4 is not available - we are running on a genuine V3 for the mobile."*
@@ -5071,9 +5168,10 @@ a `position` event from `gpsd` is written at start and at each rotation. **Why:*
 this repo.
 *Update 2026-10-10: R-pos stands, and the writer's rule stays its own. gpsd on loopback is now ruled
 the one position source on the 🎒 portable: readsb and the field display read it too, and readsb's
-JSON carries the position at the gated accuracy. See
+JSON carries the position exact, everywhere. See
 [§5](#5-proposed-the-web-interface-is-three-existing-services-not-a-new-one), "Update 2026-10-10:
-the interface, ruled (#30)".*
+the interface, ruled (#30)" and "Update 2026-10-27: #35's receiver position, exact everywhere,
+from gpsd live".*
 
 **R-ext, the extractor. (Chris), 2026-10-04: stage 1 is built with the writer.** Given a UTC window,
 it gives per-frame times, as CSV, and a slice of plain BEAST. The default window is t ± 30 s, so the

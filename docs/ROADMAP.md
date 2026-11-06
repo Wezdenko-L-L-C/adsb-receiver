@@ -71,8 +71,10 @@ added 2026-10-10, once Chris had approved the list of issues.
       are seen, so all four parts of the done-when are seen (PLAN §5, "The work within #30, in
       order", item 2, "#30's panel on, 2026-10-14").*
       *Done 2026-10-14: #30 closed on Chris's word, with all four parts of the done-when seen.*
-   3. **The viewer:** the live map with the receiver marker at the gated accuracy, :8504 closed,
-      and the archive timeline from 4a (rulings 6, 7, 9, 10). **Hands:** implementer and the same
+   3. **The viewer:** the live map with the receiver marker, exact everywhere, from gpsd live, with
+      no range outline; :8504 closed; and the archive timeline from 4a (rulings 4 and 7, and the
+      ruling of 2026-10-27 23:17, which supersedes 6, 9 and 10: PLAN §5, "Update 2026-10-27: #35's
+      receiver position, exact everywhere, from gpsd live"). **Hands:** implementer and the same
       review chain. **Done when:** stated in its issue. (#35)
 
    4a. **Database step A, beside the interface:** the catalog, the events and the frame index,
@@ -143,7 +145,10 @@ stationary first, then the 🏠 remote stationary.*
    - the rejected second canary Pi, and the 🏠 home stationary's soak (§9l);
    - station identity: the hostname and `station.id`
      ([§9m](PLAN.md#9m--the-portable-rigs-archive-drive));
-   - per-station gain (§9h).
+   - per-station gain (§9h);
+   - *added 2026-11-05:* ⚠️ a fixed `--lat/--lon` writes the position to readsb's journal at every
+     start ([§5](PLAN.md#5-proposed-the-web-interface-is-three-existing-services-not-a-new-one),
+     "Update 2026-10-27: #35's receiver position, exact everywhere, from gpsd live").
 
    **Hands:** fable-architect. **Done when:** its rulings are recorded in PLAN.md.
    (#33)
