@@ -25,8 +25,9 @@
 #     NET_OPTIONS too: readsb's sockets bind to loopback, and its input
 #     listeners are off (Chris, 2026-10-10). Since 2026-10-27 NET_OPTIONS
 #     also carries a gpsd connector: readsb takes the receiver position from
-#     the rig's gpsd, live and exact (Chris, 2026-10-27, #35). Why, in
-#     render_readsb.
+#     the rig's gpsd, live and exact (Chris, 2026-10-27, #35). Since
+#     2026-11-05 JSON_OPTIONS differs too: no --range-outline-hours, which is
+#     inert under the gpsd connector. Why, in render_readsb.
 #   - A drop-in, /etc/systemd/system/readsb.service.d/adsb-receiver.conf: ours,
 #     not upstream's. systemd's exponential restart backoff: a rig with no
 #     stick backs off from every 15 s toward one attempt every 2 minutes
@@ -41,8 +42,12 @@
 #     Accepted, Chris 2026-10-04: it is lookup data, not code.
 #   - tar1090's installer also enables a second lighttpd door on port 8504
 #     (the conf-enabled link 95-tar1090-otherport.conf, which no package owns).
-#     After the installer runs, this step removes that link and restarts
-#     lighttpd: :80 is the one LAN door (Chris, PLAN §5 ruling 7). Why after,
+#     Every run, after the installer's turn, this step removes that link if it
+#     exists, and only then restarts lighttpd: :80 is the one LAN door (Chris,
+#     PLAN §5 ruling 7). ⚠️ The installer restarts lighttpd itself with :8504
+#     open, so a run that reinstalls tar1090 leaves :8504 open for the seconds
+#     until this step's own restart; and a run whose installer fails stops
+#     there, leaving the link, and :8504, until the next successful run. Why,
 #     in close_tar1090_otherport.
 #
 # Network: a re-run with every package installed, the readsb stamp matching
@@ -385,7 +390,8 @@ EOF
   #    install_if_changed finds it changed and installs it, and
   #    readsb_restart_reason's mtime check finds it newer than the running
   #    readsb and restarts it. What a rig showed when it did is recorded in
-  #    PLAN §5, #30's ruling 2, not here (§9c).
+  #    PLAN §5, #30's ruling 2, not here (PLAN §9c: no script carries a record
+  #    of a run).
   # ⭐ NET_OPTIONS' --net-connector 127.0.0.1,2947,gpsd_in: readsb follows the
   #    rig's gpsd live and takes the receiver position from it, exact, at home
   #    and away, with no home check (Chris, 2026-10-27, #35). It supersedes the
@@ -411,27 +417,31 @@ EOF
   #    A rig with the old file gets this one as it got the 2026-10-10 change:
   #    install_if_changed installs it, and readsb_restart_reason's mtime check
   #    restarts readsb.
-  # ℹ️ JSON_OPTIONS is unchanged. Under gpsd_in there is no range outline:
-  #    readsb disables outline.json when no location is valid at startup
-  #    (readsb.c, around line 2660), and a gpsd fix only comes after startup,
-  #    so --range-outline-hours is inert here. The token is kept; no outline is
-  #    the accepted cost (2026-10-27). --json-location-accuracy 2 is readsb's
-  #    "exact", and receiver.json carries lat and lon only when the accuracy is
-  #    not 0 (json_out.c), so 0 would take the position off the map. Also read
-  #    in the source at the pin.
+  # ℹ️ JSON_OPTIONS: under gpsd_in there is no range outline. readsb disables
+  #    outline.json when no location is valid at startup (readsb.c, around
+  #    line 2660), and a gpsd fix only comes after startup, so no outline is
+  #    ever written; that is the accepted cost (2026-10-27).
+  #    --range-outline-hours 24, upstream's and the 2026-10-03 value, was inert
+  #    here and is dropped (2026-11-05), so the file no longer names an outline
+  #    readsb never draws. --json-location-accuracy 2 is readsb's "exact", and
+  #    receiver.json carries lat and lon only when the accuracy is not 0
+  #    (json_out.c), so 0 would take the position off the map. Also read in the
+  #    source at the pin.
   cat >"$WORK/readsb.default" <<'EOF'
 # Rendered by setup/steps/10-decoder.sh. Do not edit; a hand edit is reverted
 # on the next run. Change the step instead.
 # Read by readsb.service as EnvironmentFile=. The values are the ones the
-# portable rig ran on 2026-10-03, apart from NET_OPTIONS: since 2026-10-10
-# readsb listens on loopback only, with no input ports, and since 2026-10-27
-# it takes the receiver position, exact, from gpsd on 127.0.0.1:2947 (inert
-# where no gpsd runs). Why, in the step.
+# portable rig ran on 2026-10-03, apart from NET_OPTIONS and JSON_OPTIONS:
+# since 2026-10-10 readsb listens on loopback only, with no input ports; since
+# 2026-10-27 it takes the receiver position, exact, from gpsd on
+# 127.0.0.1:2947 (inert where no gpsd runs); and since 2026-11-05 there is no
+# --range-outline-hours, which draws nothing under the gpsd connector. Why, in
+# the step.
 
 RECEIVER_OPTIONS="--device 0 --device-type rtlsdr --gain auto --ppm 0"
 DECODER_OPTIONS="--max-range 450 --write-json-every 1"
 NET_OPTIONS="--net --net-bind-address 127.0.0.1 --net-ro-port 30002 --net-sbs-port 30003 --net-bo-port 30005 --net-connector 127.0.0.1,2947,gpsd_in"
-JSON_OPTIONS="--json-location-accuracy 2 --range-outline-hours 24"
+JSON_OPTIONS="--json-location-accuracy 2"
 EOF
 }
 
@@ -608,11 +618,18 @@ install_tar1090() {
 # conf-enabled on every run (line 358). The link was seen on the portable on
 # 2026-10-27, owned by no package. Only the conf-enabled link is removed;
 # the conf-available copy is the installer's and is inert unlinked. Called
-# after install_tar1090, every run, so a reinstall that re-creates the link
-# is undone in the same run whatever a later pin's installer does.
+# every run, after install_tar1090, so a reinstall that re-creates the link
+# is undone in the same run whatever a later pin's installer does. lighttpd
+# is restarted only when the link existed and was removed; a run that finds
+# it absent touches nothing.
 # A restart, not a reload (ours, 2026-10-27): the installer itself restarts
 # lighttpd (line 471), and whether lighttpd's graceful reload closes a
 # listener its new config dropped is unverified; a restart's is not in doubt.
+# ⚠️ Two windows where :8504 is open. (1) A run that reinstalls tar1090: the
+#    installer's own restart brings lighttpd up with :8504, and it stays open
+#    until the restart here, seconds later. (2) A run whose installer fails:
+#    install_tar1090 dies before this is called, so the link, and :8504, stay
+#    until the next run whose installer succeeds.
 close_tar1090_otherport() {
   guard_path "$OTHERPORT_LINK"
   if [[ ! -e $OTHERPORT_LINK && ! -L $OTHERPORT_LINK ]]; then
@@ -671,6 +688,29 @@ wait_for_field() {
   return 1
 }
 
+# gpsd_banner: connect to gpsd at GPSD_ADDR and print the release named by
+# the first line gpsd sends, if that line is its VERSION banner; print nothing
+# otherwise (no line within 10 s, or another first line). Returns 2, printing
+# nothing, if the connect itself fails.
+# gpsd 3.25 sends that banner to every client it accepts, before any command
+# (gpsd/gpsd.c, the accept loop, json_version_dump()), and a socket systemd's
+# gpsd.socket hands over is accepted by that same loop (passivesocks()). So
+# the banner shows gpsd itself is serving, whatever the sky; a connect alone
+# does not, since systemd holds gpsd.socket's port even while gpsd is down.
+# ⛔ Nothing is sent: with no ?WATCH, gpsd streams no TPV, so no position is
+#    ever asked for. Only the first line is read, through a pipe into jq, which
+#    prints only the class and the release, stripped to version characters.
+gpsd_banner() {
+  local fd
+  { exec {fd}<>"/dev/tcp/${GPSD_ADDR%:*}/${GPSD_ADDR##*:}"; } 2>/dev/null || return 2
+  timeout 10 head -n 1 <&"$fd" 2>/dev/null \
+    | jq -Rr 'fromjson? | select(type == "object" and .class == "VERSION")
+              | (.release // "") | tostring | gsub("[^0-9A-Za-z._~+-]"; "")
+              | if . == "" then "unknown" else . end' 2>/dev/null \
+    || true
+  exec {fd}>&-
+}
+
 # An RTL2832U on USB: Realtek 0bda, product 2838 or 2832. Read from sysfs, so no
 # lsusb is needed. Prints the matches.
 sdr_on_usb() {
@@ -688,11 +728,37 @@ sdr_on_usb() {
   done
 }
 
+# without_position: stdin to stdout, minus any line that could carry the
+# receiver position. ⛔ The position is never printed (PLAN §5, "The one
+# position source, and the surface rule"). readsb at the pin writes it to its
+# journal only in paths this step does not configure: `--devel debugGPS`
+# (net_io.c, handle_gpsd()), a --lat/--lon at startup (readsb.c,
+# adjustUserLocationAccuracy()), a Radarcape's position (readsb.c,
+# receiverPositionChanged()), and a setLatLon command (readsb.c). A later pin
+# may add another, so the filter is on the shape, not on those messages:
+# fail-closed, a line is dropped when, with its time-of-day stamps
+# (hh:mm:ss.fff) taken out, it still holds a number with two or more decimals
+# (readsb's formats for a position are %f, %.6f and %.5f), or the word lat,
+# lon, alt, latitude, longitude, location, position or gpsdebug. A position
+# rounded to one decimal or none passes the number test; only the words catch
+# it. The dropped lines are counted, never shown.
+without_position() {
+  awk '
+    { t = $0
+      gsub(/[0-9][0-9]:[0-9][0-9]:[0-9][0-9](\.[0-9]+)?/, "", t)
+      l = tolower(t)
+      if (t ~ /[0-9]\.[0-9][0-9]/ \
+          || l ~ /(^|[^a-z])(lat|lon|alt|latitude|longitude)([^a-z]|$)/ \
+          || l ~ /location|position|gpsdebug/) { n++; next }
+      print }
+    END { if (n) printf "(%d line(s) withheld: a decimal number or a position word, so possibly the receiver position)\n", n }'
+}
+
 # Why is readsb not writing? Say whether the stick is there, then fail.
 die_not_streaming() {
   local why=$1 sdr
-  log "journalctl -u readsb -n 20 --no-pager (raw output follows)"
-  journalctl -u readsb -n 20 --no-pager 2>&1 || true
+  log "journalctl -u readsb -n 20 --no-pager (raw, minus any line that could carry the position; see without_position)"
+  { journalctl -u readsb -n 20 --no-pager 2>&1 || true; } | without_position
   echo "----"
   sdr=$(sdr_on_usb)
   log "RTL2832U devices on USB, from sysfs (raw): ${sdr:-(none)}"
@@ -965,8 +1031,12 @@ verify() {
   # readsb follows gpsd (render_readsb, ruled 2026-10-27): the running readsb
   # was started with the connector. Read from /proc/<MainPID>/cmdline, split on
   # NUL; ⛔ only the connector's pair is printed, never the whole command line
-  # (§9c). MainPID is re-read for up to 10 s, in case readsb is between starts.
-  local rpid cmd_args=() nc_pair='' j gl line st peer proc est=''
+  # (PLAN §5, "The one position source, and the surface rule": nothing this
+  # repo runs prints the position, and a later --lat/--lon would put it on
+  # that line). MainPID is re-read for up to 10 s, in case readsb is between
+  # starts.
+  local rpid cmd_args=() nc_pair='' j line sstate peer proc est='' bo_owner=''
+  local gpsd_listen='' gpsd_reach='' gaddr gbanner gbrc gbshow
   rpid=
   for ((i = 0; i <= 10; i++)); do
     rpid=$(systemctl show -p MainPID --value readsb 2>/dev/null) || rpid=0
@@ -992,26 +1062,62 @@ verify() {
     || die "readsb (PID $rpid) was not started with --net-connector ${GPSD_ADDR/:/,},gpsd_in; run this step without --verify, which rewrites $DEFAULTS and restarts readsb"
   pass "readsb was started with $nc_pair"
 
-  # The connection itself, only where something listens on 127.0.0.1:2947: the
+  # The connection itself, only where something listens on port 2947: the
   # portable's gpsd, perhaps through its socket unit, in which case readsb's
-  # connect is what starts gpsd. Where nothing listens (the stationary, which
-  # runs no gpsd, or a portable's first build before step 20) the connector is
-  # idle, and that is a pass. No role is read. Polled for up to 20 s: after a
-  # failed dial the connector waits up to --net-connector-delay (15 s) before
-  # the next. ⛔ Only the loopback connection's own ss line is printed.
+  # connect is what starts gpsd. Where nothing listens on 2947 (a rig with no
+  # gpsd, or a portable's first build before step 20) the connector is idle,
+  # and that is a pass. No role is read. Polled for up to 20 s: after a failed
+  # dial the connector waits up to --net-connector-delay (15 s) before the
+  # next. ⛔ Only the loopback connection's own ss line is printed.
+  # Any listener on 2947 counts as gpsd being there, whatever its address
+  # (127.0.0.1, 0.0.0.0, *, [::1], [::], with a %interface suffix or not; the
+  # suffix is taken off as for readsb's ports above). readsb dials 127.0.0.1
+  # only, so one of them must be reachable from there: 127.0.0.1, 0.0.0.0,
+  # *, [::] or [::ffff:127.0.0.1]. [::] is let through although a v6only
+  # socket would refuse an IPv4 client: the connect to $GPSD_ADDR below is
+  # what decides. Listeners that are all elsewhere ([::1] alone, or a LAN
+  # address) are a failure: gpsd is on the rig, and readsb cannot reach it,
+  # so the position the map is ruled to show never arrives.
+  # Then gpsd itself must be serving on $GPSD_ADDR, readsb's address: its
+  # VERSION banner within 10 s of a connect (gpsd_banner). That is install
+  # tier, true indoors and out; whether gpsd has a fix is the sky's, and no
+  # verify here reads it (PLAN §9c, "two tiers"; Chris, 2026-11-05). It is
+  # what keeps step 20's gpsd.socket from passing for gpsd: systemd accepts a
+  # connect on that port even while gpsd behind it is broken.
   ss_out=$(ss -ltnH 2>&1) || die "ss -ltnH failed: $ss_out"
-  gl=0
   while read -r _ _ _ laddr _; do
-    if [[ $laddr == "$GPSD_ADDR" ]]; then gl=1; fi
+    [[ ${laddr##*:} == "${GPSD_ADDR##*:}" ]] || continue
+    gpsd_listen+="$laddr "
+    gaddr=${laddr%:*}
+    gaddr=${gaddr%%\%*}
+    gaddr=${gaddr#\[}
+    gaddr=${gaddr%\]}
+    case $gaddr in
+      127.0.0.1|0.0.0.0|'*'|::|::ffff:127.0.0.1) gpsd_reach+="$laddr " ;;
+    esac
   done <<<"$ss_out"
-  if ((gl)); then
+  log "ss -ltnH, listeners on port ${GPSD_ADDR##*:} (gpsd's) (raw): ${gpsd_listen:-(none)}"
+  if [[ -n $gpsd_listen && -z $gpsd_reach ]]; then
+    die "gpsd listens on port ${GPSD_ADDR##*:} only at ${gpsd_listen% }, which readsb's connector cannot reach: it dials $GPSD_ADDR (IPv4 loopback) only. Have gpsd listen on 127.0.0.1 too (gpsd.socket's ListenStream=, or gpsd's -G or its listen address); check: systemctl cat gpsd.socket"
+  fi
+  if [[ -n $gpsd_listen ]]; then
+    gbrc=0
+    gbanner=$(gpsd_banner) || gbrc=$?
+    gbshow='(none)'
+    if [[ -n $gbanner ]]; then gbshow="release $gbanner"; fi
+    log "connect to $GPSD_ADDR and read gpsd's first line for up to 10 s, sending nothing: $( ((gbrc)) && echo 'no connect' || echo connected); VERSION banner: $gbshow"
+    ((gbrc == 0)) \
+      || die "a connect to $GPSD_ADDR, the address readsb's connector dials, failed although port ${GPSD_ADDR##*:} listens at ${gpsd_reach% }; check: ss -ltnp, and systemctl cat gpsd.socket"
+    [[ -n $gbanner ]] \
+      || die "$GPSD_ADDR accepted a connect but gpsd sent no VERSION banner within 10 s, so gpsd itself is not serving (gpsd.socket holding the port for a gpsd that is down or failing?); check: systemctl status gpsd gpsd.socket, and journalctl -u gpsd"
+    pass "gpsd is serving on $GPSD_ADDR: it sent its VERSION banner (release $gbanner)"
     for ((i = 0; i <= 20; i++)); do
       rpid=$(systemctl show -p MainPID --value readsb 2>/dev/null) || rpid=0
       est=''
       if [[ $rpid =~ ^[1-9][0-9]*$ ]] && ss_out=$(ss -tnpH 2>&1); then
         while IFS= read -r line; do
-          read -r st _ _ _ peer proc <<<"$line"
-          if [[ $st == ESTAB && $peer == "$GPSD_ADDR" && $proc == *"pid=$rpid,"* ]]; then
+          read -r sstate _ _ _ peer proc <<<"$line"
+          if [[ $sstate == ESTAB && $peer == "$GPSD_ADDR" && $proc == *"pid=$rpid,"* ]]; then
             est=$line
             break
           fi
@@ -1021,12 +1127,33 @@ verify() {
       if ((i < 20)); then sleep 1; fi
     done
     log "ss -tnpH, readsb (PID $rpid) connected to $GPSD_ADDR (raw): ${est:-(none)}"
+    # ss -p names a socket's process only when it can read that process's
+    # /proc/<pid>/fd. Whether it can read readsb's is tested on readsb's own
+    # 127.0.0.1:30005 listener, which the checks above found: if ss does not
+    # name readsb (PID $rpid) there either, the match above could not work,
+    # whatever gpsd and the connector do.
+    if [[ -z $est ]]; then
+      [[ $rpid =~ ^[1-9][0-9]*$ ]] \
+        || die "readsb has no MainPID ('${rpid:-}') after the 20 s wait for its gpsd connection: it stopped, crashed or is restarting during the verify; check: systemctl status readsb, and journalctl -u readsb"
+      if ss_out=$(ss -ltnpH 2>&1); then
+        while IFS= read -r line; do
+          read -r _ _ _ laddr _ proc <<<"$line"
+          if [[ $laddr == 127.0.0.1:30005 && $proc == *"pid=$rpid,"* ]]; then
+            bo_owner=$line
+            break
+          fi
+        done <<<"$ss_out"
+      fi
+      log "ss -ltnpH, readsb (PID $rpid) named as the owner of 127.0.0.1:30005 (raw): ${bo_owner:-(none)}"
+      [[ -n $bo_owner ]] \
+        || die "ss -ltnpH does not name readsb (PID $rpid) as the owner of its own 127.0.0.1:30005 listener, so ss cannot show readsb's sockets and its connection to $GPSD_ADDR cannot be checked; this is ss's view of readsb, not a gpsd fault. Check that /proc is not mounted with hidepid (findmnt /proc)"
+    fi
     [[ -n $est ]] \
-      || die "something listens on $GPSD_ADDR (gpsd), but readsb (PID $rpid) has no established connection to it after 20 s; check: journalctl -u readsb for connector errors, and systemctl status gpsd gpsd.socket"
+      || die "something listens on port ${GPSD_ADDR##*:} (gpsd), but readsb (PID $rpid) has no established connection to $GPSD_ADDR after 20 s; check: journalctl -u readsb for connector errors, and systemctl status gpsd gpsd.socket"
     pass "readsb holds an established connection to gpsd on $GPSD_ADDR"
   else
-    log "nothing listens on $GPSD_ADDR on this rig, so readsb's gpsd connector is idle; the stationary's position source is #33's"
-    pass "no gpsd listens on $GPSD_ADDR: readsb's gpsd connector has nothing to follow here (idle, not a fault)"
+    log "nothing listens on port ${GPSD_ADDR##*:} on this rig (no gpsd here, or not yet set up), so readsb's gpsd connector is idle and readsb has no position source here; one for a rig without gpsd is open in #33"
+    pass "no gpsd listens on port ${GPSD_ADDR##*:}: readsb's gpsd connector has nothing to follow here (idle, not a fault)"
   fi
 
   # tar1090: the pinned version is installed, its page is served, and its data
@@ -1058,22 +1185,29 @@ verify() {
     || die "the served aircraft.json is not readsb's current one (now $served against $local_now); check the data alias in /etc/lighttpd/conf-enabled/88-tar1090.conf"
   pass "tar1090 is served at $TAR1090_URL, and its data path serves readsb's current aircraft.json"
 
-  # The position reaches the map: receiver.json, as tar1090 serves it, has a
-  # "lat" key. ⛔ Never printed: not the file, not lat, lon or alt_m_amsl; jq
-  # reads only whether the key is there. No key is readiness, not install
-  # (§9c's tiers): no fix yet, or no gpsd on this rig. So it warns, and the
-  # step still passes.
-  local has_lat
-  out=$(curl -fsS --max-time 10 -o "$WORK/receiver.json" "${TAR1090_URL}data/receiver.json" 2>&1) \
-    || die "${TAR1090_URL}data/receiver.json is not served: $out"
-  has_lat=$(jq 'has("lat")' "$WORK/receiver.json" 2>/dev/null) \
-    || die "${TAR1090_URL}data/receiver.json is not a JSON object (its contents are not printed); check the data alias in /etc/lighttpd/conf-enabled/88-tar1090.conf"
-  rm -f -- "$WORK/receiver.json"
-  if [[ $has_lat == true ]]; then
-    pass "receiver.json carries the receiver position (not printed)"
-  else
-    warn "no receiver position now (no fix, or no gpsd): UNVERIFIED this run"
+  # receiver.json, the file tar1090 reads the receiver position from, is
+  # served and is a JSON object. Install tier only: whether it holds a
+  # position depends on a fix, which is the sky's (PLAN §9c, "two tiers"), so
+  # its keys are not read and nothing passes or fails on a fix.
+  # ⛔ Never printed, never read for its values, never written to disk: not the
+  #    file, not lat, lon or alt_m_amsl (PLAN §5, "The one position source,
+  #    and the surface rule"). curl pipes the body straight into jq -e, which
+  #    prints nothing and answers by its exit status whether the file is a
+  #    JSON object. Both stderrs are dropped (jq's messages can quote input),
+  #    and only the two exit statuses leave the pipe. curl exit 23 with a
+  #    failed jq is jq quitting on bad input first, so it counts as "not an
+  #    object", not as "not served".
+  local rcurl rjq
+  read -r rcurl rjq < <(set +e +o pipefail
+    curl -fsS --max-time 10 "${TAR1090_URL}data/receiver.json" 2>/dev/null \
+      | jq -e 'type == "object"' >/dev/null 2>&1
+    echo "${PIPESTATUS[0]} ${PIPESTATUS[1]}")
+  if [[ $rcurl != 0 ]] && ! [[ $rcurl == 23 && $rjq != 0 ]]; then
+    die "${TAR1090_URL}data/receiver.json is not served (curl exit ${rcurl:-?}: 7 refused, 22 an HTTP error, 28 a timeout); check: systemctl status lighttpd, and the data alias in /etc/lighttpd/conf-enabled/88-tar1090.conf"
   fi
+  [[ $rjq == 0 ]] \
+    || die "${TAR1090_URL}data/receiver.json is not a JSON object (jq exit ${rjq:-?}; its contents are not printed); check the data alias in /etc/lighttpd/conf-enabled/88-tar1090.conf"
+  pass "${TAR1090_URL}data/receiver.json is served and is a JSON object (its contents are not read or printed)"
 
   # Port 8504 is closed (close_tar1090_otherport, PLAN §5 ruling 7): the
   # conf-enabled link is gone, nothing listens on 8504 on any address, and a
