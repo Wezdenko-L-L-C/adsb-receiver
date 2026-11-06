@@ -1461,6 +1461,8 @@ there, with `sudo`** (it is `root:root 0600`).
 
 *Note 2026-10-04: the first half of this heading is superseded, as the paragraph below says. The
 heading is kept as written because nine links in this document point at its anchor.*
+*Update 2026-11-05: the 🎒 portable's RTC board was ruled on 2026-11-05 22:01; see the last bullet
+under `setup/foundation/rtc-overlay.sh`, in "Update 2026-10-04 (evening)" below.*
 
 ~~**The first build is by hand, one step at a time.**~~ *Superseded 2026-10-04 (Chris): the first
 build is one command, and the updater it installs finishes the build; see the evening update at the
@@ -1601,6 +1603,72 @@ recommendation every time, and that choice is the decision.
         (**(Chris)**, 2026-10-11). It is his word; Claude has not seen the board, and, as this ruling
         says, nothing on the rig can confirm it.
         [BUILD.md §6b](BUILD.md#6b-gps-alone-does-not-close-it) carries the same note.*
+    - **Ruled 2026-11-05 (Chris, 22:01 Arizona time, by question; the texts as put are in the
+      private pick-up record): the 🎒 portable's ZS-042 board is replaced by a genuine DS3231
+      board, the Adafruit PiRTC DS3231 (product 4282), on a CR1220 cell.** Something else on the
+      header occupies pins the board may cover (Chris, 2026-11-05, by question: the case fan or
+      other), so it is expected to need jumper wires; Adafruit does not state which pins it
+      covers. No diagnosis step
+      comes before the purchase. The planned deliberate multi-day power-off test on the bench is
+      dropped. Chris meters the old board's CR2032 when it comes off, as a record and not a gate.
+      The new board is tested on the rig's next natural multi-day off. 📋 Ruled, not fitted: the
+      ZS-042 is still on the rig.
+      - **Why: the ZS-042 lost time twice.** Seen in the rig's journal on 2026-10-25 and
+        2026-11-05, and in the RTC's registers on 2026-10-25.
+        - Offs of 15 s and 106 s kept time. Two multi-day offs did not: about 6 days, 2026-10-18 to
+          2026-10-24, on a CR2032 that read 2.7 V afterwards; and about 4 days, 2026-11-01 to
+          2026-11-05, on a new CR2032 fitted on 2026-10-27, its voltage not measured.
+        - Both boots after them printed `rtc-ds1307 1-0068: SET TIME!` and `hctosys: unable to read
+          the hardware clock`. By the driver's source (`rtc-ds1307.c`, read by a documentation
+          lookup, not by Claude), that means the oscillator-stop flag (OSF) was set: the oscillator
+          stopped while the board ran on its cell.
+        - EOSC read 0. After the 2026-10-27 cell swap, OSF read clear and the RTC matched the
+          system clock.
+        - No archive file was misnamed after either boot: the writer's clock preflight held. For
+          the 2026-11-05 boot, at 19:24 Arizona time, the first file it opened is
+          `2026-11-06/20261106T022424Z`, its own UTC time, not the 2026-10-03 fallback (read by
+          the main loop in the pulled archive, 2026-11-05 at 22:21).
+      - The rejected options' reasons are fable-architect's, 2026-11-05.
+      - Rejected: **an RV-3028 board** (`dtoverlay=i2c-rtc,rv3028`). Its 45 nA backup current and
+        ±1 ppm accuracy answer problems the rig does not have: GPS corrects accuracy at the fix, and
+        a genuine DS3231's 1–3 µA is already well inside a coin cell's margin. It would change
+        `setup/foundation/rtc-overlay.sh`, `setup/foundation/rtc_config.py` (which reports an
+        `i2c-rtc` overlay for any chip but the DS3231 as a conflict, and `rtc-overlay.sh` refuses
+        a conflict), `tests/test_rtc_config.py`, step 20 and
+        [BUILD.md §6b](BUILD.md#6b-gps-alone-does-not-close-it), all of it in this public repo. A
+        supercapacitor variant whose capacitor never charged fails as a flat cell does, with
+        nothing to measure.
+      - Rejected: **the Pi 5 swap as the clock fix.** That is a whole-rig rebuild, with its own
+        design call. The Pi 5's RTC is about 50 ppm and not temperature-compensated (a forum quote
+        from Raspberry Pi staff, not checked). Its 600 mA limit on downstream USB, without a
+        5 V/5 A PD supply (Raspberry Pi's documentation, read by a documentation lookup, not checked
+        on hardware), bears on the bank, the stick, the puck and the drive. The 🏠 stationary
+        would lose the one Pi 5 Chris owns. ➡️ If Chris decides the swap on its own merits, the
+        clock comes with it, and the PiRTC order is dropped.
+      - Rejected: **diagnosing the ZS-042 first.** It costs Chris's hands, or days of not
+        recording, to explain a board that is retired either way.
+      - Rejected: **the Waveshare RTC WatchDog HAT.** Its watchdog cuts the Pi's power, and the Pi
+        already runs the hardware watchdog through systemd, with a 1-minute timeout
+        ([§9f](#9f-what-updatesh-does), the unclean reset of 2026-10-10). Assessed 2026-10-25.
+      - Rejected: **the Adafruit PiRTC PCF8523 (product 3386).** It is not a DS3231, and
+        [BUILD.md §6b](BUILD.md#6b-gps-alone-does-not-close-it) requires a DS3231 for its
+        temperature compensation. Adafruit's page says the PCF8523 board "may lose or gain a second
+        or two per day" (Claude's reading of adafruit.com/product/3386, 2026-10-25, not fetched
+        again). The DS3231 and the PCF8523 both use I²C address 0x68 (the DS3231's 0x68 is the
+        `1-0068` in the journal line above; ⚠️ the PCF8523's is unverified here), so the rig's `dtoverlay=i2c-rtc,ds3231` line would drive a
+        PCF8523 as if it were a DS3231. The overlay line would have to change by hand, and
+        `rtc_config.py` would report a `pcf8523` line as a conflict, which `rtc-overlay.sh`
+        refuses. Assessed 2026-10-25.
+      - Rejected: **no RTC at all.** The writer is protected without one, but BUILD.md §6's design
+        and step 20's `rtc_gate` assume one; removing it is a larger design change than a ~$16
+        board, for a boot that comes up with the wrong date until the fix. This is the
+        architect's reason as checked against the code, trimmed: `rtc_gate` fails step 20 when
+        there is no `/dev/rtc0` (`setup/steps/20-portable-clock.sh`, read), and a failed step rolls
+        the candidate back (`setup/update.sh`'s header, read), so every update would be held.
+      - Rejected: **another ZS-042, or a generic module.** It comes from the same supply chain as
+        the board that failed twice.
+      - ➡️ **What would reopen this:** the PiRTC also loses time after a dry multi-day off. Then the
+        cause is environmental (moisture at the crystal) or the wiring, not the board.
   - **`setup/foundation/format-archive.sh`**, under a strict rule:
     - If any device already carries the label `adsb-archive`, it formats nothing, and step 30 mounts
       that device.
@@ -4343,6 +4411,37 @@ a rig that will not record at its next outing.
 
 ⛔ **Rejected: `ExecStartPost=` running `update.sh` in the pull window.** `systemctl start` would block
 for a source build that takes minutes.
+
+ℹ️ The entries below were added 2026-11-05, with the 🎒 portable's RTC board, by the 2026-11-05
+22:01 ruling, the last bullet under `setup/foundation/rtc-overlay.sh` in
+[§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic)'s evening update. Each
+reason's first sentence is quoted from there; the rest of it is there.
+
+⛔ **Rejected: an RV-3028 board for the 🎒 portable's RTC.** "Its 45 nA backup current and ±1 ppm
+accuracy answer problems the rig does not have: GPS corrects accuracy at the fix, and a genuine
+DS3231's 1–3 µA is already well inside a coin cell's margin."
+
+⛔ **Rejected: the Pi 5 swap as the 🎒 portable's clock fix.** "That is a whole-rig rebuild, with its
+own design call." ➡️ "If Chris decides the swap on its own merits, the clock comes with it, and the
+PiRTC order is dropped."
+
+⛔ **Rejected: diagnosing the ZS-042 before buying its replacement.** "It costs Chris's hands, or days
+of not recording, to explain a board that is retired either way."
+
+⛔ **Rejected: the Waveshare RTC WatchDog HAT.** "Its watchdog cuts the Pi's power, and the Pi already
+runs the hardware watchdog through systemd, with a 1-minute timeout
+([§9f](#9f-what-updatesh-does), the unclean reset of 2026-10-10)."
+
+⛔ **Rejected: the Adafruit PiRTC PCF8523 (product 3386).** "It is not a DS3231, and
+[BUILD.md §6b](BUILD.md#6b-gps-alone-does-not-close-it) requires a DS3231 for its temperature
+compensation."
+
+⛔ **Rejected: no RTC at all on the 🎒 portable.** "The writer is protected without one, but BUILD.md
+§6's design and step 20's `rtc_gate` assume one; removing it is a larger design change than a ~$16
+board, for a boot that comes up with the wrong date until the fix."
+
+⛔ **Rejected: another ZS-042, or a generic module, for the 🎒 portable.** "It comes from the same
+supply chain as the board that failed twice."
 
 ### 9m. 🎒 The portable rig's archive drive
 

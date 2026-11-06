@@ -99,7 +99,7 @@ Buy the shared core once per rig, then only the additions for the rig you are bu
 | 6 | **Magnetic-mount 1090 whip** | For a car roof. ⛔ A 26" collinear is the wrong antenna to carry and the wrong one to mount in a hurry. ⚠️ These are usually **MCX** — check the bundled MCX→SMA adapter presents **SMA male**, since the dongle's connector is SMA female |
 | 7 | **USB-C power bank, genuine 5 V 3 A** | See [§5](#5-power-portable-only). ⚠️ Undervoltage looks like bad reception |
 | 8 | **USB GNSS receiver** — ⭐ **GlobalSat BU-353N5** | ⛔ Portable only. ⭐ Magnetic mount on a ~1.5 m lead, so the antenna goes where the sky is — which a HAT cannot do. [§6c](#6c-which-gnss-puck) for why the N5 over the older S4. *Added 2026-10-11: ⚠️ the 🎒 portable carries a GlobalSat **BU-353N**, not this N5. Both of its labels read BU-353N, with no N5 and no IP rating (photographed by Chris, 2026-10-11). [§6c](#6c-which-gnss-puck)'s case for the N5 does not describe the puck on the rig. This note records what is fitted; what to buy is not ruled.* |
-| 9 | **DS3231 RTC module** (I²C breakout, ~$5) | ⛔ Portable only. ⭐ [§6b](#6b-gps-alone-does-not-close-it) — the half of the clock problem GPS does *not* solve. ⚠️ DS3231, **not** DS1307. ⚠️ [§6b](#6b-gps-alone-does-not-close-it): fix the charge path before fitting |
+| 9 | **A genuine DS3231 RTC board** — ⭐ the **Adafruit PiRTC DS3231** (product 4282, $15.95) | ⛔ Portable only. ⭐ [§6b](#6b-gps-alone-does-not-close-it) — the half of the clock problem GPS does *not* solve. ⚠️ DS3231, **not** DS1307. ⚠️ It takes a **CR1220** coin cell, which is **not included**. ⚠️ The common ZS-042 board instead: [§6b](#6b-gps-alone-does-not-close-it), fix its charge path before fitting |
 | 10 | **A bag that fits it all, and short USB extension leads** | Dongles need spacing ([RADIOS.md §5](RADIOS.md#5-what-a-second-dongle-does-to-the-pi)), and a rig you dread packing is a rig you leave at home |
 
 *Added 2026-10-10: and **a USB flash drive for the archive**, at least 8 GB, in a black USB 2 port
@@ -314,19 +314,63 @@ A GPS puck fixes the clock **only once it has locked** — a cold start is 30–
 longer against a building or inside a car. If your logger refuses to record until the clock is
 disciplined (it should — see [§7](#7-software)), that wait is time stood around unable to start.
 
-⭐ **A DS3231 costs ~$5 and removes the wait.** It holds wall-clock across boots on a coin cell, so
-the Pi comes up already approximately right and GPS then refines it.
+⭐ **A DS3231 does not remove that wait; it covers the time before it.** It holds wall-clock across
+boots on a coin cell, so the Pi comes up already approximately right and GPS then refines it. At boot
+the kernel sets the system clock from it (`hctosys`). This repo's archive writer still waits: its
+unit runs `bin/clock-preflight` before each start, and that passes, with the portable's
+`clock.require_disciplined: true`, only once chrony has a selected, synchronized source within
+`clock.max_offset_ms`, GPS in the field or NTP at home. The RTC is not one of chrony's sources: step 20
+gives chrony one refclock, the puck's. ➡️ What the RTC gives is a near-right clock for the journal,
+the slate and anything else that runs before the fix.
 
 | | Gives you | Available |
 |---|---|---|
-| **DS3231 RTC** | Time across a boot, with no network and no sky | **Instantly**, every boot |
+| **DS3231 RTC** | A near-right system clock across a boot, with no network and no sky, for what runs before the fix. Not the start of recording | At boot, if it kept time while the Pi was off |
 | **GPS** | Position, and time disciplined to ±~100 ms | After lock |
 
 ⚠️ **DS3231, not DS1307.** The 3231 is temperature-compensated at ±2 ppm; the 1307 drifts enough to
 matter over a weekend. Four pins (3V3, GND, SDA, SCL) and ~~`dtoverlay=i2c-rtc,ds3231` in
 `config.txt`~~ *two lines in `config.txt`, `dtparam=i2c_arm=on` and `dtoverlay=i2c-rtc,ds3231`
 (corrected 2026-10-04: this named only the second; the one-command build in [§8](#8-build-order)
-adds both)*, and it leaves the rest of the header free — which a HAT does not.
+adds both)*. A breakout wired by four jumpers (3V3, SDA, SCL, GND) leaves the rest of the header
+free, which a HAT does not. A board that plugs onto the header, such as the PiRTC below, covers some
+of its pins; it can be wired off the header by jumpers instead, as below.
+
+⭐ **The board to buy: a genuine DS3231, such as the Adafruit PiRTC DS3231 (product 4282).**
+Adafruit's product page, read 2026-11-05, calls it a "genuine DS3231", lists it at $15.95, and says
+it "plugs directly into your Pi's GPIO pins". ⚠️ It takes a **CR1220** coin cell, which is **not
+included**; Adafruit sells one, at $0.95. ⚠️ The page does not say which pins it covers, or its I²C
+address. Why this board, and what was rejected:
+[PLAN.md §9e](PLAN.md#9e-the-first-build-is-by-hand-after-that-updates-are-automatic), the
+2026-11-05 22:01 ruling.
+
+⚠️ **The PiRTC's cell: whether the board charges it is not stated.** Adafruit's product page, its
+Learn guide and the DS3231 datasheet (all read 2026-11-05) say nothing either way. Adafruit sells a
+CR1220 as the board's add-on, which suggests a primary (non-rechargeable) cell is intended; that is an
+inference, not Adafruit's statement. ➡️ Check it as
+[PLAN.md §9e](PLAN.md#9e-the-first-build-is-by-hand-after-that-updates-are-automatic)'s 2026-10-04
+ruling checks the ZS-042's charge path: as a hardware-assembly step, with the board in hand, before
+it is wired to the Pi, because the hazard follows the board and no script can see it. Before fitting
+a non-rechargeable cell, look for a resistor-and-diode path from VCC to VBAT, the shape of the
+ZS-042's R5 and 1N4148 below.
+
+**Wiring the PiRTC by jumpers**, when something else uses the header. Adafruit's guide (*Adding a
+Real Time Clock to Raspberry Pi*, its wiring page, read 2026-11-05) says: "For the PiRTC, just place
+it on the header away from the USB ports." By Claude's reading of the Pi 4's layout, not Adafruit's
+text: that is the pin-1 end of the header, and the board's female socket sits on the Pi's male
+pins. So to wire it off the header:
+- Use **female-to-male** jumpers: the female end on the Pi's pin, the male end into the PiRTC's
+  socket, in the position that would have sat on that same pin.
+- Wire 3V3 (pin 1), SDA (pin 3) and SCL (pin 5), plus a ground. The ground may go to any free GND
+  pin on the Pi (pin 9 is nearest), into the socket position that sits on pin 6.
+- Pin functions, by physical pin number (pinout.xyz, read 2026-11-05): 3V3 on 1 and 17; 5V on 2
+  and 4; GND on 6, 9, 14, 20, 25, 30, 34 and 39; SDA on 3; SCL on 5.
+- ⚠️ How many pins the socket covers is not stated here. Check the board's own silkscreen labels
+  before wiring. If the board shows a 5 V position, wire it to pin 2 or 4 as well.
+- For example, the 🎒 portable's case fan uses header pins (Chris, 2026-11-05, by question) and has
+  no control wire (Chris, typed the same day: "nope, it is a cheap case and cheap fan"); which
+  pins, read off the board when the case is open. Whether its PiRTC is fitted:
+  the note on the 🎒 portable at the end of the ZS-042 subsection below.
 
 #### ⛔ The ZS-042 board will try to charge a non-rechargeable cell
 
@@ -343,10 +387,15 @@ prints a reminder when it adds the overlay.*
 - fit a **LIR2032** (rechargeable, what the board expects), **or**
 - **remove R5** (or the 1N4148), after which a CR2032 is safe.
 
-*Added 2026-10-11: on the 🎒 portable this is done. The diode is removed (**(Chris)**, 2026-10-11);
-Claude has not seen the board. No script can check it, as the correction above says, and
-[PLAN.md §9e](PLAN.md#9e-the-first-build-is-by-hand-after-that-updates-are-automatic) records the
-2026-10-04 ruling that made it a hardware-assembly step.*
+This cell advice (CR2032, LIR2032, R5) is for the ZS-042 only. For the PiRTC, see its cell
+paragraph above.
+
+*On the 🎒 portable a ZS-042 is still fitted, and this is done on it. The diode is removed
+(**(Chris)**, 2026-10-11); Claude has not seen the board. No script can check it, as the correction
+above says, and [PLAN.md §9e](PLAN.md#9e-the-first-build-is-by-hand-after-that-updates-are-automatic)
+records the 2026-10-04 ruling that made it a hardware-assembly step. Its replacement by the PiRTC
+above was ruled on 2026-11-05, after the board lost time over two multi-day offs (the same PLAN.md
+§9e ruling), and is not yet fitted.*
 
 ℹ️ Wire it to the Pi's **3.3 V** pin, not 5 V — the Pi's I²C is 3.3 V logic anyway, and it makes
 the charging circuit less aggressive if you have not removed it. ℹ️ The AT24C32 EEPROM on the same
