@@ -360,8 +360,15 @@ EOF
   #    run, and readsb restarts with the repo's values. Config lives in the
   #    repo (PLAN §9f): change it here.
   # 📋 Not yet from station.yml: `--device 0` is what ran. Selecting the stick
-  #    by its EEPROM serial (dongles.adsb, RADIOS.md §5 rule 2) and, on the
-  #    stationary rig, --lat/--lon from position: are follow-ups.
+  #    by its EEPROM serial (dongles.adsb, RADIOS.md §5 rule 2) is a follow-up.
+  #    The stationary rig's position source is open (#33). ⚠️ A fixed
+  #    --lat/--lon is not the easy answer it looks: readsb then prints
+  #    `Using lat: … lon: …` to its journal at every start, and --quiet does not
+  #    suppress it (readsb.c:121; read in readsb's source at the pin, not seen
+  #    on a rig). The journal is forbidden to the position (PLAN §5, "The one
+  #    position source, and the surface rule"). The hazard is recorded in
+  #    PLAN §5, "Update 2026-10-27: #35's receiver position, exact everywhere,
+  #    from gpsd live".
   # ⛔ NET_OPTIONS: loopback only, and no input listeners (Chris, 2026-10-10).
   #    Until then this was upstream's line: raw input on 30001 and BEAST input
   #    on 30004 and 30104, with every listener on all addresses, IPv4 and IPv6
@@ -586,6 +593,7 @@ tar1090_is_current() {
 }
 
 install_tar1090() {
+  local rc=0 crc
   if tar1090_is_current; then
     log "tar1090 at the pin is installed ($(tar1090_installed_version)); not reinstalled"
     return 0
@@ -604,7 +612,24 @@ install_tar1090() {
   # lighttpd. ⚠️ It fetches tar1090-db from master (accepted, Chris 2026-10-04).
   log "running tar1090's installer from the pinned checkout"
   (cd "$TAR1090_SRC" && run env -u TAR1090_UPDATE_DIR bash ./install.sh "$JSON_DIR" "" "" "$TAR1090_SRC") \
-    || die "tar1090's install.sh failed; its output is above"
+    || rc=$?
+  if ((rc != 0)); then
+    # The installer may have linked 95-tar1090-otherport.conf before it failed,
+    # so the link is removed before the step dies (close_tar1090_otherport).
+    # The close runs in a subshell with errexit on, so it stops where it fails,
+    # as on the normal path, but its failure does not end the step: the step
+    # still fails with exit 1, and its last line is the installer's FAIL,
+    # carrying the installer's exit code. A die inside the close prints its own
+    # FAIL line first, before the warning. set +e around it: a subshell under
+    # `if !` or `||` would run with errexit off.
+    set +e
+    (set -e; close_tar1090_otherport)
+    crc=$?
+    set -e
+    ((crc == 0)) \
+      || warn "closing port 8504 after the failed install failed too (exit $crc; its output is above), so port 8504 may still be open; the next run's close removes the link if it is still there, or restarts lighttpd if the link is gone and 8504 still listens"
+    die "tar1090's install.sh failed (exit $rc); its output is above"
+  fi
   ensure_state_dir
   guard_path "$TAR1090_STAMP"
   printf 'sha %s\ninstalled %s\n' "$TAR1090_PIN" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$WORK/tstamp"
@@ -620,20 +645,39 @@ install_tar1090() {
 # the conf-available copy is the installer's and is inert unlinked. Called
 # every run, after install_tar1090, so a reinstall that re-creates the link
 # is undone in the same run whatever a later pin's installer does. lighttpd
-# is restarted only when the link existed and was removed; a run that finds
-# it absent touches nothing.
+# is restarted when the link existed and was removed, and when the link is
+# absent but something listens on port 8504 (ss -ltnH, as the verify reads
+# it): a run whose rm succeeded and whose restart failed leaves exactly that,
+# and a later run must still close the port. A run that finds the link absent
+# and nothing on 8504 touches nothing.
 # A restart, not a reload (ours, 2026-10-27): the installer itself restarts
 # lighttpd (line 471), and whether lighttpd's graceful reload closes a
 # listener its new config dropped is unverified; a restart's is not in doubt.
 # ⚠️ Two windows where :8504 is open. (1) A run that reinstalls tar1090: the
 #    installer's own restart brings lighttpd up with :8504, and it stays open
 #    until the restart here, seconds later. (2) A run whose installer fails:
-#    install_tar1090 dies before this is called, so the link, and :8504, stay
-#    until the next run whose installer succeeds.
+#    install_tar1090 calls this before it dies, so the link is removed and
+#    lighttpd restarted in that run too. Only if this fails as well (the rm,
+#    ss, or lighttpd's restart) can :8504 stay open past that run; the step
+#    warns and still fails on the installer. The next run's call removes the
+#    link if it is still there, or, if it is gone and 8504 still listens,
+#    restarts lighttpd; until that run, :8504 may be open.
 close_tar1090_otherport() {
+  local ss_out laddr l8504=''
   guard_path "$OTHERPORT_LINK"
   if [[ ! -e $OTHERPORT_LINK && ! -L $OTHERPORT_LINK ]]; then
-    log "$OTHERPORT_LINK is absent: lighttpd is not told to serve port 8504"
+    ss_out=$(ss -ltnH 2>&1) || die "ss -ltnH failed: $ss_out"
+    while read -r _ _ _ laddr _; do
+      case ${laddr##*:} in
+        8504) l8504+="$laddr " ;;
+      esac
+    done <<<"$ss_out"
+    if [[ -z $l8504 ]]; then
+      log "$OTHERPORT_LINK is absent and nothing listens on port 8504; lighttpd not restarted"
+      return 0
+    fi
+    log "$OTHERPORT_LINK is absent, but port 8504 listens (${l8504% }); restarting lighttpd, so it drops the listener its config no longer has"
+    unit restart lighttpd
     return 0
   fi
   if [[ -L $OTHERPORT_LINK ]]; then

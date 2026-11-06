@@ -65,7 +65,11 @@ jobs:
         #     (needs bash and python3-yaml);
         #   - test_adsb_slate.py: bin/adsb-slate, the field display: chronyc, gpsd and readsb
         #     parsing, the big digits' width, the tenths' truncation, and the position never
-        #     reaching stderr (made-up coordinates only).
+        #     reaching stderr (made-up coordinates only);
+        #   - test_step10_otherport.py: setup/steps/10-decoder.sh's install_tar1090 and
+        #     close_tar1090_otherport, taken out of the step and run on a fake installer and a stub
+        #     systemctl and ss: a failed installer leaves no :8504 link, and its failure stays the
+        #     step's; an absent link with 8504 still listening restarts lighttpd.
         # Bytecode goes to the runner's temp directory, not beside the sources.
         run: |
           set -euo pipefail
