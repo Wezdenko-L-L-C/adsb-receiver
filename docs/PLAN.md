@@ -4385,6 +4385,10 @@ consequence: once pulled, the workstation holds the only copy until it is upload
 *Update 2026-10-10: under the interim pull into a synced folder, the accepted consequence is that
 the only copy sits in the sync client's cache until it syncs
 ([§9m](#9m--the-portable-rigs-archive-drive), "Update 2026-10-10: the pull into a synced folder").*
+*Update 2026-11-08: on a workstation that reaches the store through rclone, the pull stages on the
+workstation's own disk, and the only copy sits there until the `rclone copy` and its check pass
+([§9m](#9m--the-portable-rigs-archive-drive), "Update 2026-11-08: the pull where the store is
+reached through rclone").*
 
 ⛔ **Rejected: the spool on the SD card.** It wears the card, and it would be a second place to pull
 from.
@@ -4740,7 +4744,10 @@ verifies each transferred file before it deletes the source.
 - **(Chris), 2026-10-04: move, not copy.** ⚠️ Accepted consequence: once pulled, the workstation
   holds the only copy until it is uploaded onward. *Update 2026-10-10: under the interim pull into a
   synced folder ("Update 2026-10-10: the pull into a synced folder", below), the only copy sits in
-  the sync client's cache until it syncs.*
+  the sync client's cache until it syncs.* *Update 2026-11-08: on a workstation that reaches the
+  store through rclone, the only copy sits in staging on the workstation's own disk until the
+  `rclone copy` and its check pass ("Update 2026-11-08: the pull where the store is reached through
+  rclone", below).*
 - There is no `retention_days` on the portable. The only deletion besides the pull is the backstop
   below.
 - Rejected: pushing from the Pi, which puts a credential to the workstation on a rig that travels and
@@ -4868,6 +4875,10 @@ architecture consultation's interim of the same day.
 - ⚠️ **Accepted consequence, changed:** "once pulled, the workstation holds the only copy until it
   is uploaded onward" ("The pull", above) becomes: the only copy sits in the sync client's cache
   until it syncs.
+  *Update 2026-11-08: that holds where the synced folder is a sync client's. Where the store is
+  reached through rclone, the pull does not go into the mount, and the only copy sits in staging on
+  the workstation's own disk until the copy and its check pass ("Update 2026-11-08: the pull where
+  the store is reached through rclone", below).*
 - ✅ **The trial, seen by Claude, 2026-10-10, 12:58:32 to 12:59:22:**
   - 21 files moved; 0 left on the rig's drive; the writer recording again
     (`20261010T195919Z.beast.pcap.part`).
@@ -5032,6 +5043,72 @@ named at about 15:10. The store listing was at about 14:57, between the rejectio
   undecided.** Under B it must write the same layout into the same store, or there are two stores
   ([§9i](#9i-what-is-not-chosen-yet-the-uploader), "Update 2026-10-10:
   both rigs get an automatic uploader").
+
+**Update 2026-11-08: the pull where the store is reached through rclone. Ruled 2026-11-08 (Chris,
+20:41 Arizona time, by question; the texts as put are in the private pick-up record).** On a
+workstation that reaches the archive's off-site store through rclone, by a FUSE mount and by the
+remote itself, a pull does not use the mount as the synced folder of "Update 2026-10-10: the pull
+into a synced folder", above. It stages on the workstation's own disk, then goes to the store by
+`rclone copy`.
+
+- **Where it applies:** the question put was how a pull runs from a workstation that reaches the
+  store through rclone. It does not withdraw the synced-folder interim on a workstation that has a
+  sync client.
+- **The procedure, all by hand:**
+  1. `tools/pull-archive <ssh-target> <staging-dir>`, with `<staging-dir>` a directory on the
+     workstation's own disk that stands for the rig's host folder.
+  2. `rclone copy` from that staging directory to the same host's folder in the store,
+     `<store>/<rig hostname>/`.
+  3. `rclone check --one-way` over the same pair: every file in staging must exist in the store
+     and match it by size and hash. That holds only when the two sides share a hash type; when
+     they share none, rclone falls back to comparing sizes alone and says so in its output. A check
+     that reports no common hash is not a pass for step 4.
+  4. The staging copy is cleared only after the check passes.
+- **Steps 2 to 4 follow only a `tools/pull-archive` run that exited 0.** After a run that failed,
+  the pull is rerun into the same staging directory first.
+  - A `.torn` file in staging belongs in the store: the pull includes `.torn` files on purpose,
+    and excludes `*.part` and `lost+found` (✅ read in the script: step 2 of its header, and its
+    rsync options).
+  - ⚠️ A belief, not checked: an rsync killed hard, rather than ended by its own timeout or a
+    signal it handles, can leave a dot-named temporary file in the destination. Staging is looked
+    over for such files before the copy.
+- **The host folder's name.** `<rig hostname>` is the name of the host folder the store already
+  holds for that rig, spelled exactly, for both the staging directory and the copy's destination;
+  the 🎒 portable's is `mobile-adsb` (B, above). `tools/pull-archive` takes an ssh target, not a
+  hostname (✅ read in the script, its usage line), so nothing in the pull sets that name. A
+  different spelling makes a second host folder in the store, and the check still passes.
+- **The layout holds in staging.** `tools/pull-archive` writes the drive's `beast/` and `spool/` as
+  `<dest>/beast/` and `<dest>/spool/` (✅ read in the script: step 2 of its header, and its loop over
+  the two). So with the staging directory standing for one host's folder, the copy lands in the
+  mirror layout (B, in "Update 2026-10-10 (afternoon): where the collected data lives, ruled",
+  above) with no rename.
+- ✅ **No change to `tools/pull-archive`:** the destination is already its second argument (read in
+  the script). Its step 5 decodes the moved files where they now sit, in staging, before the copy.
+  Its closing line counts and sizes the whole destination, so here it reports the staging
+  directory, not the store.
+- ⛔ **It is not automatic, and it is not the uploader**
+  ([§9i](#9i-what-is-not-chosen-yet-the-uploader)'s 2026-10-10 update). Like the synced-folder
+  interim, it is by hand until the uploader lands, and ends then. **(Chris), 2026-11-08, about
+  20:44, typed, not a ruling by question:** the issue goes away once the rigs save through the
+  uploader.
+- **Why:** the owner's rule for that workstation is that bulk captured data goes to the store by
+  `rclone copy`, not written through the mount, whose write cache is on the workstation's own disk.
+  A pull is a bulk write.
+- ⚠️ **Accepted consequence, changed again for this route:** the only copy sits on the
+  workstation's own disk, in staging, until the copy and its check pass, not in a sync client's
+  cache.
+- ⚠️ **The trade-off Chris accepted:** the 2026-10-10 interim was chosen to make "pull, then upload
+  by hand" one hand step. This route is back to two hand steps, the pull and the copy, plus a check.
+- 📋 **Ruled, not run:** no pull has run by this route. Where the staging directory sits is not
+  chosen.
+- Rejected, as put to Chris:
+  - **Pulling through the mount,** keeping this section as written with the mount as the synced
+    folder. One step, but it is the bulk write through the mount that the owner's rule avoids, and
+    the only copy would sit in the mount's write cache on the workstation's disk until it uploads.
+  - **Pulling only from the workstation the 2026-10-10 interim ran on,** so this one never pulls.
+    No reason for setting it aside is on record beyond the choice itself.
+  - **Deciding at the first pull from this workstation,** recording nothing now. No reason for
+    setting it aside is on record beyond the choice itself.
 
 **The pull window. (Chris), 2026-10-04: the pull ends the recording session.** *Narrowed
 2026-10-05, by the ruling of 2026-10-04 (night) at the end of [§9f](#9f-what-updatesh-does): a
