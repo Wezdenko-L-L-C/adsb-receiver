@@ -4,20 +4,64 @@
 # tools/pull-archive: move the portable rig's archive to this workstation. PLAN §9m ("The pull").
 # Runs on the workstation, never on the Pi.
 #
-#   tools/pull-archive <ssh-target> <destination-dir>
+#   tools/pull-archive [--end-session] <ssh-target> <destination-dir>
 #     e.g. tools/pull-archive pi@portable.lan ~/adsb-archive
 #
+# --end-session may come anywhere among the arguments, and -- ends the options. Any other argument
+# starting with -, and a target or destination starting with -, is refused with the usage line
+# (exit 64).
+#
+# Two modes (Chris, 2026-11-11). The default is a live pull: it moves the files the writer has
+# closed while the writer keeps recording. --end-session is the pull as it was before that day: it
+# ends the recording session, and the update runs in its window. The 2026-11-11 ruling supersedes
+# "the pull ends the recording session" (2026-10-04) as the default.
+#
+# Why a live move is safe: bin/adsb-writer's close_file() flushes, fsyncs and closes the .part,
+# then gives it its final name (link_noclobber) and fsyncs the directory. A file under its final
+# name is therefore complete and never written again; the file still being written is the .part,
+# and the move excludes *.part.
+#
+# THE DEFAULT, A LIVE PULL
+# 1. Does not open adsb-pull-window.service: the writer is not stopped, and the update oneshot is
+#    not started. It says so in a line of its own before the move, for a caller used to the old
+#    default. ➡️ A default pull updates nothing. On the portable, updates come from the home-gated
+#    opener (setup/steps/70-portable-home-update.sh) or from a pull with --end-session.
+# 2. Moves beast/ only (the move, below). spool/ is left on the rig, and its file count is printed,
+#    as a !! warning naming --end-session when it is not zero: nothing in this repo writes spool/
+#    yet (it is the uploader's, which is not written; BUILD.md §7), so there is no
+#    close-then-rename contract a live move could rely on there.
+# 3. rsync exit 24 (source files vanished before they could be transferred) is a warning here,
+#    not a failure, with the count of rsync's "file has vanished" lines, or a word that it could
+#    not count them. One possible cause is the writer's free-space backstop (expire() in
+#    bin/adsb-writer), which may delete its oldest closed files while rsync runs. Any other
+#    non-zero rsync exit is the run's exit status.
+# 4. Prunes, on the rig, with rmdir (never rm -r), a directory directly under beast/ only when all
+#    of these hold: its name is a date (YYYY-MM-DD, the writer's form); that date is not the rig's
+#    UTC yesterday, today or tomorrow; it is empty; and its mtime is more than 15 minutes old. The
+#    dates and the age are read on the rig, by its clock; the writer names its date directories
+#    by the UTC date of that same clock (open_file(): time.gmtime() of time.time_ns()). Why the
+#    rule: open_file() makes its date directory and then opens a file in it, with nothing catching
+#    a directory removed in between. The cost would be more than a restart: the writer exits,
+#    systemd starts it again after RestartSec=30s (Restart=on-failure), both preflights run first
+#    (ExecStartPre=, setup/steps/40-archive-writer.sh), and it does not come back while
+#    clock-preflight refuses. ⚠️ Removing a directory's last file sets its mtime to now, and rsync
+#    deletes as it goes: a directory emptied during this pull is pruned by it only if it was emptied
+#    more than 15 minutes before the prune; otherwise by a later pull. Any other empty directory is
+#    left.
+# 5. Prints the writer's state (systemctl is-active, read-only), from the same ssh as the prune,
+#    and warns when it is not active, though this pull did not stop it.
+# ⚠️ Accepted (the 2026-11-11 ruling): rsync moves every closed file it lists. What stays on the rig
+#    until the next pull is the tail closed after rsync listed its directory (up to one 10-minute
+#    file) and the open .part. The count of files left includes them.
+#
+# --end-session: THE PULL THAT ENDS THE RECORDING SESSION
 # 1. Opens the pull window over ssh (sudo systemctl start adsb-pull-window.service, allowed with
 #    no password by setup/steps/60-portable-pull.sh). That ends the recording session: the writer
 #    stops and closes its file. Starting the window also starts the update oneshot (Wants=); it is
 #    not guaranteed to finish before the pull does.
-# 2. Moves everything on the drive's beast/ and spool/ here with rsync --remove-source-files,
-#    which deletes each source file only after it transferred: a move, not a copy (Chris). *.part
-#    and lost+found are excluded; .torn files are included. Owner, group and mode are not copied
-#    (the Pi's group means nothing here); --fsync, where this rsync has it, puts each file on disk
-#    here before its source is deleted. --safe-links: a symlink pointing outside the tree, or an
-#    absolute one, is not copied and stays on the rig, without a line (the writer makes none).
-# 3. Prunes the emptied date directories on the drive, only while the writer is stopped.
+# 2. Moves beast/ and spool/ (the move, below).
+# 3. Prunes the emptied directories under beast/ and spool/ on the drive, only while the writer is
+#    stopped (find -empty -delete, at any depth).
 # 4. Closes the window, in a trap, so it closes even when rsync fails; the trap is set before the
 #    window is opened. Closing waits on the rig while the update is activating (the unit's
 #    ExecStop=), printing the update's state meanwhile; the window's end starts the writer. Then
@@ -26,43 +70,89 @@
 #    moment a human is there to see a writer that did not come back. If the window had already
 #    ended before the close (its 2 h cap), the writer has been recording since then, so any .part
 #    it holds counts.
-# 5. Decodes what this pull moved, after the window is closed so it adds nothing to the recording
-#    gap: tools/adsb-extract --decode (beside this script) over exactly the beast/ files rsync
-#    named as transferred (its --out-format), where they now sit here; never the whole destination,
-#    which grows every pull. Only a name of the writer's own form (YYYY-MM-DD/, then its file
-#    name) is decoded; any other is warned about and left out (rsync escapes a newline in a name,
-#    so it cannot split a line). spool/ is not decoded (it is not the archive's pcap). PLAN §9m, the
-#    content level of the review. With no python3 here, or nothing moved, it says so and skips. If
-#    --decode exits non-zero it warns loudly, naming the files to look at, but the exit status
-#    stays rsync's: the move succeeded, and a .torn file is an expected outcome of a power cut.
-#    A file with no frames (an outage: events or keepalives only) is --decode's own "!! no
-#    frames" line, which exits 0, so it raises no banner here (Chris, 2026-10-10).
-#    ⚠️ A file rsync found already identical here is deleted from the rig without being named, so
-#    it is not decoded (a rerun after a pull that died part-way).
-# Before the window opens: rsync is on this workstation's PATH and the destination is writable, so
-# a pull that cannot move anything never ends a recording session. ssh sends keepalives
-# (ServerAliveInterval=15, ServerAliveCountMax=4), so a link that died silently ends the ssh in
-# about a minute instead of leaving it waiting. An ssh failure (exit 255) while checking for beast/
-# or spool/ ends the run, exit 1, rather than reading as "not on the rig"; the trap still closes the
-# window. One while pruning is warned about, and the run goes on.
-# It prints rsync's statistics for what moved, the count of files left on the drive, and the total
-# now in the destination (everything there, not only this pull).
+# 5. The clock check and the decode (both below), after the window is closed, so neither adds to
+#    the recording gap.
+#
+# BOTH MODES
+# Before anything touches the rig: rsync is on this workstation's PATH, the destination is
+# writable, and a temporary file (for rsync's stderr, removed at exit) can be made here; if any of
+# these fails, the run stops with nothing started or moved on the rig. ssh sends
+# keepalives (ServerAliveInterval=15, ServerAliveCountMax=4), so a link that died silently ends the
+# ssh in about a minute instead of leaving it waiting. An ssh failure (exit 255) while checking for
+# a directory to move ends the run, exit 1, rather than reading as "not on the rig" (with
+# --end-session, the trap still closes the window). One while pruning, or during the clock check,
+# is warned about, and the run goes on.
+# The move: rsync --remove-source-files, which deletes each source file only after it transferred:
+# a move, not a copy (Chris). *.part and lost+found are excluded; .torn files are included. Owner,
+# group and mode are not copied (the Pi's group means nothing here); --fsync, where this rsync has
+# it, puts each file on disk here before its source is deleted. --safe-links: a symlink pointing
+# outside the tree, or an absolute one, is not copied and stays on the rig, without a line (the
+# writer makes none). It prints rsync's statistics for what moved, the count of files left on the
+# drive, and the total now in the destination (everything there, not only this pull).
+# The clock check (Chris, 2026-11-11), in both modes: reads the rig's chrony over the same ssh,
+# read-only, no sudo. It raises a loud banner when `chronyc -n sources` marks no source selected
+# ('*', the rule bin/clock-preflight applies), when the reference time in `chronyc -n -c tracking`
+# (its fourth field) is more than 3600 s older than the rig's `date +%s` or more than 60 s ahead of
+# it (within 60 s is jitter), or when it cannot tell. It only reports, after the move: it is not
+# the guard that checks first and does not open the window (ruled 2026-11-11 19:01), which is not
+# built. It prints a
+# count and an age, never chronyc's table (that names the clock's servers). Why here: chrony can
+# lose its last source while tracking still names the old reference, and the writer's clock events
+# carry only what tracking says; a live pull no longer restarts the writer, whose clock-preflight
+# is what used to catch it. The banner never changes the exit status: the move succeeded.
+# The decode: tools/adsb-extract --decode (beside this script) over exactly the beast/ files rsync
+# named as transferred (its --out-format), where they now sit here; never the whole destination,
+# which grows every pull. Only a name of the writer's own form (YYYY-MM-DD/, then its file name) is
+# decoded; any other is warned about and left out (rsync escapes a newline in a name, so it cannot
+# split a line). spool/ is not decoded (it is not the archive's pcap). PLAN §9m, the content level
+# of the review. With no python3 here, or nothing moved, it says so and skips. If --decode exits
+# non-zero it warns loudly, naming the files to look at, but the exit status stays the move's: the
+# move succeeded, and a .torn file is an expected outcome of a power cut. A file with no frames (an
+# outage: events or keepalives only) is --decode's own "!! no frames" line, which exits 0, so it
+# raises no banner here (Chris, 2026-10-10).
+# ⚠️ A file rsync found already identical here is deleted from the rig without being named, so it
+#    is not decoded (a rerun after a pull that died part-way).
 # ⚠️ Once moved, this workstation holds the only copy until it is uploaded onward (PLAN §9m).
 #    Update 2026-10-10: with the destination a synced folder, the interim PLAN §9m records, the
 #    only copy sits in the sync client's cache until it syncs.
 
 set -euo pipefail
 
-usage() { echo "usage: $0 <ssh-target> <destination-dir>" >&2; exit 64; }
-(($# == 2)) || usage
-host=$1 dest=$2
+usage() {
+  [[ -z ${1-} ]] || echo "xx  $1" >&2
+  echo "usage: $0 [--end-session] <ssh-target> <destination-dir>" >&2
+  exit 64
+}
+# The options, as the header says. A target or destination starting with - would be read by ssh
+# or rsync as an option.
+end_session=0
+args=()
+while (($#)); do
+  case $1 in
+    --end-session) end_session=1 ;;
+    --) shift; args+=("$@"); break ;;
+    -*) usage "unknown option: $1" ;;
+    *) args+=("$1") ;;
+  esac
+  shift
+done
+((${#args[@]} == 2)) || usage
+host=${args[0]} dest=${args[1]}
+[[ $host != -* ]] || usage "the ssh target may not start with '-': $host"
+[[ $dest != -* ]] || usage "the destination may not start with '-': $dest"
 archive=/var/lib/adsb-receiver/archive
 window=adsb-pull-window.service
 writer=adsb-writer.service
 update=adsb-update.service
 ssh_opts=(-o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+# The clock check's bound on the age of chrony's reference time, in seconds: over three polls at
+# chrony's default maxpoll for an NTP source (10, 1024 s), so a lost sample or two raises nothing.
+# For the GPS refclock (polled far more often) it is the '*' rule, not this bound, that catches a
+# dead puck. A reference time ahead of the rig's clock by more than clock_max_ahead is reported too.
+clock_max_age=3600
+clock_max_ahead=60
 
-# What the pull needs on this end, checked before the window ends a recording session.
+# What the pull needs on this end, checked before anything touches the rig.
 command -v rsync >/dev/null || { echo "xx  rsync is not installed on this workstation; nothing was started on the rig" >&2; exit 1; }
 mkdir -p -- "$dest" || { echo "xx  could not create $dest; nothing was started on the rig" >&2; exit 1; }
 probe=$dest/.pull-archive-probe.$$
@@ -71,11 +161,14 @@ if ! : >"$probe" 2>/dev/null; then
   exit 1
 fi
 rm -f -- "$probe"
+# Where each rsync's stderr is kept while it runs (the move counts its "file has vanished" lines).
+rsync_err=$(mktemp) || { echo "xx  could not make a temporary file on this workstation; nothing was started on the rig" >&2; exit 1; }
+trap 'rm -f -- "$rsync_err"' EXIT
 # shellcheck disable=SC2029  # the remote commands are built here, on purpose
 ssh_pi() { ssh "${ssh_opts[@]}" "$host" "$@"; }
 
 # rsync options: a move that neither hangs on a dead link nor fails on the Pi's group. Each file
-# it transfers is named on its own line, prefixed, for step 5.
+# it transfers is named on its own line, prefixed, for the decode.
 moved_prefix='moved: '
 # A closed archive file as the writer names it, under its date directory (bin/adsb-writer's CLOSED_RE).
 archive_name_re='^[0-9]{4}-[0-9]{2}-[0-9]{2}/[0-9]{8}T[0-9]{6}Z(\.[0-9]+)?\.beast\.pcap((\.[0-9]+)?\.torn)?$'
@@ -149,22 +242,92 @@ close_window() {
   fi
 }
 
-trap close_window EXIT
-echo "==> opening the pull window on $host"
-ssh_pi sudo -n systemctl start "$window"
+# The clock check (the header says why). One ssh; the rig prints one line, "clock <selected>
+# <age>": the number of sources chronyc marks selected ('*'), and the age in seconds of chrony's
+# reference time by the rig's clock, each "x" when chronyc failed or printed nothing it could read.
+# Never changes the exit status.
+check_clock() {
+  local out rc=0 tag='' n='' age='' why=() tell=()
+  out=$(ssh_pi sh -s <<'EOF'
+n=x
+if src=$(chronyc -n sources 2>/dev/null); then n=$(printf '%s\n' "$src" | grep -c '^.\*'); fi
+a=x
+if tr=$(chronyc -n -c tracking 2>/dev/null); then
+  r=$(printf '%s\n' "$tr" | awk -F, 'NR == 1 { split($4, p, "."); print p[1] }')
+  now=$(date +%s)
+  case $r in ''|*[!0-9]*) ;; *) case $now in ''|*[!0-9]*) ;; *) a=$((now - r)) ;; esac ;; esac
+fi
+echo "clock $n $a"
+EOF
+  ) || rc=$?
+  # Its own line, found by its tag, so a login banner the rig prints first does not hide it.
+  read -r tag n age < <(grep -m1 '^clock ' <<<"$out" || true) || true
+  if ((rc == 255)); then
+    tell+=("the ssh connection to the rig failed (exit 255)")
+  elif ((rc != 0)); then
+    tell+=("the check on the rig exited $rc")
+  elif [[ $tag != clock ]]; then
+    tell+=("the check on the rig printed no 'clock' line")
+  else
+    if [[ $n == x ]]; then
+      tell+=("chronyc -n sources failed")
+    elif [[ $n =~ ^[0-9]+$ ]] && ((n == 0)); then
+      why+=("chronyc sources marks NO source selected ('*')")
+    elif ! [[ $n =~ ^[0-9]+$ ]]; then
+      tell+=("chronyc -n sources could not be read")
+    fi
+    if [[ $age == x || ! $age =~ ^-?[0-9]+$ ]]; then
+      tell+=("chronyc -n -c tracking failed, or printed no reference time")
+    elif ((age > clock_max_age)); then
+      why+=("chrony's reference time was last updated $age s ago, over the ${clock_max_age} s bound")
+    elif ((age < -clock_max_ahead)); then
+      why+=("chrony's reference time is ahead of the rig's clock by $((-age)) s, over the ${clock_max_ahead} s allowed")
+    fi
+  fi
+  if ((${#why[@]} == 0 && ${#tell[@]} == 0)); then
+    if ((age < 0)); then
+      echo "==> the rig's clock: chrony has a selected source ('*'); its reference time is $((-age)) s ahead of the rig's clock (within ${clock_max_ahead} s: jitter)"
+    else
+      echo "==> the rig's clock: chrony has a selected source ('*'); its reference time was updated $age s ago"
+    fi
+    return 0
+  fi
+  echo "!!  ################################################################" >&2
+  if ((${#why[@]} > 0)); then
+    echo "!!  THE RIG'S CLOCK MAY NOT BE DISCIPLINED:" >&2
+    printf '!!    - %s\n' "${why[@]}" >&2
+  fi
+  if ((${#tell[@]} > 0)); then
+    echo "!!  COULD NOT TELL WHETHER THE RIG'S CLOCK IS DISCIPLINED:" >&2
+    printf '!!    - %s\n' "${tell[@]}" >&2
+  fi
+  echo "!!  The archive's timestamps and file names come from this clock. The move is not affected." >&2
+  echo "!!  On the rig, read-only: chronyc tracking; chronyc sources; journalctl -u chrony -n 50" >&2
+  echo "!!  ################################################################" >&2
+}
 
-# The writer closes its file on SIGTERM; wait until it is no longer active before reading.
-state=''
-for _ in $(seq 1 30); do
-  state=$(ssh_pi systemctl is-active "$writer" 2>/dev/null) || true
-  [[ $state == active || $state == deactivating ]] || break
-  sleep 1
-done
-echo "==> the writer is ${state:-unknown}"
+if ((end_session)); then
+  trap 'rm -f -- "$rsync_err"; close_window' EXIT
+  echo "==> opening the pull window on $host"
+  ssh_pi sudo -n systemctl start "$window"
+
+  # The writer closes its file on SIGTERM; wait until it is no longer active before reading.
+  state=''
+  for _ in $(seq 1 30); do
+    state=$(ssh_pi systemctl is-active "$writer" 2>/dev/null) || true
+    [[ $state == active || $state == deactivating ]] || break
+    sleep 1
+  done
+  echo "==> the writer is ${state:-unknown}"
+  dirs=(beast spool)
+else
+  echo "==> live pull from $host: the writer keeps recording, and only the files it has closed move; this pull does not end the session or run the update (use --end-session for that)"
+  dirs=(beast)
+fi
 
 status=0
 moved=()  # the archive files this pull moved, as paths here
-for d in beast spool; do
+for d in "${dirs[@]}"; do
   # test exits 1 for a directory that is not there; ssh exits 255 when it could not ask.
   rc=0
   ssh_pi test -d "$archive/$d" || rc=$?
@@ -182,8 +345,22 @@ for d in beast spool; do
   fi
   echo "==> moving $host:$archive/$d/ to $dest/$d/"
   # Captured, not piped, so rsync's own exit status is kept; its statistics are printed after.
+  # Its stderr is captured too, then printed, so its "file has vanished" lines can be counted.
   out=''
-  out=$(rsync "${rsync_opts[@]}" "$host:$archive/$d/" "$dest/$d/") || status=$?
+  rsync_rc=0
+  out=$(rsync "${rsync_opts[@]}" "$host:$archive/$d/" "$dest/$d/" 2>"$rsync_err") || rsync_rc=$?
+  cat -- "$rsync_err" >&2
+  vanished=$(grep -c 'file has vanished: ' -- "$rsync_err") || true
+  if ((rsync_rc == 24 && !end_session)); then
+    if [[ $vanished =~ ^[0-9]+$ ]] && ((vanished > 0)); then
+      what="$vanished source file(s) vanished on the rig before they could be transferred (rsync's 'file has vanished' lines)"
+    else
+      what="source file(s) vanished on the rig before they could be transferred; how many could not be counted from rsync's output"
+    fi
+    echo "!!  rsync exit 24: $what. One possible cause is the writer's free-space backstop (expire()), which deletes its oldest closed files while it records. Not a failure in a live pull" >&2
+  elif ((rsync_rc != 0)); then
+    status=$rsync_rc
+  fi
   n=0
   while IFS= read -r line; do
     case $line in
@@ -203,20 +380,83 @@ for d in beast spool; do
   done <<<"$out"
   echo "==> $n file(s) moved from $d/"
 done
+rm -f -- "$rsync_err"
 
-# Only with the writer stopped: a prune between the writer's mkdir and its open would kill it.
-echo "==> pruning emptied directories on the rig"
-prune_rc=0
-ssh_pi "st=\$(systemctl is-active $writer); case \$st in inactive|failed) find '$archive/beast' '$archive/spool' -mindepth 1 -type d -empty -delete 2>/dev/null ;; *) echo \"!!  the writer is \$st: not pruning\" >&2 ;; esac; echo 'files left on the drive:' \$(find '$archive/beast' '$archive/spool' -type f 2>/dev/null | wc -l)" || prune_rc=$?
-if ((prune_rc == 255)); then
-  echo "!!  the ssh connection to the rig failed (exit 255) while pruning: emptied directories may remain there, and the count of files left on the drive is unknown" >&2
-elif ((prune_rc != 0)); then
-  echo "!!  the prune on the rig exited $prune_rc: emptied directories may remain there" >&2
+if ((end_session)); then
+  # Only with the writer stopped: a prune between the writer's mkdir and its open would kill it.
+  echo "==> pruning emptied directories on the rig"
+  prune_rc=0
+  ssh_pi "st=\$(systemctl is-active $writer); case \$st in inactive|failed) find '$archive/beast' '$archive/spool' -mindepth 1 -type d -empty -delete 2>/dev/null ;; *) echo \"!!  the writer is \$st: not pruning\" >&2 ;; esac; echo 'files left on the drive:' \$(find '$archive/beast' '$archive/spool' -type f 2>/dev/null | wc -l)" || prune_rc=$?
+  if ((prune_rc == 255)); then
+    echo "!!  the ssh connection to the rig failed (exit 255) while pruning: emptied directories may remain there, and the count of files left on the drive is unknown" >&2
+  elif ((prune_rc != 0)); then
+    echo "!!  the prune on the rig exited $prune_rc: emptied directories may remain there" >&2
+  fi
+  close_window
+else
+  # The live prune (step 4 of the header), what is left, and the writer's state, in one ssh.
+  # Evaluated on the rig, by its clock; one "now" for all three dates, so a run across midnight
+  # cannot skip one. The writer names its date directories in UTC: time.gmtime() of time.time_ns(),
+  # in bin/adsb-writer's open_file() (time.time_ns is its Writer's clock_ns default).
+  # The writer's state and spool/'s count come back as lines of their own, "writer <state>" and
+  # "spool <count>"; every other line is shown.
+  echo "==> pruning old empty date directories under beast/ on the rig"
+  prune_rc=0
+  prune_out=$(ssh_pi sh -s -- "$archive" "$writer" <<'EOF'
+a=$1 b=$1/beast
+if now=$(date -u +%s) &&
+   d0=$(date -u -d "@$((now - 86400))" +%Y-%m-%d) &&
+   d1=$(date -u -d "@$now" +%Y-%m-%d) &&
+   d2=$(date -u -d "@$((now + 86400))" +%Y-%m-%d); then
+  pruned=0
+  for d in "$b"/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]; do
+    [ -d "$d" ] && [ ! -L "$d" ] || continue
+    case ${d##*/} in "$d0"|"$d1"|"$d2") continue ;; esac
+    [ -n "$(find "$d" -maxdepth 0 -empty -mmin +15)" ] || continue
+    rmdir -- "$d" 2>/dev/null && pruned=$((pruned + 1))
+  done
+  echo "    pruned $pruned empty date directories; kept $d0, $d1 and $d2 (the rig's UTC yesterday, today, tomorrow) and any emptied in the last 15 min"
+else
+  echo "!!  could not read the rig's UTC dates: not pruning" >&2
+fi
+echo "==> files left in beast/ on the drive: $(find "$b" -type f 2>/dev/null | wc -l), of which $(find "$b" -type f -name '*.part' 2>/dev/null | wc -l) .part (the open file, or a preflight probe); what stays is the tail closed after rsync's listing (up to one 10-minute file) and the open .part, until the next pull"
+if [ -d "$a/spool" ]; then
+  echo "spool $(find "$a/spool" -type f 2>/dev/null | wc -l)"
+fi
+w=$(systemctl is-active "$2" 2>/dev/null)
+echo "writer ${w:-unknown}"
+EOF
+  ) || prune_rc=$?
+  wst='' spool_n=''
+  while IFS= read -r line; do
+    case $line in
+      '') ;;
+      'writer '*) wst=${line#writer } ;;
+      'spool '*) spool_n=${line#spool } ;;
+      *) printf '%s\n' "$line" ;;
+    esac
+  done <<<"$prune_out"
+  if ((prune_rc == 255)); then
+    echo "!!  the ssh connection to the rig failed (exit 255) while pruning: empty date directories may remain there, and the count of files left on the drive, in spool/, and the writer's state are unknown" >&2
+  elif ((prune_rc != 0)); then
+    echo "!!  the prune on the rig exited $prune_rc: empty date directories may remain there" >&2
+  fi
+  if [[ $spool_n =~ ^[0-9]+$ ]] && ((spool_n > 0)); then
+    echo "!!  spool/ was left on the rig with $spool_n file(s) in it: a live pull moves beast/ only. A pull with --end-session moves spool/ too" >&2
+  elif [[ -n $spool_n ]]; then
+    echo "==> spool/ on the rig: $spool_n file(s); a live pull moves beast/ only"
+  fi
+  if [[ $wst == active ]]; then
+    echo "==> the writer is active (this pull did not stop it)"
+  elif ((prune_rc != 255)); then
+    echo "!!  the writer is '${wst:-unknown}', not active; this pull did not stop it. On the rig: systemctl status $writer; journalctl -u $writer -n 50" >&2
+  fi
 fi
 echo "==> the destination now holds $(find "$dest" -type f | wc -l) files, $(du -sh -- "$dest" | cut -f1), in $dest (everything there, not only this pull)"
-close_window
 
-# 5. Decode what moved; never changes the exit status (the header says why).
+check_clock
+
+# The decode; never changes the exit status (the header says why).
 extract_tool=$(dirname "$0")/adsb-extract
 if ((${#moved[@]} == 0)); then
   echo "==> no archive files were moved: nothing to decode"

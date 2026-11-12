@@ -69,7 +69,12 @@ jobs:
         #   - test_step10_otherport.py: setup/steps/10-decoder.sh's install_tar1090 and
         #     close_tar1090_otherport, taken out of the step and run on a fake installer and a stub
         #     systemctl and ss: a failed installer leaves no :8504 link, and its failure stays the
-        #     step's; an absent link with 8504 still listening restarts lighttpd.
+        #     step's; an absent link with 8504 still listening restarts lighttpd;
+        #   - test_pull_archive.py: tools/pull-archive end to end against a fake rig (stub ssh,
+        #     rsync, systemctl, sudo and chronyc; the real rsync moves the files): the live pull
+        #     leaves the window alone and warns on rsync exit 24, its prune spares the rig's UTC
+        #     yesterday, today and tomorrow and fresh mtimes, --end-session keeps the window, the
+        #     option parsing, and the clock check's banner (needs bash and rsync).
         # Bytecode goes to the runner's temp directory, not beside the sources.
         run: |
           set -euo pipefail

@@ -122,7 +122,9 @@ update:
   #    after boot and once a day (setup/steps/70-portable-home-update.sh).
   #    "At home" means the active Wi-Fi network's name (SSID) is this one.
   # ⭐ Unset or empty means the opener is OFF: it is opt-in. Then a recording rig
-  #    updates only in a pull window opened by hand (tools/pull-archive).
+  #    updates only in a pull window opened by hand (tools/pull-archive
+  #    --end-session; a default pull leaves the writer recording and updates
+  #    nothing).
   # ➡️ Set it by hand, on the rig, in the installed copy:
   #      sudo nano /etc/adsb-receiver/station.yml
   #    The opener reads that file at each check, so no step needs to run after.

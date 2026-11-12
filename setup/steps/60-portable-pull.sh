@@ -2,7 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # 60-portable-pull: the pull window, adsb-pull-window.service, and the narrow sudoers rule that
-# lets the pull start and stop it. PLAN §9m ("The pull window", "The privilege"), §9h.
+# lets a login start and stop it. PLAN §9m ("The pull window", "The privilege"), §9h. The rule
+# serves tools/pull-archive --end-session and hand use; the home opener (adsb-home-update) runs as
+# root and does not need it. A default, live pull opens no window and needs none of this step's
+# privilege: only ssh, this step's rsync, and the login's membership in adsb-operator, the drive's
+# group.
 #
 # Portable only: asserts station.role and refuses a position: block (PLAN §9b).
 #
@@ -12,15 +16,18 @@
 # What it installs:
 #   - /etc/systemd/system/adsb-pull-window.service. Starting it stops the writer (Conflicts= and
 #     After= the writer) and pulls in the update oneshot (Wants=adsb-update.service, itself After=
-#     the writer), so an update runs while the archive is pulled (Chris, 2026-10-04: the pull ends
-#     the recording session). Stopping it first waits (ExecStop=, up to TimeoutStopSec=45min)
-#     while that update is activating (running), so in the usual case the writer does not start
-#     only to block on the lock (PLAN §9m's evening update). Not covered, and the writer then
-#     waits on the lock until the update ends: the 2 h cap (below); an update only queued when
-#     the window stops; and an update rolling back after a SIGTERM, which is deactivating, not
-#     activating, so the wait ends at once. Capped at 2 h (RuntimeMaxSec=). When it stops it
-#     starts the writer again. ⚠️ Belief, not seen: at shutdown that start is refused, and the
-#     writer's WantedBy= brings it back after the boot.
+#     the writer), so an update runs in every window, whoever opened it: tools/pull-archive
+#     --end-session (which pulls the archive inside it), the home opener, the bootstrap, or a hand
+#     (Chris, 2026-10-04: the pull ends the recording session; since 2026-11-11 that is true of
+#     --end-session only, and a default pull leaves the writer recording and opens no window).
+#     Stopping it first waits (ExecStop=, up to TimeoutStopSec=45min) while that update is
+#     activating (running), so in the usual case the writer does not start only to block on the
+#     lock (PLAN §9m's evening update).
+#     Not covered, and the writer then waits on the lock until the update ends: the 2 h cap
+#     (below); an update only queued when the window stops; and an update rolling back after a
+#     SIGTERM, which is deactivating, not activating, so the wait ends at once. Capped at 2 h
+#     (RuntimeMaxSec=). When it stops it starts the writer again. ⚠️ Belief, not seen: at shutdown
+#     that start is refused, and the writer's WantedBy= brings it back after the boot.
 #   - /etc/sudoers.d/adsb-receiver: the logins in group adsb-operator, except the writer's own
 #     user adsb-receiver, may run exactly two commands as root with no password, systemctl start
 #     and systemctl stop of that one unit. adsb-receiver is in the group by its primary GID (step
@@ -28,8 +35,9 @@
 #     writer's unit also runs with NoNewPrivileges=yes (step 40), so sudo cannot work from it
 #     whatever any rule says. Checked with visudo -cf before it is installed: a sudoers.d file that
 #     does not parse makes sudo refuse everyone.
-#   - rsync, which the pull runs on this end.
-# The pull itself runs on the workstation: tools/pull-archive.
+#   - rsync, which the pull runs on this end, in both its modes.
+# The pull itself runs on the workstation: tools/pull-archive. Only its --end-session opens the
+# window through the sudoers rule.
 #
 # ⚠️ One departure from PLAN §9m's text: ExecStopPost= starts the writer with --no-block. A
 #    blocking start from inside the window's own stop would wait for the writer's start job,
@@ -120,7 +128,7 @@ render_unit() {
   cat >"$WORK/unit" <<EOF
 # Rendered by setup/steps/60-portable-pull.sh. Do not edit; re-run the step. PLAN §9m.
 [Unit]
-Description=adsb-receiver pull window: the writer off while the archive is pulled
+Description=adsb-receiver pull window: the writer stopped for an update and any --end-session pull
 # Starting the window stops the writer first: the open .part is closed and renamed.
 Conflicts=$WRITER
 After=$WRITER
@@ -135,8 +143,10 @@ ExecStart=/bin/sleep infinity
 # than blocked on the lock. 45 min is above the update's own 40 min TimeoutStartSec=.
 ExecStop=/bin/sh -c 'while $SYSTEMCTL is-active $UPDATE | grep -qx activating; do sleep 5; done'
 TimeoutStopSec=45min
-# Chris's 2 h cap: it bounds how long the pull keeps the writer off. An update still running at
-# the cap is the lock's job: the writer starts, waits on the lock, then records.
+# Chris's 2 h cap: it bounds how long a window keeps the writer off, whoever opened it
+# (tools/pull-archive --end-session, a hand, the opener, the bootstrap); a default, live pull opens
+# no window and never stops the writer. An update still running at the cap is the lock's job: the
+# writer starts, waits on the lock, then records.
 RuntimeMaxSec=2h
 # Starts the writer again when the window stops or hits its cap. '-': a refused start (as during
 # a shutdown) does not fail the window; after a reboot the writer's WantedBy= brings it back.
@@ -266,7 +276,7 @@ verify() {
   for m in "${members[@]}"; do
     [[ -n $m && $m != "$SERVICE_USER" && " ${others[*]} " != *" $m "* ]] && others+=("$m")
   done
-  ((${#others[@]})) || die "$GROUP_NAME has no members besides $SERVICE_USER, so nobody can pull. See setup/steps/05-config.sh"
+  ((${#others[@]})) || die "$GROUP_NAME has no members besides $SERVICE_USER, so nobody can open the pull window (tools/pull-archive --end-session, or by hand), and no login can read or delete the archive for any pull, live or not. See setup/steps/05-config.sh"
   for cmd in "$SYSTEMCTL start $WINDOW" "$SYSTEMCTL stop $WINDOW"; do
     for m in "${others[@]}"; do
       log "sudo -l -U $m $cmd (raw output follows)"

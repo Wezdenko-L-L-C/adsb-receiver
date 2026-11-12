@@ -50,10 +50,10 @@
 # builds the EARLIER pin, the commit of the first build that is incomplete, not this bootstrap's
 # commit, and it may fail again. It waits for that update to finish (polled every 5 s, a line
 # every 30 s, bounded at 45 min: the window's TimeoutStopSec=, PLAN §9m, which is also what bounds
-# tools/pull-archive's close, since that waits on the window's stop with no timeout of its own;
-# above the update's own 40 min TimeoutStartSec=); runs update.sh --bootstrap with the lock
-# free; and closes the window once update.sh returns, before any reboot notice (the stop blocks
-# through the window's ExecStop= wait: half seen under the opener, ⚠️ not while the update is
+# the close of tools/pull-archive --end-session, since that waits on the window's stop with no
+# timeout of its own; above the update's own 40 min TimeoutStartSec=); runs update.sh --bootstrap
+# with the lock free; and closes the window once update.sh returns, before any reboot notice (the
+# stop blocks through the window's ExecStop= wait: half seen under the opener, ⚠️ not while the update is
 # activating; and its ExecStopPost= starts the writer: seen 2026-10-10 under the opener, not under
 # the bootstrap; PLAN §9e's (b) list). An EXIT trap closes it on every other path; after a signal or a timeout with the
 # window's update still running, that close is --no-block, and the window ends itself once its
@@ -107,9 +107,10 @@
 # portable about 3 minutes after the boot; on a stationary, which has no boot timer, at its
 # nightly run (or by hand: sudo systemctl start adsb-update.service). On a recording portable the
 # writer holds the lock from every boot, so the build completes in the next pull window instead
-# (tools/pull-archive from the workstation, or sudo systemctl start adsb-pull-window.service, then
-# stop, on the rig). If a failed step cannot pass at that commit, run this bootstrap again (BUILD.md
-# §8), which pins to stable's tip; on a recording portable it ends the session itself, above.
+# (tools/pull-archive --end-session from the workstation, or sudo systemctl start
+# adsb-pull-window.service, then stop, on the rig). If a failed step cannot pass at that commit,
+# run this bootstrap again (BUILD.md §8), which pins to stable's tip; on a recording portable it
+# ends the session itself, above.
 #
 # Everything is inside functions, run by the last line (main), so a download cut short runs
 # nothing, or stops at the usage check.
@@ -169,9 +170,9 @@ lock_verdict() {
 # returns, and main's EXIT trap calls it on every other path.
 open_window() {
   local lock=$1 st job h pid unit poll=5 t=$SECONDS next=$SECONDS
-  # 45 min: the bound tools/pull-archive's close puts on its wait for a running update (it waits
-  # on the window's stop, whose TimeoutStopSec= is 45 min, PLAN §9m), above the update's own 40 min
-  # TimeoutStartSec=.
+  # 45 min: the bound the close of tools/pull-archive --end-session puts on its wait for a running
+  # update (it waits on the window's stop, whose TimeoutStopSec= is 45 min, PLAN §9m), above the
+  # update's own 40 min TimeoutStartSec=.
   local deadline=$((SECONDS + 45 * 60))
   echo "==> the writer holds the recording lock; ending the session through the pull window, as ruled (PLAN §9e)"
   # Set before the start, so a start interrupted by a signal is still closed by main's EXIT trap.
@@ -459,8 +460,8 @@ main() {
       echo "==> Rebooting in 5 seconds; the update timer runs the build again at this commit"
       echo "    about 3 minutes after the boot, if the recording lock is free. On a recording"
       echo "    portable the writer holds it from the boot, so the build completes in the next pull"
-      echo "    window instead (tools/pull-archive from the workstation, or sudo systemctl start"
-      echo "    adsb-pull-window.service, then stop, on the rig)."
+      echo "    window instead (tools/pull-archive --end-session from the workstation, or sudo"
+      echo "    systemctl start adsb-pull-window.service, then stop, on the rig)."
     else
       echo "==> Rebooting in 5 seconds; the update timer runs the build again at its next scheduled"
       echo "    run (sooner by hand: sudo systemctl start adsb-update.service)."

@@ -20,7 +20,8 @@
 # An automatic update on a recording portable can only be an automatic opening of the pull window
 # (PLAN §9m), so this:
 #   1. ⚠️ the ruled guard: adsb-pull-window.service already active, activating or deactivating
-#      means there is nothing to open (a window by hand, tools/pull-archive, the bootstrap's (b));
+#      means there is nothing to open (a window by hand, tools/pull-archive --end-session, the
+#      bootstrap's (b));
 #   2. adsb-update.service already running (activating): its run is the update. The build's guard,
 #      not ruled: --check's fetch would race that run's fetch in the one clone;
 #   3. the recording lock held by anything but adsb-writer.service (an update.sh run outside any

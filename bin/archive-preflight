@@ -160,7 +160,9 @@ done < <(find "$MP/beast" "$MP/spool" -maxdepth 1 -type f -name '.archive-prefli
 
 # A .part found here is torn (PLAN §9m storage contract): renamed .torn, never
 # deleted, so the pull (which skips *.part) can move it. Both beast/ and spool/:
-# the pull's exclude covers the whole drive, so a torn .part anywhere would pile up.
+# the pull's *.part exclude applies in every directory it moves (beast/ in a
+# default, live pull; beast/ and spool/ with tools/pull-archive --end-session), so
+# a torn .part left under either would never move, and would pile up.
 #
 # Two guards keep a live file from being torn, for instance by a hand-run verify
 # while recording:

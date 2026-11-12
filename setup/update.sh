@@ -137,7 +137,7 @@
 #   - adsb-pull-window.service active, activating or deactivating: trigger window, and opened_by
 #     adsb-home-update if the opener's marker (/run/adsb-home-update/window-opened-by) exists AND
 #     adsb-home-update.service is activating (the opener is running), else hand (a window started
-#     by hand, by tools/pull-archive, or by setup/bootstrap.sh's (b)). A marker left behind with no
+#     by hand, by tools/pull-archive --end-session, or by setup/bootstrap.sh's (b)). A marker left behind with no
 #     opener running is ignored, so it cannot mislabel a later window;
 #   - no window: both null. `mode` already says timer, rev or bootstrap, and a timer-mode run
 #     cannot tell the timer from `adsb-update` typed by hand, so "timer" there would be a guess.
@@ -1640,7 +1640,7 @@ main() {
     # carry on as after an ordinary incomplete build; status.json still says incomplete.
     local code=$RC_INCOMPLETE
     ((TERMINATED)) && code=$(sig_exit)
-    warn "the build is INCOMPLETE: ${FAILED_STEPS[*]}. Each step's log is in $RUN_LOGS. Every update timer run (after each boot, and daily) runs the build again at this same commit while the recording lock is free (a rig with no writer running), so a step waiting for hardware completes once it is plugged in. On a recording portable the writer holds the lock from every boot, so the build completes in the next pull window instead (tools/pull-archive from the workstation, or sudo systemctl start adsb-pull-window.service, then stop, on the rig). If a failed step cannot pass at this commit, run the one-command bootstrap again (BUILD.md §8), which pins to stable's tip. The archive drive is the exception: only the bootstrap formats it, so a drive plugged in later is formatted by hand (step 30 prints the command), or by running the bootstrap again"
+    warn "the build is INCOMPLETE: ${FAILED_STEPS[*]}. Each step's log is in $RUN_LOGS. Every update timer run (after each boot, and daily) runs the build again at this same commit while the recording lock is free (a rig with no writer running), so a step waiting for hardware completes once it is plugged in. On a recording portable the writer holds the lock from every boot, so the build completes in the next pull window instead (tools/pull-archive --end-session from the workstation, or sudo systemctl start adsb-pull-window.service, then stop, on the rig). If a failed step cannot pass at this commit, run the one-command bootstrap again (BUILD.md §8), which pins to stable's tip. The archive drive is the exception: only the bootstrap formats it, so a drive plugged in later is formatted by hand (step 30 prints the command), or by running the bootstrap again"
     readiness
     write_status "$code"
     STAGE=finished
