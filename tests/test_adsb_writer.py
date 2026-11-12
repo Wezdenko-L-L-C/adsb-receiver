@@ -3,6 +3,7 @@
 # bin/adsb-writer, on synthesized BEAST streams. ⛔ No real capture is
 # committed: every byte here is built by the tests.
 
+import io
 import json
 import os
 import socket
@@ -406,6 +407,249 @@ class ExpiryTest(WriterTestBase):
         records, _ = extract.read_pcap(os.path.join(self.archive, self.files()[0]))
         self.assertEqual([p for _, p in records][:2],
                          [b"start test", b"expired 2026-10-01/20261001T000000Z.beast.pcap 100"])
+
+    def test_a_file_moved_away_is_not_replaced_by_the_next_oldest(self):
+        a = self.put("2026-10-01/20261001T000000Z.beast.pcap", 100)
+        b = self.put("2026-10-02/20261002T000000Z.beast.pcap", 100)
+        self.base = self.used() + 10
+        w = self.make(min_free=10 + self.blocks("2026-10-01/20261001T000000Z.beast.pcap"))
+        real = W.os.path.getsize
+        moved = os.path.join(self.tmp.name, "moved")
+
+        def getsize(p):
+            if p == a and os.path.exists(a):
+                os.rename(a, moved)  # rsync moved it after expiry listed it: that space is free now
+            return real(p)
+        W.os.path.getsize = getsize
+        try:
+            expired = w.expire()
+        finally:
+            W.os.path.getsize = real
+        self.assertEqual(expired, [])
+        self.assertTrue(os.path.exists(b), "the next oldest was expired although the move freed enough")
+
+
+def join_threads(name):
+    for t in threading.enumerate():
+        if t.name == name:
+            t.join(5)
+
+
+def tracking_csv(age_s, now_s, leap="Normal"):
+    # Two decimals at most: the commit guard reads longer ones around a comma as a position.
+    return ",".join(["C0000201", "192.0.2.1", "2", f"{now_s - age_s:.2f}", "0.01", "0.00", "0.01",
+                     "7.80", "0.00", "0.03", "0.04", "0.03", "1037.6", leap]) + "\n"
+
+
+class ClockTest(WriterTestBase):
+    """The clock while recording (ruled 2026-11-11 19:01): marked, never a reason to stop."""
+
+    def fake_run(self, tracking, sources, rc=0):
+        def run(argv, **_kw):
+            out = tracking if argv[-1] == "tracking" else sources
+            return types.SimpleNamespace(returncode=rc, stdout=out)
+        return run
+
+    def test_probe_clock_carries_state_age_bound_and_source_counts(self):
+        now = 1_800_000_000.0
+        src = "^,-,192.0.2.1,2,10,377,500,0.00,0.00,0.05\n^,?,192.0.2.2,2,10,0,600,0.00,0.00,0.06\n"
+        line = W.probe_clock(now_s=lambda: now, run=self.fake_run(tracking_csv(19800, now), src))
+        self.assertEqual(line, "clock ref=C0000201 name=192.0.2.1 stratum=2 system_time_s=0.01 leap=Normal"
+                               " state=HOLDOVER ref_age_s=19800 bound_ms=60.000"
+                               " sources=2 selected=0 combined=0 reachable=1")
+        line = W.probe_clock(now_s=lambda: now, run=self.fake_run(tracking_csv(5, now), ""))
+        self.assertIn("state=COARSE ref_age_s=5 ", line)
+        self.assertTrue(line.endswith("sources=? selected=? combined=? reachable=?"), line)
+        self.assertEqual(W.probe_clock(run=self.fake_run("", "", rc=1)),
+                         "clock unavailable reason=chronyc-exit-1")
+
+    def test_a_loss_mid_session_keeps_recording_and_writes_one_event_on_the_change(self):
+        synced = ("clock ref=C0000201 name=192.0.2.1 stratum=2 system_time_s=0.00 leap=Normal state=SYNCED"
+                  " ref_age_s=5 bound_ms=15.000 sources=2 selected=1 combined=0 reachable=2")
+        holdover = synced.replace("state=SYNCED ref_age_s=5", "state=HOLDOVER ref_age_s=2400") \
+                         .replace("selected=1", "selected=0")
+        readings = iter([synced, synced, holdover, holdover])
+        mono = [0.0]
+        w = W.Writer(self.archive, 1 << 30, status_path=self.status, clock_ns=self.clock,
+                     statvfs=self.statvfs, probe=lambda: [synced], source="test",
+                     clock_probe=lambda: next(readings), monotonic=lambda: mono[0])
+        w.begin("start test")
+        join_threads("probe")
+        w.tick()
+        f = beast(0x32, 3, 3, SHORT)
+        for _ in range(4):
+            mono[0] += W.CLOCK_CHECK_S
+            w.tick()                    # starts a check
+            join_threads("clock-check")
+            w.tick()                    # takes its result
+            w.frame(self.clock.ns, f)   # and recording goes on
+        self.assertIsNotNone(w.fh, "the writer must still be recording")
+        w.write_status(force=True)
+        with open(self.status) as fh:
+            st = json.load(fh)
+        self.assertEqual(st["clock"]["state"], "HOLDOVER")
+        self.assertEqual(st["last_clock"], holdover)
+        w.finish("SIGTERM")
+        records, _ = extract.read_pcap(os.path.join(self.archive, self.files()[0]))
+        clocks = [p.decode() for _, p in records if p.startswith(b"clock")]
+        self.assertEqual(clocks, [synced, holdover], "one at the start, one on the change, none repeated")
+        self.assertEqual(sum(1 for _, p in records if p[:1] == b"\x1a"), 4)
+        self.assertIn(holdover, self.logs)
+
+    def test_the_bound_crossing_the_bar_inside_holdover_is_a_change(self):
+        # The state word, the reference and "none selected" stay the same; only the bound grows.
+        def line(bound):
+            return ("clock ref=C0000201 name=192.0.2.1 stratum=2 system_time_s=0.01 leap=Normal state=HOLDOVER"
+                    f" ref_age_s=19800 bound_ms={bound} sources=2 selected=0 combined=0 reachable=2")
+        readings = iter([line("480.000"), line("520.000"), line("530.000")])
+        mono = [0.0]
+        w = W.Writer(self.archive, 1 << 30, status_path=self.status, clock_ns=self.clock,
+                     statvfs=self.statvfs, probe=lambda: [line("460.000")], source="test",
+                     clock_probe=lambda: next(readings), monotonic=lambda: mono[0], max_offset_ms=500.0)
+        w.begin("start test")
+        join_threads("probe")
+        w.tick()
+        for _ in range(3):
+            mono[0] += W.CLOCK_CHECK_S
+            w.tick()
+            join_threads("clock-check")
+            w.tick()
+        w.finish("SIGTERM")
+        records, _ = extract.read_pcap(os.path.join(self.archive, self.files()[0]))
+        bounds = [p.decode().split("bound_ms=")[1].split()[0] for _, p in records if p.startswith(b"clock")]
+        self.assertEqual(bounds, ["460.000", "520.000"], "an event on crossing 500 ms, none for 480 or 530")
+        # Without the bar (clock.conf absent), the same readings write no event after the start's.
+        self.assertEqual(W.clock_key(line("480.000")), W.clock_key(line("520.000")))
+
+    def test_a_flapping_chronyc_is_not_a_change_until_two_unavailable_in_a_row(self):
+        synced = ("clock ref=C0000201 name=192.0.2.1 stratum=2 system_time_s=0.00 leap=Normal state=SYNCED"
+                  " ref_age_s=5 bound_ms=15.000 sources=2 selected=1 combined=0 reachable=2")
+        t_out, x_out = "clock unavailable reason=timeout", "clock unavailable reason=chronyc-exit-1"
+        readings = iter([synced, t_out, synced, t_out, synced, t_out, x_out, t_out, synced])
+        mono = [0.0]
+        w = W.Writer(self.archive, 1 << 30, status_path=self.status, clock_ns=self.clock,
+                     statvfs=self.statvfs, probe=lambda: [synced], source="test",
+                     clock_probe=lambda: next(readings), monotonic=lambda: mono[0])
+        w.begin("start test")
+        join_threads("probe")
+        w.tick()
+        for _ in range(9):
+            mono[0] += W.CLOCK_CHECK_S
+            w.tick()
+            join_threads("clock-check")
+            w.tick()
+            self.assertIsNotNone(w.fh, "never a reason to stop")
+        w.finish("SIGTERM")
+        records, _ = extract.read_pcap(os.path.join(self.archive, self.files()[0]))
+        clocks = [p.decode() for _, p in records if p.startswith(b"clock")]
+        # Single timeouts write nothing; the second unavailable in a row does, whatever its reason,
+        # and the third adds nothing; the recovery is a change.
+        self.assertEqual(clocks, [synced, x_out, synced])
+
+    def test_read_max_offset_ms_from_clock_conf(self):
+        conf = os.path.join(self.tmp.name, "clock.conf")
+        self.assertIsNone(W.read_max_offset_ms(conf), "absent")
+        for text, want in (("# c\nmax_offset_ms=500\nrequire_disciplined=true\nsource=gps\n", 500.0),
+                           ("max_offset_ms=100.5\n", 100.5),
+                           ("max_offset_ms=0\n", None), ("max_offset_ms=nan\n", None),
+                           ("max_offset_ms=true\n", None), ("source=gps\n", None),
+                           ("max_offset_ms=1_0\n", None), ("max_offset_ms= 5\n", None),
+                           ("max_offset_ms=1e3\n", None), ("max_offset_ms=+5\n", None),
+                           (b"max_offset_ms=\xff\n", None)):
+            with self.subTest(text=text):
+                with open(conf, "wb") as fh:
+                    fh.write(text if isinstance(text, bytes) else text.encode())
+                self.assertEqual(W.read_max_offset_ms(conf), want)
+
+    def test_extract_counts_a_clock_event_by_its_first_word(self):
+        w = self.make()
+        w.begin("start test")
+        w.event("clock ref=C0000201 state=HOLDOVER ref_age_s=2400 bound_ms=60.000 sources=2 selected=0")
+        w.finish("SIGTERM")
+        out = io.StringIO()
+        extract.check(os.path.join(self.archive, self.files()[0]), out=out)
+        self.assertIn("  events: clock 1, start 1, stop 1", out.getvalue())
+
+
+class RaceTest(WriterTestBase):
+    """A live pull moves files and removes empty date directories while the writer runs (PLAN
+    §9m's four races): each is tolerated."""
+
+    def patch(self, obj, name, fn):
+        real = getattr(obj, name)
+        setattr(obj, name, fn)
+        self.addCleanup(setattr, obj, name, real)
+        return real
+
+    def test_close_file_survives_the_file_moved_after_its_rename(self):
+        real = W.link_noclobber
+        moved = os.path.join(self.tmp.name, "moved")
+
+        def link_then_move(*a):
+            final = real(*a)
+            os.rename(final, moved)  # rsync took it at once
+            return final
+        self.patch(W, "link_noclobber", link_then_move)
+        w = self.make()
+        w.begin("start test")
+        w.finish("SIGTERM")
+        self.assertTrue(os.path.exists(moved))
+        self.assertTrue([m for m in self.logs if m.startswith("closed ") and m.endswith(" bytes")], self.logs)
+
+    def test_closed_files_skips_a_date_directory_removed_after_its_test(self):
+        gone = os.path.join(self.archive, "2026-10-01")
+        os.mkdir(gone)
+        os.makedirs(os.path.join(self.archive, "2026-10-02"))
+        open(os.path.join(self.archive, "2026-10-02/20261002T000000Z.beast.pcap"), "wb").close()
+        real = self.patch(W.os, "listdir", None)
+
+        def listdir(p):
+            if p == gone and os.path.isdir(gone):
+                os.rmdir(gone)  # the prune, between isdir() and listdir()
+            return real(p)
+        W.os.listdir = listdir
+        found = self.make().closed_files()
+        self.assertEqual([c[1] for c in found], ["20261002T000000Z.beast.pcap"])
+
+    def test_open_file_makes_its_directory_again_if_removed_before_the_open(self):
+        real = self.patch(W.os, "open", None)
+        removed = []
+
+        def open_(path, *a, **kw):
+            if path.endswith(".part") and not removed:
+                os.rmdir(os.path.dirname(path))  # the prune, between makedirs() and open()
+                removed.append(path)
+            return real(path, *a, **kw)
+        W.os.open = open_
+        w = self.make()
+        w.begin("start test")
+        self.assertEqual(len(removed), 1)
+        self.assertEqual(self.files(), ["2026-10-04/20261004T120317Z.beast.pcap.part"])
+        w.finish("SIGTERM")
+
+
+class StepBackTest(WriterTestBase):
+    def test_a_clock_stepped_back_mid_file_rotates_into_an_earlier_name_and_clobbers_nothing(self):
+        w = self.make()
+        w.begin("start test")
+        f = beast(0x32, 3, 3, SHORT)
+        w.frame(self.clock.ns, f)
+        self.clock.ns = utc_ns(2026, 10, 4, 12, 10, 0, 100_000_000)
+        w.rotate()
+        w.frame(self.clock.ns, f)
+        # chrony steps the clock back into the first file's interval, to its very second.
+        self.clock.ns = utc_ns(2026, 10, 4, 12, 3, 17, 500_000_000)
+        self.assertTrue(w.due(self.clock.ns), "an earlier interval is a different interval")
+        w.rotate()
+        w.frame(self.clock.ns, f)
+        w.finish("SIGTERM")
+        self.assertEqual(self.files(), ["2026-10-04/20261004T120317Z.1.beast.pcap",
+                                        "2026-10-04/20261004T120317Z.beast.pcap",
+                                        "2026-10-04/20261004T121000Z.beast.pcap"])
+        first, _ = extract.read_pcap(os.path.join(self.archive, "2026-10-04/20261004T120317Z.beast.pcap"))
+        self.assertEqual([p for _, p in first], [b"start test", f])
+        third, _ = extract.read_pcap(os.path.join(self.archive, "2026-10-04/20261004T120317Z.1.beast.pcap"))
+        self.assertEqual([p for _, p in third], [f, b"stop reason=SIGTERM"])
 
 
 class ProbeTest(unittest.TestCase):

@@ -66,6 +66,13 @@
 # close here then only says so (a window ended by the cap reads failed, or perhaps inactive: ⚠️
 # belief, not seen on a Pi; the code accepts either). update.sh itself still never stops the
 # writer.
+#   Before it opens the window, the clock (ruled 2026-11-11 19:01, PLAN §9e "the clock while
+# recording": an opener that stops the writer checks first, and does not open on a rig that could
+# not restart): /usr/local/bin/clock-preflight, the check the writer's own ExecStartPre= runs,
+# which only reads. Any exit but 0, or the check not installed, would keep the writer from starting
+# again after the window, so the window is not opened, the reason is printed, and the bootstrap
+# exits 1 before update.sh runs (it would only refuse the held lock); the fetch and the worktree
+# made before the check stay.
 #   Only where adsb-pull-window.service is loaded: a rig with a writer but no window unit (one
 # installed by hand before step 60 ran, the 2026-10-04 shape) gets update.sh's refusal, which says
 # to stop the writer by hand; so does a rig already built, and so does a lock held by anything
@@ -131,6 +138,7 @@
 set -euo pipefail
 
 readonly WINDOW=adsb-pull-window.service WRITER=adsb-writer.service UPDATE=adsb-update.service
+readonly CLOCK_PREFLIGHT=/usr/local/bin/clock-preflight
 WINDOW_OPENED=0   # 1 once this run has asked for the pull window: only then does it close it
 
 # lock_holder <lock>: "<PID> <unit>" of the process holding the recording lock, the unit read
@@ -162,6 +170,23 @@ lock_verdict() {
   else
     echo "the recording lock is held by ${unit:-PID $pid} (process up ${age:-?} s), not by a writer this build started: a reboot would end it"
   fi
+}
+
+# clock_would_pass: true when clock-preflight, the writer's ExecStartPre=, exits 0 now (bounded
+# at 60 s); otherwise prints why and returns 1. It only reads (the header).
+clock_would_pass() {
+  local out rc=0 why
+  if [[ ! -x $CLOCK_PREFLIGHT ]]; then
+    echo "xx  $CLOCK_PREFLIGHT is not installed, so the writer could not start again after the pull window; the window was not opened, and the writer keeps recording" >&2
+    return 1
+  fi
+  out=$(timeout 60 "$CLOCK_PREFLIGHT" 2>&1 </dev/null) || rc=$?
+  ((rc == 0)) && return 0
+  why=$(grep -E '^xx  (NOT READY|CHECK FAILED TO RUN): ' <<<"$out" | tail -n1 | sed -E 's/^xx +//') || why=''
+  echo "xx  clock-preflight would refuse the writer's restart after the pull window (exit $rc: ${why:-no reason printed})." >&2
+  echo "    The window was not opened, so the session is not ended, the writer keeps recording, and nothing was built." >&2
+  echo "    On the rig: sudo $CLOCK_PREFLIGHT; chronyc tracking; chronyc sources. Run the bootstrap again once it passes." >&2
+  return 1
 }
 
 # open_window <lock>: PLAN §9e's (b). Starts the pull window, which stops the writer (Conflicts=)
@@ -390,6 +415,7 @@ main() {
     if [[ $hunit == "$WRITER" ]]; then
       load=$(systemctl show -p LoadState --value "$WINDOW" 2>/dev/null) || load=''
       if [[ $load == loaded ]]; then
+        clock_would_pass || exit 1
         hint=opened
         open_window "$lock"
         if [[ -e $base/applied || -L $base/applied ]]; then

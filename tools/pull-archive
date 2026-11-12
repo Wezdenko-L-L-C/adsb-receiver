@@ -40,11 +40,12 @@
 #    UTC yesterday, today or tomorrow; it is empty; and its mtime is more than 15 minutes old. The
 #    dates and the age are read on the rig, by its clock; the writer names its date directories
 #    by the UTC date of that same clock (open_file(): time.gmtime() of time.time_ns()). Why the
-#    rule: open_file() makes its date directory and then opens a file in it, with nothing catching
-#    a directory removed in between. The cost would be more than a restart: the writer exits,
-#    systemd starts it again after RestartSec=30s (Restart=on-failure), both preflights run first
-#    (ExecStartPre=, setup/steps/40-archive-writer.sh), and it does not come back while
-#    clock-preflight refuses. ⚠️ Removing a directory's last file sets its mtime to now, and rsync
+#    rule: open_file() makes its date directory and then opens a file in it. Since 2026-11-12 it
+#    remakes the directory and retries when one is removed in between, up to three times, then
+#    raises; the rule keeps it from getting that far. Were it to raise, the cost would be more than
+#    a restart: the writer exits, systemd starts it again after RestartSec=30s
+#    (Restart=on-failure), both preflights run first (ExecStartPre=,
+#    setup/steps/40-archive-writer.sh), and it does not come back while clock-preflight refuses. ⚠️ Removing a directory's last file sets its mtime to now, and rsync
 #    deletes as it goes: a directory emptied during this pull is pruned by it only if it was emptied
 #    more than 15 minutes before the prune; otherwise by a later pull. Any other empty directory is
 #    left.
@@ -55,6 +56,17 @@
 #    file) and the open .part. The count of files left includes them.
 #
 # --end-session: THE PULL THAT ENDS THE RECORDING SESSION
+# 0. Checks the clock first (ruled 2026-11-11 19:01; how, Chris, 2026-11-12 01:02): runs the rig's
+#    /usr/local/bin/clock-preflight over ssh, as the login, with no sudo, bounded here at
+#    clock_preflight_timeout seconds. It is the check the writer's start runs (its unit's
+#    ExecStartPre=), and it judges chrony's error bound against clock.max_offset_ms, read from
+#    the world-readable /etc/adsb-receiver/clock.conf that step 20 renders. On any exit but 0, a
+#    timeout, or the preflight missing, the window is not opened, nothing is moved, and the run
+#    exits 1, saying why: a window then would stop a writer that could not start again. A rig that
+#    has not applied that change also declines (its older preflight exits 1 for any user but
+#    root); the default live pull still works there. There is no option to skip it. Only the
+#    preflight's last line is printed, never its evidence (its sources table names the clock's
+#    servers).
 # 1. Opens the pull window over ssh (sudo systemctl start adsb-pull-window.service, allowed with
 #    no password by setup/steps/60-portable-pull.sh). That ends the recording session: the writer
 #    stops and closes its file. Starting the window also starts the update oneshot (Wants=); it is
@@ -91,15 +103,17 @@
 # drive, and the total now in the destination (everything there, not only this pull).
 # The clock check (Chris, 2026-11-11), in both modes: reads the rig's chrony over the same ssh,
 # read-only, no sudo. It raises a loud banner when `chronyc -n sources` marks no source selected
-# ('*', the rule bin/clock-preflight applies), when the reference time in `chronyc -n -c tracking`
-# (its fourth field) is more than 3600 s older than the rig's `date +%s` or more than 60 s ahead of
-# it (within 60 s is jitter), or when it cannot tell. It only reports, after the move: it is not
-# the guard that checks first and does not open the window (ruled 2026-11-11 19:01), which is not
-# built. It prints a
-# count and an age, never chronyc's table (that names the clock's servers). Why here: chrony can
-# lose its last source while tracking still names the old reference, and the writer's clock events
-# carry only what tracking says; a live pull no longer restarts the writer, whose clock-preflight
-# is what used to catch it. The banner never changes the exit status: the move succeeded.
+# ('*'), when the reference time in `chronyc -n -c tracking` (its fourth field) is more than 3600 s
+# older than the rig's `date +%s` or more than 60 s ahead of it (within 60 s is jitter), or when it
+# cannot tell. It only reports, after the move. ⚠️ It is not bin/clock-preflight's rule: since
+# 2026-11-11 19:01 the preflight judges chrony's error bound against clock.max_offset_ms (from
+# the rig's clock.conf), and no longer requires a '*' source.
+# Nor is it the guard that checks first (step 0 of --end-session, above), which judges by the
+# error bound: after a pull with --end-session, the banner names that guard's verdict too, so two
+# answers are not read as one. It prints a count and an age, never chronyc's table
+# (that names the clock's servers). Why here: chrony can lose its last source while tracking still
+# names the old reference; a live pull no longer restarts the writer, whose clock-preflight is what
+# used to catch it. The banner never changes the exit status: the move succeeded.
 # The decode: tools/adsb-extract --decode (beside this script) over exactly the beast/ files rsync
 # named as transferred (its --out-format), where they now sit here; never the whole destination,
 # which grows every pull. Only a name of the writer's own form (YYYY-MM-DD/, then its file name) is
@@ -151,9 +165,16 @@ ssh_opts=(-o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o Ser
 # dead puck. A reference time ahead of the rig's clock by more than clock_max_ahead is reported too.
 clock_max_age=3600
 clock_max_ahead=60
+# --end-session's guard (step 0 of the header): the preflight on the rig, and how long it may take.
+preflight=/usr/local/bin/clock-preflight
+clock_preflight_timeout=90
+guard_line=''  # the preflight's last line, when the guard ran and passed
 
 # What the pull needs on this end, checked before anything touches the rig.
 command -v rsync >/dev/null || { echo "xx  rsync is not installed on this workstation; nothing was started on the rig" >&2; exit 1; }
+if ((end_session)); then
+  command -v timeout >/dev/null || { echo "xx  timeout (coreutils) is not installed on this workstation, and --end-session's clock check needs it; nothing was started on the rig" >&2; exit 1; }
+fi
 mkdir -p -- "$dest" || { echo "xx  could not create $dest; nothing was started on the rig" >&2; exit 1; }
 probe=$dest/.pull-archive-probe.$$
 if ! : >"$probe" 2>/dev/null; then
@@ -301,12 +322,47 @@ EOF
     echo "!!  COULD NOT TELL WHETHER THE RIG'S CLOCK IS DISCIPLINED:" >&2
     printf '!!    - %s\n' "${tell[@]}" >&2
   fi
+  if [[ -n $guard_line ]]; then
+    echo "!!  Before the window opened, clock-preflight (the check the writer's start runs) judged chrony's" >&2
+    echo "!!  error bound against clock.max_offset_ms and passed: $guard_line" >&2
+    echo "!!  This banner is a different rule (a selected '*' source, and the reference's age), so the two can differ." >&2
+  fi
   echo "!!  The archive's timestamps and file names come from this clock. The move is not affected." >&2
   echo "!!  On the rig, read-only: chronyc tracking; chronyc sources; journalctl -u chrony -n 50" >&2
   echo "!!  ################################################################" >&2
 }
 
+# guard_clock: --end-session's step 0 (the header). Returns 0 when the rig's clock-preflight passed,
+# setting guard_line; otherwise prints why the window is not opened and returns 1.
+guard_clock() {
+  local out rc=0 last why
+  echo "==> checking the rig's clock before ending the session: $preflight, over ssh, no sudo (the check the writer's start runs)"
+  out=$(timeout "$clock_preflight_timeout" ssh "${ssh_opts[@]}" "$host" "$preflight" 2>&1 </dev/null) || rc=$?
+  last=$(grep -v '^[[:space:]]*$' <<<"$out" | tail -n1) || last=''
+  if ((rc == 0)); then
+    guard_line=$last
+    echo "==> clock-preflight on the rig: ${last:-(no output)}"
+    return 0
+  fi
+  case $rc in
+    124) why="it did not finish in ${clock_preflight_timeout} s" ;;
+    127) why="it is not installed on the rig ($preflight)" ;;
+    255) why="the ssh connection to the rig failed (exit 255), so it could not run" ;;
+    2) why="it says the clock is not ready (exit 2)" ;;
+    *) why="it exited $rc" ;;
+  esac
+  echo "xx  NOT ENDING THE SESSION: the rig's clock-preflight did not pass: $why." >&2
+  [[ -z $last ]] || echo "xx  its last line: $last" >&2
+  echo "xx  The pull window was not opened, nothing was moved, and the writer keeps recording: a window now" >&2
+  echo "xx  would stop a writer that could not start again." >&2
+  echo "    A rig that has not yet applied the change that lets clock-preflight run without root declines here" >&2
+  echo "    too: its older preflight exits 1 for any user but root. The default live pull (without" >&2
+  echo "    --end-session) still works. On the rig: clock-preflight; chronyc tracking." >&2
+  return 1
+}
+
 if ((end_session)); then
+  guard_clock || exit 1
   trap 'rm -f -- "$rsync_err"; close_window' EXIT
   echo "==> opening the pull window on $host"
   ssh_pi sudo -n systemctl start "$window"

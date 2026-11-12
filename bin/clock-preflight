@@ -4,16 +4,25 @@
 # clock-preflight: is the system clock disciplined, and close enough, to record
 # now? PLAN §9i, BUILD.md §7 rule 4. Installed by setup/steps/20-portable-clock.sh
 # to /usr/local/bin/clock-preflight (copied, so it runs outside the clone).
-# Runs as root, because station.yml is root-only. Takes no arguments.
+# Runs as any user: its keys come from /etc/adsb-receiver/clock.conf, which
+# step 20 renders from the root-only station.yml, root:root 0644 (Chris,
+# 2026-11-12 01:02). Run as root by the writer's ExecStartPre=+, by update.sh's
+# readiness record and by the root openers (bin/adsb-home-update,
+# setup/bootstrap.sh); as the login, with no sudo, by tools/pull-archive
+# --end-session over ssh. So PATH is fixed here, and its Python runs with -I
+# (no user site, no PYTHON* variables, nothing from the current directory).
+# Takes no arguments.
 #
 # The readiness tier (PLAN §9c). Its exit codes are a fixed interface (PLAN §9i):
-#   0  ready: disciplined, and |offset| <= clock.max_offset_ms; or, with
-#      clock.require_disciplined: false, undisciplined and allowed by the config
+#   0  ready: disciplined, and chrony's error bound <= clock.max_offset_ms; or,
+#      with clock.require_disciplined: false, undisciplined and allowed by the
+#      config
 #   2  not ready; the reason is printed: chrony has no reference
-#      (unsynchronized, or only its local clock), no source is selected, or
-#      the offset is over the bar
-#   1  the check itself could not run: not root, station.yml unreadable or
-#      its clock keys missing or invalid, chronyc missing, or chronyc failing
+#      (unsynchronized, or only its local clock), or its error bound is over
+#      the bar
+#   1  the check itself could not run: clock.conf unreadable, or one of its
+#      three keys missing, repeated or invalid (an empty source is valid),
+#      chronyc missing, or chronyc failing
 # It prints its raw evidence.
 #
 # ⭐ Ready on ANY disciplined source: NTP at home, GPS in the field. That is
@@ -27,18 +36,31 @@
 #    home, where NTP keeps the rig ready, without refusing to record. A
 #    warning, never an exit code.
 #
-# What "disciplined" means here, all three:
-#   - `chronyc tracking` names a reference that is neither 00000000 (none) nor
-#     7F7F0101 (chrony's local clock);
-#   - its Leap status is not "Not synchronised";
-#   - `chronyc sources` marks a source selected ('*').
-# The offset judged is tracking's "System time" line: chrony's estimate of how
-# far the system clock is from true time now. It means nothing while chrony
-# has no reference, so it is judged only when the clock is disciplined.
+# What "disciplined" means here (ruled 2026-11-11 19:01, PLAN §9e "the clock
+# while recording": by chrony's error bound, not by a source marked '*'):
+#   - `chronyc -n -c tracking` names a reference that is neither 00000000
+#     (none) nor 7F7F0101 (chrony's local clock);
+#   - its leap status is not "Not synchronised";
+#   - chrony's error bound is within clock.max_offset_ms. The bound is
+#     |system time| + root dispersion + root delay / 2 (chronyc(1)): how far
+#     the system clock can be from true time now, by chrony's own account.
+#     It means nothing while chrony has no reference, so it is judged only
+#     when the first two hold.
+# A clock with no source selected ('*') and a reference that has aged
+# (HOLDOVER, chrony running on its last estimate) is ready while that bound
+# holds: on 2026-11-11 chrony selected no source for about 5 1/2 h, with the
+# bound well within the bar, and a writer stopped in that time could not
+# restart. The state word (SYNCED, COARSE, HOLDOVER, UNSYNCED) and the bound
+# are bin/adsb-slate's clock_state() and parse_tracking(), copied; the writer
+# carries the same copy, and tests/test_clock_agreement.py pins all three to
+# the same answers. The last line printed names the state, so status.json's
+# readiness record and the login banner show HOLDOVER as of the update run.
 #
-# ⚠️ A known limit: chrony keeps a source selected ('*') for several polls
-#    after it falls silent, until its reach decays. In that window a puck that
-#    has just died still reads as disciplined. Nothing here shortens it.
+# ✅ Seen on the 🎒 portable, 2026-11-11, in the writer's journal of this
+#    preflight's refusals (24 of them, the reference frozen, leap Normal):
+#    the root dispersion chronyc reports grew while the reference aged, 22.9
+#    to 23.2 ms, about 1 ppm, so the bound widens through a holdover. Not read
+#    in chrony's source.
 #
 # Self-contained: installed outside the repo, it cannot source setup/lib.sh.
 
@@ -46,8 +68,10 @@ set -euo pipefail
 # Any failure not handled below means the check could not run: exit 1, never a
 # stray code that a caller would misread (PLAN §9i).
 trap 'printf "xx  CHECK FAILED TO RUN: unexpected failure at line %s\n" "$LINENO" >&2; exit 1' ERR
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 
-STATION=/etc/adsb-receiver/station.yml
+CONF=/etc/adsb-receiver/clock.conf
 
 log()      { printf '==> %s\n' "$*"; }
 warn()     { printf '!!  WARNING: %s\n' "$*" >&2; }
@@ -56,68 +80,103 @@ notready() { printf 'xx  NOT READY: %s\n' "$*" >&2; exit 2; }
 
 # --- Can the check run? -> 1 ---------------------------------------------------
 
-((EUID == 0)) || cantrun "run as root"
 for t in python3 chronyc awk; do
   command -v "$t" >/dev/null || cantrun "$t is not installed"
 done
-[[ -r $STATION ]] || cantrun "cannot read $STATION; run setup/steps/05-config.sh"
+[[ -r $CONF ]] || cantrun "cannot read $CONF; run setup/steps/20-portable-clock.sh, which renders it from station.yml"
 
-cfg=$(python3 - "$STATION" <<'PY'
-import math, sys, yaml
+# clock.conf: comment lines, then key=value lines, each of the three keys once,
+# split on "\n" only (no newline translation), as step 20's render_clock_conf
+# writes it. The validation is that render's, applied to what it wrote; source
+# may be empty.
+cfg=$(python3 -I - "$CONF" <<'PY'
+import re, sys
+path, want, vals = sys.argv[1], ("max_offset_ms", "require_disciplined", "source"), {}
 try:
-    with open(sys.argv[1]) as fh:
-        doc = yaml.safe_load(fh)
-except Exception as e:
-    print(f"{sys.argv[1]} does not parse: {e}", file=sys.stderr)
-    sys.exit(1)
-clock = doc.get("clock") if isinstance(doc, dict) else None
-if not isinstance(clock, dict):
-    print(f"{sys.argv[1]} has no clock: block", file=sys.stderr)
-    sys.exit(1)
-m, r, s = clock.get("max_offset_ms"), clock.get("require_disciplined"), clock.get("source")
-# bool is an int in Python; a YAML true is not a number of milliseconds. YAML
-# also parses .inf and .nan as floats.
-if isinstance(m, bool) or not isinstance(m, (int, float)) or not math.isfinite(m) or m <= 0:
-    print(f"{sys.argv[1]}: clock.max_offset_ms must be a positive, finite number, not {m!r}", file=sys.stderr)
-    sys.exit(1)
-if not isinstance(r, bool):
-    print(f"{sys.argv[1]}: clock.require_disciplined must be true or false, not {r!r}", file=sys.stderr)
-    sys.exit(1)
+    with open(path, newline="") as fh:
+        lines = fh.read().split("\n")
+except (OSError, UnicodeDecodeError) as e:
+    sys.exit(f"{path}: {e}")
+for n, line in enumerate(lines, 1):
+    if not line.strip() or line.lstrip().startswith("#"):
+        continue
+    k, sep, v = line.partition("=")
+    if not sep or k not in want or k in vals:
+        sys.exit(f"{path} line {n}: expected each of {', '.join(want)} once, as key=value")
+    vals[k] = v
+missing = [k for k in want if k not in vals]
+if missing:
+    sys.exit(f"{path}: no {', '.join(missing)}")
+m, r = vals["max_offset_ms"], vals["require_disciplined"]
+# A plain decimal only, as step 20 renders it: float() alone would take "1_0" or " 5", which
+# awk's comparison below would read as another number.
+if not re.fullmatch(r"[0-9]+(\.[0-9]+)?", m) or float(m) <= 0:
+    sys.exit(f"{path}: max_offset_ms must be a positive, plain decimal number, not {m!r}")
+if r not in ("true", "false"):
+    sys.exit(f"{path}: require_disciplined must be true or false, not {r!r}")
 print(m)
-print("true" if r else "false")
-print(s if isinstance(s, str) else "")
+print(r)
+print(vals["source"])
 PY
-) || cantrun "could not read clock.max_offset_ms and clock.require_disciplined from $STATION"
+) || cantrun "could not read clock.max_offset_ms and clock.require_disciplined from $CONF"
 max_ms='' require='' source=''
-{ read -r max_ms; read -r require; read -r source; } <<<"$cfg"
-log "station.yml: clock.max_offset_ms $max_ms, clock.require_disciplined $require, clock.source ${source:-(unset)}"
+# An empty source makes cfg end at its second line: that third read meets the end, which is fine.
+{ read -r max_ms; read -r require; read -r source || true; } <<<"$cfg"
+log "$CONF: clock.max_offset_ms $max_ms, clock.require_disciplined $require, clock.source ${source:-(unset)}"
 
-# -n: numeric addresses, so no DNS lookup can stall or fail the check.
+# -n: numeric addresses, so no DNS lookup can stall or fail the check. The text
+# forms are the evidence printed; the CSV form is the one judged.
 tracking=$(chronyc -n tracking 2>&1) || { printf '%s\n' "$tracking" >&2; cantrun "chronyc tracking failed; is chrony running? (systemctl status chrony)"; }
+csv=$(chronyc -n -c tracking 2>&1) || { printf '%s\n' "$csv" >&2; cantrun "chronyc -c tracking failed; is chrony running? (systemctl status chrony)"; }
 sources=$(chronyc -n sources 2>&1) || { printf '%s\n' "$sources" >&2; cantrun "chronyc sources failed; is chrony running? (systemctl status chrony)"; }
 log "chronyc -n tracking (raw output follows)"
 printf '%s\n' "$tracking"
+echo "----"
+log "chronyc -n -c tracking, the line judged (raw output follows)"
+printf '%s\n' "$csv"
 echo "----"
 log "chronyc -n sources (raw output follows)"
 printf '%s\n' "$sources"
 echo "----"
 
-# field <label>: the value after "<label> : " in the tracking output.
-field() {
-  awk -v k="$1" -F' : ' '{ sub(/[[:space:]]+$/, "", $1) } $1 == k { print $2; exit }' <<<"$tracking"
-}
-refid_line=$(field 'Reference ID')
-leap=$(field 'Leap status')
-systime=$(field 'System time')
-[[ -n $refid_line && -n $leap && -n $systime ]] \
-  || cantrun "chronyc tracking printed no Reference ID, Leap status or System time line; see above"
-refid=${refid_line%% *}
-
-# "0.000325977 seconds slow of NTP time": the magnitude in ms. Fast or slow,
-# the bar is on |offset|.
-offset_ms=$(awk '$2 == "seconds" && $1 ~ /^[0-9.]+$/ { printf "%.3f", $1 * 1000; ok = 1 } END { exit !ok }' <<<"$systime") \
-  || cantrun "could not parse the System time line: '$systime'"
-selected=$(grep -E '^.\*' <<<"$sources" | head -n1) || true
+# The judgment, from the CSV: one tab-separated line of ref id, leap status,
+# state word, bound (ms), |system time| (ms), the reference's age (s) and the
+# update interval (s). bin/adsb-slate's parse_tracking() and clock_state(),
+# copied (the header); BOUND_OK_S and HOLDOVER_SLACK_S are the slate's.
+judged=$(python3 -I - "$csv" <<'PY'
+import math, sys, time
+BOUND_OK_S = 0.020
+HOLDOVER_SLACK_S = 64.0
+line = sys.argv[1].strip().splitlines()[0] if sys.argv[1].strip() else ""
+f = line.split(",")
+if len(f) < 14:
+    sys.exit(1)
+try:
+    ref_time, offset, root_delay, root_disp, interval = (
+        float(f[3]), float(f[4]), float(f[10]), float(f[11]), float(f[12]))
+except ValueError:
+    sys.exit(1)
+if not all(map(math.isfinite, (ref_time, offset, root_delay, root_disp, interval))):
+    sys.exit(1)
+leap = f[13].strip()
+bound = abs(offset) + root_disp + 0.5 * root_delay
+age = time.time() - ref_time
+if leap not in ("Normal", "Insert second", "Delete second"):
+    word = "UNSYNCED"
+elif age > 2 * interval + HOLDOVER_SLACK_S:
+    word = "HOLDOVER"
+elif bound > BOUND_OK_S:
+    word = "COARSE"
+else:
+    word = "SYNCED"
+# "?" for an empty field, so the tab-separated read below cannot shift.
+print("\t".join([f[0].strip() or "?", leap or "?", word, f"{bound * 1000:.3f}", f"{abs(offset) * 1000:.3f}",
+                 f"{age:.0f}", f"{interval:g}"]))
+PY
+) || cantrun "could not parse chronyc -n -c tracking: $(awk -F, 'NR == 1 { print NF; exit }' <<<"$csv") field(s) in its first line, 14 needed, or a value that is not a finite number (the line is not printed here: it names the reference)"
+refid='' leap='' state='' bound_ms='' offset_ms='' ref_age='' interval=''
+IFS=$'\t' read -r refid leap state bound_ms offset_ms ref_age interval <<<"$judged"
+selected=$(grep -cE '^.\*' <<<"$sources") || true
 
 # The GPS refclock's health, on a rig whose clock.source is gps (R3 above).
 # Refclock lines start '#'; Reach is the fifth column, in octal.
@@ -149,9 +208,6 @@ fi
 if [[ $leap == "Not synchronised" ]]; then
   why+=("Leap status is '$leap'")
 fi
-if [[ -z $selected ]]; then
-  why+=("chronyc sources marks no source selected ('*')")
-fi
 reasons=$(printf '%s; ' "${why[@]}")
 reasons=${reasons%; }
 
@@ -162,15 +218,21 @@ if ((${#why[@]} > 0)); then
   # No offset is judged or printed as meaningful: with no reference, chrony's
   # System time line measures nothing.
   warn "the clock is NOT disciplined: $reasons"
-  warn "Exiting 0 only because clock.require_disciplined is false in $STATION. The offset is not judged: with no reference it means nothing"
+  warn "Exiting 0 only because clock.require_disciplined is false in $CONF. The offset is not judged: with no reference it means nothing"
   exit 0
 fi
 
-log "disciplined: reference $refid_line; selected source $(awk '{ print $2 }' <<<"$selected")"
-log "offset: $systime = ${offset_ms} ms; the bar is ${max_ms} ms"
-if awk -v o="$offset_ms" -v m="$max_ms" 'BEGIN { exit !(o > m) }'; then
-  notready "the system clock is ${offset_ms} ms off, over clock.max_offset_ms (${max_ms} ms)"
+log "clock state $state: reference $refid, error bound ${bound_ms} ms, |system time| ${offset_ms} ms; the reference was last updated ${ref_age} s ago (update interval ${interval} s); ${selected:-0} source(s) selected ('*')"
+if [[ ${selected:-0} == 0 ]]; then
+  log "no source is selected ('*'): chrony is running on its last estimate, judged by its error bound"
+fi
+if awk -v b="$bound_ms" -v m="$max_ms" 'BEGIN { exit !(b > m) }'; then
+  notready "chrony's error bound is ${bound_ms} ms ($state), over clock.max_offset_ms (${max_ms} ms)"
 fi
 
-log "READY: disciplined, offset ${offset_ms} ms within ${max_ms} ms"
+if [[ $state == HOLDOVER ]]; then
+  log "READY: HOLDOVER, error bound ${bound_ms} ms within ${max_ms} ms; chrony's reference was last updated ${ref_age} s ago"
+else
+  log "READY: disciplined ($state), error bound ${bound_ms} ms within ${max_ms} ms"
+fi
 exit 0

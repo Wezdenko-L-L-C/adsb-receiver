@@ -35,8 +35,12 @@
 #   - a needed reboot, with its reasons (/run/adsb-receiver/reboot-required);
 #   - recording: who holds the recording lock, read from the holder's cgroup (not `ps -o unit=`),
 #     when that process started (not when it took the lock: the writer may wait on the lock
-#     first), and the writer's own state from writer.json;
-#   - the preflights' verdicts as of that update run (not re-run here: a login must stay fast);
+#     first), and the writer's own state from writer.json, with the clock's state as the writer
+#     last read it (its "clock": HOLDOVER, when chrony's reference has aged past the slate's
+#     test, gets a line of its own in capitals; bin/adsb-writer's header, THE CLOCK);
+#   - the preflights' verdicts as of that update run (not re-run here: a login must stay fast),
+#     under a line naming that run's finish time, so clock-preflight's line there (READY:
+#     HOLDOVER, or not) is never read as the clock now, beside the writer's live clock line below;
 #   - the archive format refused on the first build, with the command to run by hand, until the
 #     archive drive is mounted (status.json carries the first build's foundation record forward);
 #   - the next scheduled update, and, where adsb-home-update.timer is loaded (🎒 portable), the
@@ -126,9 +130,12 @@ if rb:
         left = rb.get("leftovers_possible") or []
         out.append("    note: a rollback does not remove what the candidate added"
                    + (f"; steps only in the candidate: {', '.join(left)}" if left else ""))
-for name, r in (s.get("readiness") or {}).items():
+ready = s.get("readiness") or {}
+if ready:
+    out.append(f"  preflights as of the last update run ({s.get('finished_at')}), not now:")
+for name, r in ready.items():
     st = r.get("status") or r.get("exit")
-    out.append(f"  {name}: {st}" + (f"  {r['line']}" if r.get("line") else ""))
+    out.append(f"    {name}: {st}" + (f"  {r['line']}" if r.get("line") else ""))
 found = s.get("foundation") or {}
 fa = found.get("format_archive") or {}
 if fa.get("result") in ("refused", "failed") and os.environ.get("ARCHIVE_MOUNTED") != "1":
@@ -160,16 +167,36 @@ else
   echo "  recording lock: free (not recording)"
 fi
 if [[ -r $WRITER_JSON ]] && command -v python3 >/dev/null; then
-  t python3 - "$WRITER_JSON" <<'PY' 2>/dev/null
+  # writer.json outlives the writer (a crash, a pull window): whether it runs now is systemd's word.
+  wact=$(t systemctl is-active adsb-writer.service 2>/dev/null) || true
+  WRITER_ACTIVE=${wact:-unknown} t python3 - "$WRITER_JSON" <<'PY' 2>/dev/null
 import json, os, re, stat, sys
 # Written by the writer in a directory its group may write: never followed (the header).
 fd = os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
 if not stat.S_ISREG(os.fstat(fd).st_mode):
     sys.exit(1)
 w = json.load(os.fdopen(fd))
-line = (f"  writer: {w.get('state')}, file {w.get('current_file')}, {w.get('frames_in_file')} frames"
-        f" (as of {w.get('updated_at')})")
-print(re.sub(r"[\x00-\x1f\x7f-\x9f]", "?", line))
+out = [f"  writer: {w.get('state')}, file {w.get('current_file')}, {w.get('frames_in_file')} frames"
+       f" (as of {w.get('updated_at')})"]
+c = w.get("clock")
+if isinstance(c, dict):
+    def v(k):
+        x = c.get(k)
+        return "unknown" if x is None or x == "" else x
+    st = v("state")
+    if st == "HOLDOVER":
+        act = os.environ.get("WRITER_ACTIVE", "unknown")
+        now = ("the writer is still recording, and the archive marks it" if act == "active"
+               else f"the writer is {act} now, not recording")
+        out.append(f"  CLOCK HOLDOVER: chrony's reference was last updated {v('ref_age_s')} s ago,"
+                   f" {v('selected')} source(s) selected; error bound {v('bound_ms')} ms"
+                   f" (as of {v('checked_at')}); {now}")
+    elif st == "unavailable":
+        out.append(f"  clock: unavailable ({v('reason')}) (as of {v('checked_at')})")
+    else:
+        out.append(f"  clock: {st}, error bound {v('bound_ms')} ms, {v('selected')} source(s) selected"
+                   f" (as of {v('checked_at')})")
+print("\n".join(re.sub(r"[\x00-\x1f\x7f-\x9f]", "?", line) for line in out))
 PY
 fi
 

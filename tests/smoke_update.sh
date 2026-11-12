@@ -26,7 +26,7 @@
 set -uo pipefail
 # The number of check cases a full run makes. Bump it when cases are added or removed: a run that
 # makes fewer (a section skipped by an early return, a wait loop that timed out) fails.
-readonly EXPECTED_CHECKS=280
+readonly EXPECTED_CHECKS=290
 ((EUID != 0)) || { echo "refusing to run as root: the sandbox remaps real system paths by sed"; exit 1; }
 # The sandbox is not under systemd; update.sh adds a <N> journal prefix to its marker line when it is.
 unset INVOCATION_ID
@@ -56,7 +56,9 @@ remap_bootstrap() {
       -e "s#local url=https://github.com/[^ ]*#local url=$SB/src/origin.git#" \
       -e 's#if ((EUID != 0)); then#if false; then#' -e 's#^  sleep 5$#  sleep 0#' \
       -e 's#install -d -m 0755 -o root -g root #install -d -m 0755 #' \
-      -e 's#\[\[ \$s == "install ok installed" \]\] || missing+=#true || missing+=#' "$REAL/setup/bootstrap.sh"
+      -e 's#\[\[ \$s == "install ok installed" \]\] || missing+=#true || missing+=#' \
+      -e "s#^readonly CLOCK_PREFLIGHT=/usr/local/bin/clock-preflight#readonly CLOCK_PREFLIGHT=$SB/clock-preflight#" \
+      "$REAL/setup/bootstrap.sh"
 }
 U=$SB/update.sh; remap_update >"$U"
 B=$SB/bootstrap.sh; remap_bootstrap >"$B"
@@ -91,7 +93,8 @@ assert_remaps "$B" \
   "root check"    "if false; then"                     "EUID != 0" \
   "reboot sleep"  "  sleep 0"                          "sleep 5" \
   "root install"  "install -d -m 0755 \""              "install -d -m 0755 -o root -g root" \
-  "dpkg-query"    "true || missing+="                  '[[ $s == "install ok installed" ]]'
+  "dpkg-query"    "true || missing+="                  '[[ $s == "install ok installed" ]]' \
+  "clock check"   "readonly CLOCK_PREFLIGHT=$SB/clock-preflight" "readonly CLOCK_PREFLIGHT=/usr/local/bin/clock-preflight"
 
 # Every call is appended to systemctl.log, so a case can read the order of them. The pull window
 # (the W cases): its LoadState is the file window-load's (not-found without it); adsb-update's
@@ -123,6 +126,8 @@ case "\$1 \${2:-}" in
     if [[ -e "$SB/window-active" ]]; then echo active; else echo inactive; exit 3; fi ;;
   "is-active adsb-update.service")
     if [[ -e "$SB/update-active" ]]; then echo activating; else echo inactive; exit 3; fi ;;
+  "is-active adsb-writer.service")
+    if [[ -e "$SB/writer-active" ]]; then echo active; else echo inactive; exit 3; fi ;;
   "is-active "*) echo inactive; exit 3 ;;
   "list-jobs --no-legend")
     if [[ -s "$SB/update-jobs" ]]; then head -n1 "$SB/update-jobs"; sed -i 1d "$SB/update-jobs"; fi ;;
@@ -178,6 +183,16 @@ echo "\$*" >>"$SB/nmcli.log"
 cat "$SB/nmcli.out" 2>/dev/null || exit 8
 EOF
 chmod +x "$SB/bin/nmcli"
+# clock-preflight, for the openers' clock check (the W and HU cases): logs each run and exits
+# clock-rc's code (0 without it); at 2 it prints a NOT READY line, as the real one does.
+cat >"$SB/clock-preflight" <<EOF
+#!/usr/bin/env bash
+echo ran >>"$SB/clock-preflight.log"
+rc=\$(cat "$SB/clock-rc" 2>/dev/null || echo 0)
+[[ \$rc == 2 ]] && echo "xx  NOT READY: the clock is not disciplined: chrony has no reference (Reference ID 00000000)" >&2
+exit "\$rc"
+EOF
+chmod +x "$SB/clock-preflight"
 # git, for CK8: a fetch that hangs while slow-fetch exists; everything else is the real git.
 REAL_GIT=$(command -v git)
 cat >"$SB/bin/git" <<EOF
@@ -203,6 +218,7 @@ sed -e "s#^readonly UPDATER=/usr/local/sbin/adsb-update#readonly UPDATER=$SB/ads
     -e 's#^readonly POLL=5$#readonly POLL=1#' -e 's#^readonly DISPATCH_BOUND=600$#readonly DISPATCH_BOUND=4#' \
     -e "s#\"/proc/\\\$pid/cgroup\"#\"$SB/cgroup\"#" \
     -e "s#^readonly OWNER_UID=0 .*#readonly OWNER_UID=$(id -u)#" \
+    -e "s#^readonly CLOCK_PREFLIGHT=/usr/local/bin/clock-preflight#readonly CLOCK_PREFLIGHT=$SB/clock-preflight#" \
     -e 's#if ((EUID != 0)); then say#if false; then say#' "$REAL/bin/adsb-home-update" >"$OP"
 BN=$SB/motd-banner
 sed -e "s#^STATUS=.*#STATUS=$SB/var/status.json#; s#^WRITER_JSON=.*#WRITER_JSON=$SB/var/writer.json#" \
@@ -226,7 +242,8 @@ assert_remaps "$OP" \
   "DISPATCH"      "readonly DISPATCH_BOUND=4"          "readonly DISPATCH_BOUND=600" \
   "cgroup"        "\"$SB/cgroup\""                     '"/proc/$pid/cgroup"' \
   "root check"    "if false; then say"                 "EUID != 0" \
-  "OWNER_UID"     "readonly OWNER_UID=$(id -u)"        "readonly OWNER_UID=0"
+  "OWNER_UID"     "readonly OWNER_UID=$(id -u)"        "readonly OWNER_UID=0" \
+  "clock check"   "readonly CLOCK_PREFLIGHT=$SB/clock-preflight" "readonly CLOCK_PREFLIGHT=/usr/local/bin/clock-preflight"
 assert_remaps "$BN" \
   "STATUS"        "STATUS=$SB/var/status.json"         "STATUS=/var/lib/adsb-receiver/status.json" \
   "LOCK"          "LOCK=$SB/run/recording.lock"        "LOCK=/run/adsb-receiver/recording.lock" \
@@ -532,7 +549,8 @@ fresh_rig() {
         "$SB/update-jobs" "$SB/window-active" "$SB/window-start-fails" "$SB/window-applies" \
         "$SB/update-active" "$SB/window-runs-update" "$SB/window-update.out" "$SB/nmcli.out" \
         "$SB/nmcli.log" "$SB/updater.log" "$SB/window-async-update" "$SB/upd-inv" "$SB/upd-state" \
-        "$SB/upd-exit" "$SB/opener-active" "$SB/home-timer-load" "$SB/slow-fetch"
+        "$SB/upd-exit" "$SB/opener-active" "$SB/home-timer-load" "$SB/slow-fetch" "$SB/clock-rc" \
+        "$SB/clock-preflight.log"
   rm -f "$R"/setup/IFAIL-* "$R"/setup/FAIL-* "$R"/setup/SLEEP-* "$R"/setup/HOLD-*
 }
 
@@ -904,6 +922,20 @@ check "W7 no reboot, and the reason names the window's build" \
 check "W7 update.sh applied the bootstrap's commit as an ordinary update (no foundation)" \
   [ "$(S 's["result"]+" "+s["applied_rev"]')/$(grep -c 'foundation marker' "$SB/out.txt")" = "applied $W7B/0" ]
 
+echo "-- W8. first build, the writer holds the lock, the window is loaded, the clock would refuse the writer's restart: nothing opened (ruled 2026-11-11 19:01)"
+fresh_rig; echo "# w8" >>"$R/setup/steps/00-a.sh"; commit "w8"
+echo loaded >"$SB/window-load"; echo 2 >"$SB/clock-rc"
+hold_lock system.slice/adsb-writer.service; : >"$SB/systemctl.log"
+run bash "$B" --role portable
+drop_lock
+check "W8 exit 1, carrying the preflight's NOT READY line" \
+  rc_has 1 "clock-preflight would refuse the writer's restart after the pull window (exit 2: NOT READY: the clock is not disciplined" "$SB/out.txt"
+check "W8 the check ran, and no window was started or stopped" \
+  [ "$(wc -l <"$SB/clock-preflight.log")/$(grep -cE '^(start|stop) adsb-pull-window.service$' "$SB/systemctl.log")" = 1/0 ]
+check "W8 update.sh did not run, and nothing was built" \
+  [ "$(grep -c 'running .*/update.sh --bootstrap' "$SB/out.txt")/$([ -e "$SB/opt/applied" ] && echo applied)" = 0/ ]
+rm -f "$SB/clock-rc"
+
 echo "== CK. adsb-update --check: no lock, nothing written, one line on stdout (PLAN §9f, §9e's (a))"
 # snap: what a run that writes would change: the state, log and run directories, and the worktrees.
 snap() { find "$SB/var" "$SB/log" "$SB/run" "$SB/opt/worktrees" -maxdepth 2 -printf '%p %s %T@\n' 2>/dev/null | sort | md5sum; }
@@ -1140,6 +1172,8 @@ check "BN the first trap line names the pin" grep -q "^  first build: incomplete
 check "BN home update: on, at home, with its time" grep -q '^  home update: on; last check: at home (as of 20' "$SB/banner.txt"
 check "BN the window's opener named in the last update line" grep -q "in a pull window opened by adsb-home-update)$" "$SB/banner.txt"
 check "BN no SSID" lacks "Sec" "$SB/banner.txt"
+check "BN the preflights' lines sit under the update run's time, not read as now" \
+  grep -q "^  preflights as of the last update run ($(S 's["finished_at"]')), not now:$" "$SB/banner.txt"
 
 echo "-- HU12. a dangling applied: the opener's line says plainly that a timer run would fail"
 ln -sfn worktrees/nowhere "$SB/opt/applied"; : >"$SB/systemctl.log"
@@ -1148,6 +1182,39 @@ rm -f "$SB/opt/applied" "$R/setup/IFAIL-40-c"
 check "HU12 run-would-fail (1), the reason named" \
   hu_line "^ADSB-HOME-UPDATE run-would-fail: not pending: a timer run here would fail too, before any step: applied is dangling and applied-rev is unusable"
 check "HU12 exit 1, nothing opened" [ "$RC/$(grep -c '^start adsb-pull-window.service$' "$SB/systemctl.log")" = 1/0 ]
+
+echo "-- HU13. at home, an update pending, but the clock would refuse the writer's restart: clock-not-ready, nothing opened"
+fresh_rig; echo "# hu13" >>"$R/setup/steps/00-a.sh"; commit "hu13: built"
+run bash "$B" --role portable --no-reboot
+set_home; at_home
+echo "# hu13b" >>"$R/setup/steps/00-a.sh"; commit "hu13b: pending"
+echo 2 >"$SB/clock-rc"; : >"$SB/systemctl.log"; : >"$SB/updater.log"; : >"$SB/clock-preflight.log"
+unit_run
+check "HU13 clock-not-ready (1), carrying --check's line and the preflight's reason" \
+  hu_line "^ADSB-HOME-UPDATE clock-not-ready: an update is pending (pending: stable's tip .*), but clock-preflight would refuse the writer's restart after the window (exit 2: NOT READY: the clock is not disciplined: chrony has no reference (Reference ID 00000000)); nothing opened, and the writer keeps recording$"
+check "HU13 exit 1; --check and the clock check ran, no window was started, no marker" \
+  [ "$RC/$(cat "$SB/updater.log")/$(wc -l <"$SB/clock-preflight.log")/$(grep -c '^start adsb-pull-window.service$' "$SB/systemctl.log")/$([ -e "$SB/home/window-opened-by" ] && echo marker)" = "1/--check/1/0/" ]
+rm -f "$SB/clock-rc"
+echo "-- HU14. the same, the clock passing: the window opens as before"
+touch "$SB/window-runs-update"; : >"$SB/systemctl.log"
+unit_run
+rm -f "$SB/window-runs-update"
+check "HU14 opened-applied (0)" hu_line "^ADSB-HOME-UPDATE opened-applied: "
+
+echo "-- BN2. the login banner: the writer's clock in HOLDOVER gets a line of its own, claiming recording only while the writer is active"
+printf '%s\n' '{"state": "recording", "current_file": "2026-11-11/x.beast.pcap.part", "frames_in_file": 7,' \
+  ' "updated_at": "2026-11-11T20:00:00Z", "clock": {"state": "HOLDOVER", "ref_age_s": "19800",' \
+  ' "bound_ms": "60.000", "reason": null, "checked_at": "2026-11-11T20:00:00Z"}}' >"$SB/var/writer.json"
+touch "$SB/writer-active"
+RC=0; bash "$BN" >"$SB/banner.txt" 2>&1 || RC=$?
+check "BN2 the writer active: exit 0, still recording, and the absent field reads unknown, not None" \
+  rc_has 0 "^  CLOCK HOLDOVER: chrony's reference was last updated 19800 s ago, unknown source(s) selected; error bound 60.000 ms (as of 2026-11-11T20:00:00Z); the writer is still recording, and the archive marks it$" "$SB/banner.txt"
+rm -f "$SB/writer-active"
+RC=0; bash "$BN" >"$SB/banner.txt" 2>&1 || RC=$?
+check "BN2 the writer stopped (a crash, a window): the same line says it is not recording" \
+  rc_has 0 "^  CLOCK HOLDOVER: .*; the writer is inactive now, not recording$" "$SB/banner.txt"
+check "BN2 no None in the clock line" lacks "CLOCK HOLDOVER.*None" "$SB/banner.txt"
+rm -f "$SB/var/writer.json"
 
 echo "== SEC. root writes only into the opener's own directory, never through a planted link"
 # A victim file stands for /etc/passwd. On a rig the directory is root:root 0755; here it is the

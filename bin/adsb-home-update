@@ -38,7 +38,14 @@
 #      applies it: the build's mapping, not ruled); 13 a timer run would itself fail here, before any step (it says
 #      why: such a rig needs a hand, and a window would change nothing); anything else, "could
 #      not tell";
-#   5. if pending: writes the marker (content "adsb-home-update"); reads adsb-update.service's
+#   5. if pending, the clock first (ruled 2026-11-11 19:01, PLAN §9e "the clock while
+#      recording": an opener that stops the writer checks first, and does not open on a rig that
+#      could not restart): /usr/local/bin/clock-preflight, the check the writer's own
+#      ExecStartPre= runs, which only reads (chronyc, clock.conf). Any exit but 0 (2 not ready,
+#      1 could not run, 124 timed out, or not installed) is what would keep the writer from
+#      starting again after the window, so nothing is opened (clock-not-ready), and its NOT READY
+#      or CHECK FAILED line is carried;
+#   6. if pending and the clock would pass: writes the marker (content "adsb-home-update"); reads adsb-update.service's
 #      InvocationID; starts the pull window, which stops the writer (Conflicts=) and starts
 #      adsb-update.service (Wants=); waits for a new InvocationID, the window's update dispatched
 #      (from systemd's documentation: each activation gets a new one; seen 2026-10-10 under the
@@ -53,7 +60,7 @@
 #
 # Time: the unit's TimeoutStartSec=55min is ruled. Every wait here is bounded inside it, with 2 min
 # left over for ExecCondition= and the close, so a slow run ends with its real cause in the line,
-# not with systemd's SIGTERM: --check 10 min (its fetch is bounded at 5); the dispatch 10 min; the
+# not with systemd's SIGTERM: --check 10 min (its fetch is bounded at 5); the clock check 1 min; the dispatch 10 min; the
 # update 45 min (the window's TimeoutStopSec=, above the update's own 40 min); the close 2 min.
 # Each later bound is cut to what the budget has left. ⚠️ That TimeoutStartSec= also counts the
 # ExecCondition= run: belief, not seen; the margin covers adsb-at-home's 20 s at most.
@@ -68,7 +75,7 @@
 # Its record: exactly one line per run, "ADSB-HOME-UPDATE <decision>: ...", on stdout, so the
 # journal has it under adsb-home-update.service (journalctl -u adsb-home-update -g ADSB-HOME-UPDATE).
 # Decisions: window-active, update-running, lock-held, not-pending, run-would-fail,
-# opened-applied, opened-unchanged, opened-incomplete, opened-rolled-back, opened-failed, error,
+# clock-not-ready, opened-applied, opened-unchanged, opened-incomplete, opened-rolled-back, opened-failed, error,
 # interrupted. Under systemd it carries a journal priority prefix, <5> notice or <4> warning, as
 # update.sh's ADSB-UPDATE-SKIPPED does. When adsb-at-home says anything but "at home", this does
 # not run, and adsb-at-home's own tagged line is the record. Exit 0 for the guards, not-pending,
@@ -102,11 +109,13 @@ set -uo pipefail
 
 readonly WINDOW=adsb-pull-window.service UPDATE=adsb-update.service WRITER=adsb-writer.service
 readonly UPDATER=/usr/local/sbin/adsb-update
+readonly CLOCK_PREFLIGHT=/usr/local/bin/clock-preflight
 readonly STATUS=/var/lib/adsb-receiver/status.json
 readonly OWNER_UID=0                   # who must own the marker's directory: root
 readonly BUDGET=$((55 * 60))           # the unit's TimeoutStartSec=, ruled
 readonly MARGIN=120                    # left for ExecCondition= and the line
 readonly CHECK_BOUND=600
+readonly CLOCK_BOUND=60
 readonly DISPATCH_BOUND=600
 readonly UPDATE_BOUND=$((45 * 60))
 readonly CLOSE_BOUND=120
@@ -119,7 +128,7 @@ say() {
   ((SAID)) && return 0
   SAID=1
   local prio=5 pre=''
-  case $1 in error|interrupted|run-would-fail|opened-failed|opened-rolled-back) prio=4 ;; esac
+  case $1 in error|interrupted|run-would-fail|clock-not-ready|opened-failed|opened-rolled-back) prio=4 ;; esac
   [[ -n ${INVOCATION_ID:-} ]] && pre="<$prio>"
   printf '%sADSB-HOME-UPDATE %s: %s\n' "$pre" "$1" "$2"
 }
@@ -223,7 +232,7 @@ PY
 }
 
 main() {
-  local win upd rc line holder inv0 inv st job t0 t1 t0e b code result how word out
+  local win upd rc line holder inv0 inv st job t0 t1 t0e b code result how word out why
 
   if ((EUID != 0)); then say error "run as root; adsb-home-update.service runs it"; exit 1; fi
   if [[ $MARK != /* || $LOCK != /* ]]; then
@@ -274,7 +283,30 @@ main() {
        exit 1 ;;
   esac
 
-  # 5. Open, wait for the dispatch, wait for the end, close.
+  # 5. The clock: would the writer's own preflight let it start again after the window?
+  # `timeout 0` would mean no limit at all, so a budget already spent declines (exit "none").
+  rc=0
+  b=$(bounded "$CLOCK_BOUND")
+  if [[ ! -x $CLOCK_PREFLIGHT ]]; then
+    rc=127
+  elif ((b <= 0)); then
+    rc=none
+  else
+    timeout "$b" "$CLOCK_PREFLIGHT" >"$TMPD/clock" 2>&1 </dev/null || rc=$?
+  fi
+  if [[ $rc != 0 ]]; then
+    case $rc in
+      none) why="the check could not run: the opener's 55 min budget is spent" ;;
+      127) why="$CLOCK_PREFLIGHT is not installed, so the writer's start would fail" ;;
+      124) why="clock-preflight did not finish in $b s" ;;
+      2) why=$(grep -E '^xx  NOT READY: ' "$TMPD/clock" | tail -n1 | sed -E 's/^xx +//') || why='' ;;
+      *) why=$(grep -E '^xx  CHECK FAILED TO RUN: ' "$TMPD/clock" | tail -n1 | sed -E 's/^xx +//') || why='' ;;
+    esac
+    say clock-not-ready "an update is pending ($line), but clock-preflight would refuse the writer's restart after the window (exit $rc: ${why:-no reason printed}); nothing opened, and the writer keeps recording"
+    exit 1
+  fi
+
+  # 6. Open, wait for the dispatch, wait for the end, close.
   # rm -f, then noclobber: a new file, never a write through whatever was at that path.
   rm -f -- "$MARK" 2>/dev/null
   if ! { (set -C; printf 'adsb-home-update\n' >"$MARK"); } 2>/dev/null; then

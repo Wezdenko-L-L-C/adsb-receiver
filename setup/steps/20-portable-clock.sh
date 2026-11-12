@@ -3,7 +3,24 @@
 #
 # 20-portable-clock: gpsd on the GPS puck, chrony disciplined by it, the DS3231
 # RTC checked, systemd-timesyncd out of the way, and bin/clock-preflight
-# installed. BUILD.md §6 and §8 step 2; PLAN §9c.
+# installed with its keys. BUILD.md §6 and §8 step 2; PLAN §9c.
+#
+# The preflight's keys (Chris, 2026-11-12 01:02): clock.max_offset_ms,
+# clock.require_disciplined and clock.source are rendered from station.yml,
+# which is root-only, into /etc/adsb-receiver/clock.conf, root:root 0644, so
+# clock-preflight runs as any user: tools/pull-archive --end-session runs it
+# over ssh with no sudo, and bin/adsb-writer reads clock.max_offset_ms from it.
+# Rendered before the preflight is installed, so a new preflight never finds
+# the file missing. An edit to those keys in station.yml takes effect at this
+# step's next run: on a recording rig, that is the next update window (the home
+# opener's, a pull with --end-session, or one opened by hand), since the timer
+# finds the recording lock held. The verify fails while the file and
+# station.yml disagree, and checks that a user with no privilege at all
+# (nobody, through setpriv) can read it.
+# The format: comment lines, then key=value lines separated by "\n" only, each
+# key once. max_offset_ms is a plain decimal (digits, at most one point and
+# more digits: no sign, exponent, underscore or space), which the readers
+# require.
 #
 # Portable only: asserts station.role, refuses a position: block, and refuses
 # any clock.source but gps (PLAN §9b).
@@ -79,16 +96,26 @@ RTC_MAX_SKEW_S=5
 # Copied, not symlinked: update.sh flips between two worktrees (PLAN §9f), and
 # a symlink into one would follow the flip.
 PREFLIGHT=/usr/local/bin/clock-preflight
+CLOCK_CONF=$ADSB_ETC/clock.conf
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 # install_if_changed <src> <dst> <mode> <owner:group>: render, diff, install
 # (PLAN §9f). Installs only when the content, mode or owner differs, and logs
-# which. Sets CHANGED to 0 or 1.
+# which. Sets CHANGED to 0 or 1. For every file this step installs (gpsd's
+# defaults, chrony's gps.conf, clock.conf and the preflight): by a temporary
+# file in the destination's directory and a rename (step 60's), so a reader
+# running meanwhile (the writer's ExecStartPre=, a pull's preflight over ssh,
+# chrony or gpsd starting) sees the old file or the new one whole, never a
+# half-written one; on a first install the file is absent until the rename. The rename is atomic for readers only: nothing
+# here fsyncs, so what a power cut right after the install leaves on disk is
+# the filesystem's to decide. The temporary name ends in "~", which run-parts, sudo's
+# includedir and chrony's conf.d (*.conf) all skip; one left by a killed run is
+# removed first.
 CHANGED=0
 install_if_changed() {
-  local src=$1 dst=$2 mode=$3 owner=$4
+  local src=$1 dst=$2 mode=$3 owner=$4 tmp
   guard_path "$dst"
   CHANGED=0
   if [[ -f $dst ]] && cmp -s "$src" "$dst" \
@@ -96,9 +123,13 @@ install_if_changed() {
     log "$dst is unchanged"
     return 0
   fi
-  run install -D -m "$mode" -o "${owner%%:*}" -g "${owner##*:}" "$src" "$dst"
+  tmp=$(dirname "$dst")/.$(basename "$dst").adsb-new~
+  rm -f -- "$tmp"
+  run install -D -m "$mode" -o "${owner%%:*}" -g "${owner##*:}" "$src" "$tmp" \
+    || { rm -f -- "$tmp"; die "could not write $tmp; $dst was not changed"; }
+  run mv -f "$tmp" "$dst" || { rm -f -- "$tmp"; die "could not rename $tmp to $dst; $dst was not changed"; }
   CHANGED=1
-  log "$dst changed; installed"
+  log "$dst changed; installed by rename"
 }
 
 # pkg_installed <pkg>: no `grep -q` at the end of a pipe, which pipefail can trip.
@@ -286,6 +317,52 @@ install_timesyncd() {
   esac
 }
 
+# render_clock_conf: the three keys, from station.yml, into $WORK/clock.conf;
+# dies if they are missing or invalid. max_offset_ms must be a positive, finite
+# number (not a boolean) and require_disciplined true or false: the checks
+# clock-preflight applied to station.yml before 2026-11-12, and applies to
+# clock.conf now. Added here, not in the old preflight: source, text or empty,
+# with no character a line reader could split on or a terminal act on (C0,
+# DEL, C1, U+2028, U+2029); this step accepts only gps for it anyway (above).
+# max_offset_ms is written as a plain decimal, which is all the readers accept.
+render_clock_conf() {
+  local f
+  f=$(station_file) || die "no station.yml: run setup/steps/05-config.sh"
+  python3 - "$f" >"$WORK/clock.conf" <<'PY' \
+    || die "station.yml's clock: block is not valid for clock-preflight (above); fix it, then run this step again"
+import decimal, math, re, sys, yaml
+with open(sys.argv[1]) as fh:
+    doc = yaml.safe_load(fh)
+clock = doc.get("clock") if isinstance(doc, dict) else None
+if not isinstance(clock, dict):
+    sys.exit("station.yml has no clock: block")
+m, r, s = clock.get("max_offset_ms"), clock.get("require_disciplined"), clock.get("source")
+# bool is an int in Python; a YAML true is not a number of milliseconds. YAML
+# also parses .inf and .nan as floats.
+if isinstance(m, bool) or not isinstance(m, (int, float)) or not math.isfinite(m) or m <= 0:
+    sys.exit(f"clock.max_offset_ms must be a positive, finite number, not {m!r}")
+if not isinstance(r, bool):
+    sys.exit(f"clock.require_disciplined must be true or false, not {r!r}")
+s = s if isinstance(s, str) else ""
+if re.search("[\x00-\x1f\x7f-\x9f\u2028\u2029]", s):
+    sys.exit("clock.source holds a control or line-separator character")
+print("# Rendered by setup/steps/20-portable-clock.sh from station.yml's clock: block.")
+print("# Do not edit; edit station.yml and re-run the step. Read by clock-preflight and adsb-writer.")
+# A plain decimal, never repr()'s exponent form (1e-05, 1e+16): the readers accept nothing else.
+plain = str(m) if isinstance(m, int) else format(decimal.Decimal(repr(m)), "f")
+if not re.fullmatch(r"[0-9]+(\.[0-9]+)?", plain):
+    sys.exit(f"clock.max_offset_ms {m!r} does not render as a plain decimal")
+print(f"max_offset_ms={plain}")
+print(f"require_disciplined={'true' if r else 'false'}")
+print(f"source={s}")
+PY
+}
+
+install_clock_conf() {
+  render_clock_conf
+  install_if_changed "$WORK/clock.conf" "$CLOCK_CONF" 0644 root:root
+}
+
 install_preflight() {
   local src=$ADSB_REPO/bin/clock-preflight
   [[ -f $src ]] || die "$src is missing from this checkout"
@@ -299,6 +376,7 @@ install_step() {
   install_gpsd
   install_chrony
   install_timesyncd
+  install_clock_conf
   install_preflight
 }
 
@@ -432,9 +510,27 @@ verify() {
   [[ $ac == inactive ]] || die "systemd-timesyncd is $ac; it must be inactive"
   pass "systemd-timesyncd is $st and inactive"
 
-  # 5. The readiness tier: 0 and 2 pass the install tier, 1 fails it (PLAN §9c, §9i).
-  local rc=0
+  # 5. The preflight's keys: the installed file is what station.yml renders now.
+  local rc
+  render_clock_conf
+  [[ -f $CLOCK_CONF ]] || die "$CLOCK_CONF is missing; run this step without --verify"
+  cmp -s "$WORK/clock.conf" "$CLOCK_CONF" \
+    || die "$CLOCK_CONF differs from what station.yml's clock: block renders now; run this step without --verify"
+  [[ $(stat -c '%U:%G %a' "$CLOCK_CONF") == "root:root 644" ]] \
+    || die "$CLOCK_CONF is not root:root 0644; run this step without --verify"
+  pass "$CLOCK_CONF matches station.yml's clock: block, root:root 0644"
+  # Readable with no privilege at all, the ruled purpose (pull-archive --end-session runs the
+  # preflight as a login, with no sudo). Only the read is proven here, as nobody: not the
+  # preflight, whose chronyc may fail for reasons of its own (chrony may have just restarted above), and a
+  # failed verify holds every later update.
   [[ -x $PREFLIGHT ]] || die "$PREFLIGHT is not installed; run this step without --verify"
+  command -v setpriv >/dev/null || die "setpriv (util-linux) is not installed, so whether a plain user can read $CLOCK_CONF cannot be checked"
+  setpriv --reuid=nobody --regid=nogroup --clear-groups cat -- "$CLOCK_CONF" >/dev/null \
+    || die "nobody cannot read $CLOCK_CONF, so a login without sudo (tools/pull-archive --end-session) could not run the preflight either. Check: ls -ld $ADSB_ETC $CLOCK_CONF"
+  pass "$CLOCK_CONF is readable by nobody (setpriv)"
+
+  # 6. The readiness tier: 0 and 2 pass the install tier, 1 fails it (PLAN §9c, §9i).
+  rc=0
   log "$PREFLIGHT (raw output follows)"
   "$PREFLIGHT" || rc=$?
   echo "----"

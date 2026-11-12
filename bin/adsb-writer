@@ -37,8 +37,13 @@
 #     connected <host:port>
 #     disconnected reason=<eof|refused|reset|timeout|...> [discarded=N]
 #     clock ref=<id> name=<name> stratum=<n> system_time_s=<s> leap=<status>
-#         chronyc -n -c tracking, at start and at each rotation. system_time_s
-#         is chrony's signed estimate: negative means the system clock is fast.
+#           state=<SYNCED|COARSE|HOLDOVER|UNSYNCED> ref_age_s=<s> bound_ms=<ms>
+#           sources=<n> selected=<n> combined=<n> reachable=<n>
+#         chronyc -n -c tracking and chronyc -n -c sources, at start, at each
+#         rotation, and whenever a check every CLOCK_CHECK_S finds the clock's
+#         state changed (see THE CLOCK). system_time_s is chrony's signed
+#         estimate: negative means the system clock is fast. The source counts
+#         are "?" when chronyc sources could not be read.
 #     clock unavailable reason=<...>
 #     position <lat> <lon> <alt|-> <fix mode> <gps time>
 #         the first gpsd TPV with mode >= 2, at start and at each rotation.
@@ -76,13 +81,49 @@
 #   expirable like any other: it survives only while the threshold stays out of
 #   reach with it counted.
 #
+# THE CLOCK (ruled 2026-11-11 19:01, PLAN §9e "the clock while recording")
+#   The writer keeps recording whatever the clock's state, and marks it. Every
+#   CLOCK_CHECK_S (60 s) it reads chrony in a thread and writes a `clock` event
+#   when the state changed since the last `clock` event it wrote: the state
+#   word, the reference ID, whether any source is selected ('*'), or whether
+#   chrony's error bound is over clock.max_offset_ms, the bar clock-preflight
+#   applies to the writer's start. That bar is read once, at start, from
+#   CLOCK_CONF (step 20 renders it, world-readable); if it is absent or
+#   invalid, that one trigger is off, said once in the journal, and the writer
+#   records as before. A check that cannot read chrony at all (clock
+#   unavailable) counts as a change only at UNAVAILABLE_CHECKS (2) in a row,
+#   whatever its reason, so a chronyc that times out now and then does not
+#   write an event at each flip. The start and every rotation (each 10-minute
+#   UTC boundary) write one whatever it says, so a bound that grows inside a
+#   HOLDOVER without crossing the bar is still in the archive every 10
+#   minutes. writer.json carries the latest reading under "clock", which the
+#   login banner shows.
+#   The state word and the error bound are bin/adsb-slate's clock_state() and
+#   parse_tracking(), copied: each program is installed alone, outside the
+#   clone, so there is no module both could import. tests/test_clock_agreement.py
+#   pins this copy, the slate's and bin/clock-preflight's to the same answers.
+#     bound = |system time| + root dispersion + root delay / 2 (chronyc(1))
+#     HOLDOVER: the reference was last updated more than 2 x the update
+#       interval + HOLDOVER_SLACK_S ago; UNSYNCED: leap status not Normal,
+#       Insert second or Delete second; COARSE: bound over BOUND_OK_S;
+#       otherwise SYNCED.
+#
 # Never exits on a lost connection to readsb: it writes `disconnected`, keeps
-# its file, retries, and keeps rotating. SIGTERM or SIGINT closes the file
-# cleanly and exits 0.
+# its file, retries, and keeps rotating. Never exits on the clock's state.
+# SIGTERM or SIGINT closes the file cleanly and exits 0.
+#
+# A live pull (tools/pull-archive) moves closed files and removes empty date
+# directories while the writer runs. Each place that could meet a file or a
+# directory gone under it tolerates that: close_file() reads the size from the
+# open file before the rename; closed_files() skips a date directory removed
+# after it was listed; expire() reads free space again after a file it meant
+# to expire has already gone; open_file() makes its date directory again if
+# it was removed before the .part was opened.
 
 import argparse
 import errno
 import json
+import math
 import os
 import queue
 import re
@@ -119,6 +160,12 @@ TICK_S = 1.0
 GPSD_ADDR = ("127.0.0.1", 2947)
 GPSD_TIMEOUT_S = 3.0
 GIB = 1 << 30
+CLOCK_CHECK_S = 60.0
+UNAVAILABLE_CHECKS = 2
+CLOCK_CONF = "/etc/adsb-receiver/clock.conf"
+# bin/adsb-slate's thresholds, copied (THE CLOCK, in the header).
+BOUND_OK_S = 0.020
+HOLDOVER_SLACK_S = 64.0
 
 SUFFIX = ".beast.pcap"
 PART = ".part"
@@ -234,25 +281,143 @@ class BeastParser:
 # --- Probes: chrony and gpsd ------------------------------------------------------
 
 
-def probe_clock():
-    """One `clock` event line from chronyc. Never raises."""
-    try:
-        r = subprocess.run(["chronyc", "-n", "-c", "tracking"], capture_output=True,
-                           text=True, timeout=5)
-    except FileNotFoundError:
-        return "clock unavailable reason=no-chronyc"
-    except subprocess.TimeoutExpired:
-        return "clock unavailable reason=timeout"
-    except OSError as e:
-        return f"clock unavailable reason={errno.errorcode.get(e.errno, 'oserror')}"
-    if r.returncode != 0:
-        return f"clock unavailable reason=chronyc-exit-{r.returncode}"
-    # CSV, as chronyc 4.x prints it (seen 2026-10-04): ref id, ref name,
-    # stratum, ref time, system time, last offset, ..., leap status last.
-    f = r.stdout.strip().split(",")
+def parse_tracking(text):
+    """chronyc -n -c tracking's CSV -> dict, or None if it is not that. The
+    fields as chrony 4.x prints them (seen 2026-10-04 and 2026-10-10): 0 ref
+    id, 1 ref name, 2 stratum, 3 ref time (epoch s), 4 system time, ..., 10
+    root delay, 11 root dispersion, 12 update interval, 13 leap status.
+    bin/adsb-slate's parse_tracking(), copied (THE CLOCK, in the header), plus
+    the raw text of the fields the event carries."""
+    line = text.strip().splitlines()[0] if text.strip() else ""
+    f = line.split(",")
     if len(f) < 14:
+        return None
+    leap = f[13].strip()
+    try:
+        ref_time, offset, root_delay, root_disp, interval = (
+            float(f[3]), float(f[4]), float(f[10]), float(f[11]), float(f[12]))
+    except ValueError:
+        return None
+    # float() accepts "nan" and "inf", and a NaN bound compares false against
+    # every threshold, so it would read SYNCED. Non-finite is unparsed.
+    if not all(map(math.isfinite, (ref_time, offset, root_delay, root_disp, interval))):
+        return None
+    return {
+        "ref_id": f[0].strip(), "ref_name": f[1].strip(), "stratum": f[2].strip(),
+        "system_time": f[4].strip(),
+        "ref_time": ref_time,
+        "offset_s": offset,
+        "interval_s": interval,
+        "bound_s": abs(offset) + root_disp + 0.5 * root_delay,
+        "leap": leap,
+        "synced": leap in ("Normal", "Insert second", "Delete second"),
+    }
+
+
+def clock_word(tracking, now_s):
+    """SYNCED, COARSE, HOLDOVER or UNSYNCED: bin/adsb-slate's clock_state(),
+    copied, its first word only."""
+    if not tracking["synced"]:
+        return "UNSYNCED"
+    if now_s - tracking["ref_time"] > 2 * tracking["interval_s"] + HOLDOVER_SLACK_S:
+        return "HOLDOVER"
+    if tracking["bound_s"] > BOUND_OK_S:
+        return "COARSE"
+    return "SYNCED"
+
+
+def source_counts(text):
+    """chronyc -n -c sources -> (total, selected '*', combined '+', reachable)
+    or None. Each line: mode, state, address, stratum, poll, reach (octal),
+    ... Reachable is a reach register that is not all zero."""
+    total = selected = combined = reachable = 0
+    for line in text.splitlines():
+        f = line.split(",")
+        if len(f) < 6 or f[0] not in ("^", "=", "#"):
+            continue
+        total += 1
+        selected += f[1] == "*"
+        combined += f[1] == "+"
+        reachable += f[5].strip("0") != ""
+    return (total, selected, combined, reachable) if total else None
+
+
+def _chronyc(args, run):
+    """(stdout, None) or (None, reason)."""
+    try:
+        r = run(["chronyc", "-n", "-c", *args], capture_output=True, text=True, timeout=5)
+    except FileNotFoundError:
+        return None, "no-chronyc"
+    except subprocess.TimeoutExpired:
+        return None, "timeout"
+    except OSError as e:
+        return None, errno.errorcode.get(e.errno, "oserror")
+    if r.returncode != 0:
+        return None, f"chronyc-exit-{r.returncode}"
+    return r.stdout, None
+
+
+def probe_clock(now_s=time.time, run=subprocess.run):
+    """One `clock` event line from chronyc. Never raises."""
+    out, why = _chronyc(["tracking"], run)
+    if why:
+        return f"clock unavailable reason={why}"
+    t = parse_tracking(out)
+    if t is None:
         return "clock unavailable reason=unparsed"
-    return f"clock ref={f[0]} name={f[1]} stratum={f[2]} system_time_s={f[4]} leap={f[-1].replace(' ', '_')}"
+    now = now_s()
+    word = clock_word(t, now)
+    src, _ = _chronyc(["sources"], run)
+    n = source_counts(src) if src is not None else None
+    counts = ("sources={} selected={} combined={} reachable={}".format(*n) if n
+              else "sources=? selected=? combined=? reachable=?")
+    # Only the fields read: ref and name are chrony's, text with no spaces.
+    return (f"clock ref={t['ref_id']} name={t['ref_name']} stratum={t['stratum']} "
+            f"system_time_s={t['system_time']} leap={t['leap'].replace(' ', '_')} "
+            f"state={word} ref_age_s={now - t['ref_time']:.0f} bound_ms={t['bound_s'] * 1000:.3f} "
+            f"{counts}")
+
+
+def clock_fields(line):
+    """key=value pairs of a `clock` event line, as a dict."""
+    return dict(p.split("=", 1) for p in line.split()[1:] if "=" in p)
+
+
+def read_max_offset_ms(path=CLOCK_CONF):
+    """clock.max_offset_ms from step 20's clock.conf (key=value lines), as a
+    float, or None if the file is absent, unreadable or the value is not a
+    positive, plain decimal (clock-preflight's rule: digits, at most one point
+    and more digits). Never raises."""
+    try:
+        with open(path, newline="") as fh:
+            for line in fh.read().split("\n"):  # "\n" only, as clock-preflight splits it
+                k, sep, v = line.partition("=")
+                if sep and k == "max_offset_ms":
+                    if not re.fullmatch(r"[0-9]+(\.[0-9]+)?", v):
+                        return None
+                    m = float(v)
+                    return m if math.isfinite(m) and m > 0 else None
+    except (OSError, ValueError, UnicodeDecodeError):
+        return None
+    return None
+
+
+def clock_key(line, max_offset_ms=None):
+    """What makes a clock reading a change worth an event: the state word,
+    the reference ID, whether any source is selected ('*'), and, when the bar
+    is known, whether the error bound is over it. Every unavailable reading
+    has one key, whatever its reason."""
+    f = clock_fields(line)
+    if "state" not in f:
+        return ("unavailable",)
+    sel = f.get("selected", "?")
+    over = None
+    if max_offset_ms is not None:
+        try:
+            over = float(f.get("bound_ms", "")) > max_offset_ms
+        except ValueError:
+            over = None
+    return (f["state"], f.get("ref"), sel if sel == "?" else sel != "0", over)
 
 
 def probe_position(addr=GPSD_ADDR, timeout=GPSD_TIMEOUT_S):
@@ -359,13 +524,23 @@ class Writer:
     The socket loop (run) feeds it; tests drive it directly with a fake clock."""
 
     def __init__(self, archive, min_free_bytes, status_path=None, clock_ns=time.time_ns,
-                 statvfs=os.statvfs, probe=None, source=""):
+                 statvfs=os.statvfs, probe=None, source="", clock_probe=None,
+                 monotonic=time.monotonic, max_offset_ms=None):
         self.archive = archive
         self.min_free = min_free_bytes
         self.status_path = status_path
         self.clock_ns = clock_ns
         self.statvfs = statvfs
         self.probe = probe
+        # The check every CLOCK_CHECK_S (THE CLOCK, in the header): clock_probe
+        # returns one `clock` line; monotonic times the checks, and only them.
+        self.clock_probe = clock_probe
+        self.monotonic = monotonic
+        self.max_offset_ms = max_offset_ms  # None: the bar's trigger is off
+        self.next_clock_check = monotonic() + CLOCK_CHECK_S
+        self.clock_inflight = False
+        self.last_clock_key = None
+        self.clock_unavailable_run = 0  # consecutive periodic checks that could not read chrony
         self.fh = None
         self.part = None
         self.dir = None
@@ -384,7 +559,7 @@ class Writer:
             "state": "starting", "connected": False, "source": source,
             "started_at": iso(clock_ns()), "updated_at": None,
             "current_file": None, "frames_in_file": 0,
-            "last_clock": None, "last_expired": [],
+            "last_clock": None, "clock": None, "last_expired": [],
         }
 
     # Records
@@ -413,16 +588,25 @@ class Writer:
         now = self.clock_ns()
         self.stem = utc_stamp(now)
         self.dir = os.path.join(self.archive, time.strftime("%Y-%m-%d", time.gmtime(now // 1_000_000_000)))
-        made = not os.path.isdir(self.dir)
-        os.makedirs(self.dir, exist_ok=True)  # 2770 by UMask and setgid inheritance
+        made = False
         n = 0
+        tries = 0
         while True:
+            if not os.path.isdir(self.dir):
+                made = True
+                os.makedirs(self.dir, exist_ok=True)  # 2770 by UMask and setgid inheritance
             part = variant(self.dir, self.stem, n) + PART
             try:
                 fd = os.open(part, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
                 break
             except FileExistsError:
                 n += 1
+            except FileNotFoundError:
+                # The date directory was removed between the makedirs and the
+                # open (a live pull's prune): made again, a few times at most.
+                tries += 1
+                if tries > 3:
+                    raise
         self.n = n
         self.part = part
         self.fh = os.fdopen(fd, "wb", buffering=64 * 1024)
@@ -449,12 +633,14 @@ class Writer:
             return None
         self.fh.flush()
         os.fsync(self.fh.fileno())
+        # The size from the open file: once renamed, a live pull may move it.
+        size = os.fstat(self.fh.fileno()).st_size
         self.fh.close()
         self.fh = None
         final = link_noclobber(self.part, self.dir, self.stem, self.n)
         fsync_dir(self.dir)
         rel = os.path.relpath(final, self.archive)
-        log(f"closed {rel}: {self.frames} frames, {os.path.getsize(final)} bytes")
+        log(f"closed {rel}: {self.frames} frames, {size} bytes")
         self.part = None
         self.status["current_file"] = None
         return final
@@ -503,25 +689,81 @@ class Writer:
                 q.put(line)
         threading.Thread(target=work, name="probe", daemon=True).start()
 
+    def start_clock_check(self):
+        """The check every CLOCK_CHECK_S, in a thread; its line comes back as
+        ("check", line), which drain_probes() writes as an event only if clock_key() changed."""
+        q = self.probe_q
+        fn = self.clock_probe
+        self.clock_inflight = True
+
+        def work():
+            try:
+                line = fn()
+            except Exception as e:  # probe_clock never raises; this is the backstop
+                line = f"clock unavailable reason=probe-{type(e).__name__}"
+            q.put(("check", line))
+        threading.Thread(target=work, name="clock-check", daemon=True).start()
+
+    def note_clock(self, line):
+        """writer.json's "clock": the latest reading, written or not."""
+        f = clock_fields(line)
+        self.status["clock"] = {
+            "state": f.get("state", "unavailable"), "ref_age_s": f.get("ref_age_s"),
+            "bound_ms": f.get("bound_ms"), "max_offset_ms": self.max_offset_ms,
+            "selected": f.get("selected"),
+            "reason": f.get("reason"), "checked_at": iso(self.clock_ns()),
+        }
+        self.status_dirty = True
+
+    def clock_event(self, line):
+        self.event(line)
+        self.last_clock_key = clock_key(line, self.max_offset_ms)
+        self.status["last_clock"] = line
+        self.note_clock(line)
+        log(line)
+
     def drain_probes(self):
         while True:
             try:
                 line = self.probe_q.get_nowait()
             except queue.Empty:
                 return
-            self.event(line)
+            if isinstance(line, tuple):
+                # The periodic check: an event only when the state changed.
+                self.clock_inflight = False
+                line = line[1]
+                key = clock_key(line, self.max_offset_ms)
+                if key == ("unavailable",):
+                    self.clock_unavailable_run += 1
+                else:
+                    self.clock_unavailable_run = 0
+                # One check that could not read chrony (a chronyc that timed out once) is not a
+                # change: it takes UNAVAILABLE_CHECKS in a row, so a flapping chronyc does not
+                # write an event at each flip. It never stops the writer.
+                if key != self.last_clock_key and (
+                        key != ("unavailable",) or self.clock_unavailable_run >= UNAVAILABLE_CHECKS):
+                    self.clock_event(line)
+                else:
+                    self.note_clock(line)
+                continue
             if line.startswith("clock"):
-                self.status["last_clock"] = line
-                log(line)
-            elif line.startswith("position unavailable"):
+                self.clock_event(line)
+                continue
+            self.event(line)
+            if line.startswith("position unavailable"):
                 log(line)
             elif line.startswith("position"):
                 # ⛔ Never the position itself: only that one was recorded.
                 log("position recorded in the archive file")
 
     def tick(self):
-        """fsync and status on their cadence. Called every loop pass."""
+        """fsync, status and the clock check on their cadence. Called every loop pass."""
         self.drain_probes()
+        if self.clock_probe is not None and not self.clock_inflight:
+            cm = self.monotonic()
+            if cm >= self.next_clock_check:
+                self.next_clock_check = cm + CLOCK_CHECK_S
+                self.start_clock_check()
         mono = time.monotonic()
         if self.fh is not None and mono - self.last_fsync >= FSYNC_S:
             self.fh.flush()
@@ -549,7 +791,11 @@ class Writer:
             d = os.path.join(self.archive, day)
             if not DATE_DIR_RE.match(day) or not os.path.isdir(d):
                 continue
-            for name in os.listdir(d):
+            try:
+                names = os.listdir(d)
+            except (FileNotFoundError, NotADirectoryError):
+                continue  # removed since the test above (a live pull's prune)
+            for name in names:
                 m = CLOSED_RE.match(name)
                 if m:
                     found.append((m.group(1), name, os.path.join(d, name)))
@@ -612,6 +858,9 @@ class Writer:
                 size = os.path.getsize(path)
                 os.unlink(path)
             except FileNotFoundError:
+                # Gone already (a live pull moved it): what that freed is read
+                # again before the next oldest is expired.
+                free = self.free_bytes()
                 continue
             rel = os.path.relpath(path, self.archive)
             touched.add(os.path.dirname(path))
@@ -808,8 +1057,12 @@ def main(argv=None):
     stop = Stop()
     signal.signal(signal.SIGTERM, stop.handler)
     signal.signal(signal.SIGINT, stop.handler)
+    max_ms = read_max_offset_ms()
+    if max_ms is None:
+        log(f"{CLOCK_CONF} is absent or has no valid max_offset_ms: clock events are not written"
+            " for the error bound crossing it (the other clock triggers stand)")
     w = Writer(a.archive, int(a.min_free_gb * GIB), status_path=a.status, probe=probes,
-               source=f"{host}:{port}")
+               source=f"{host}:{port}", clock_probe=probe_clock, max_offset_ms=max_ms)
     start = (f"start adsb-writer {VERSION} source={host}:{port} archive={a.archive} "
              f"min_free_gb={a.min_free_gb:g} position={'off' if a.no_position else 'on'} "
              f"python={sys.version.split()[0]}")

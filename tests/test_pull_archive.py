@@ -15,7 +15,12 @@
 #     start of the window stops the writer, its stop starts it and writes a fresh .part, as the
 #     window's units do on the rig; every call is logged;
 #   - chronyc: `-n sources` prints a table with or without a selected ('*') line, `-n -c tracking`
-#     a CSV line whose reference time is FAKE_REF_AGE seconds old; FAKE_CHRONY_FAIL fails both.
+#     a CSV line whose reference time is FAKE_REF_AGE seconds old; FAKE_CHRONY_FAIL fails both;
+#   - the rig's clock-preflight, which ssh's stub maps to a fake: it prints a sources table (which
+#     must never be shown) and a last line, and exits FAKE_PF_RC (0 by default);
+#     FAKE_PREFLIGHT_GONE points the map at a missing file;
+#   - timeout: FAKE_TIMEOUT makes it exit 124 at once, as a preflight that hung; otherwise the real
+#     one runs.
 # The date directories are named from this machine's UTC clock, which is the fake rig's.
 # Needs bash and rsync.
 
@@ -31,6 +36,7 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 TOOL = ROOT / "tools/pull-archive"
 RIG_ARCHIVE = "/var/lib/adsb-receiver/archive"
+RIG_PREFLIGHT = "/usr/local/bin/clock-preflight"
 HOST = "rig.invalid"
 
 SSH = r"""
@@ -40,6 +46,7 @@ while [[ ${args[i]} == -o ]]; do i=$((i + 2)); done
 i=$((i + 1))  # the host
 cmd="${args[*]:i}"
 cmd=${cmd//"$RIG_ARCHIVE"/"$FAKE_ARCHIVE"}
+cmd=${cmd//"$RIG_PREFLIGHT"/"$FAKE_PREFLIGHT"}
 printf 'ssh %s\n' "$cmd" >>"$FAKE_LOG"
 [[ -z ${FAKE_SSH_BANNER:-} ]] || echo "$FAKE_SSH_BANNER"
 if [[ -n ${FAKE_SSH_FAIL:-} && $cmd == *"$FAKE_SSH_FAIL"* ]]; then exit 255; fi
@@ -108,6 +115,24 @@ else
 fi
 """
 
+PREFLIGHT = r"""
+printf 'preflight ran as %s\n' "$(id -un)" >>"$FAKE_LOG"
+echo "==> chronyc -n sources (raw output follows)"
+echo "^* 192.0.2.1                     2  10   377   500   +100us[ +100us] +/-   50ms"
+case ${FAKE_PF_RC:-0} in
+  0) echo "==> READY: HOLDOVER, error bound 60.000 ms within 500 ms; chrony's reference was last updated 19800 s ago" ;;
+  2) echo "xx  NOT READY: the clock is not disciplined: chrony has no reference (Reference ID 00000000)" >&2 ;;
+  1) echo "xx  CHECK FAILED TO RUN: run as root" >&2 ;;
+esac
+exit "${FAKE_PF_RC:-0}"
+"""
+
+TIMEOUT = r"""
+printf 'timeout %s\n' "$*" >>"$FAKE_LOG"
+[[ -z ${FAKE_TIMEOUT:-} ]] || exit 124
+exec "$FAKE_REAL_TIMEOUT" "$@"
+"""
+
 
 def utc_day(offset_days, now=None):
     now = now or datetime.datetime.now(datetime.timezone.utc)
@@ -134,11 +159,17 @@ class PullArchive(unittest.TestCase):
         bindir = t / "bin"
         bindir.mkdir()
         for name, body in (("ssh", SSH), ("rsync", RSYNC), ("systemctl", SYSTEMCTL),
-                           ("sudo", SUDO), ("chronyc", CHRONYC)):
+                           ("sudo", SUDO), ("chronyc", CHRONYC), ("timeout", TIMEOUT)):
             p = bindir / name
             p.write_text("#!/usr/bin/env bash\nset -uo pipefail\n" + body.lstrip())
             p.chmod(0o755)
+        pf = t / "fake-clock-preflight"
+        pf.write_text("#!/usr/bin/env bash\nset -uo pipefail\n" + PREFLIGHT.lstrip())
+        pf.chmod(0o755)
+        self.preflight = pf
         self.env = dict(os.environ,
+                        RIG_PREFLIGHT=RIG_PREFLIGHT, FAKE_PREFLIGHT=str(pf),
+                        FAKE_REAL_TIMEOUT=shutil.which("timeout"),
                         PATH=f"{bindir}:{os.environ['PATH']}",
                         RIG_ARCHIVE=RIG_ARCHIVE, FAKE_ARCHIVE=str(self.archive),
                         FAKE_HOST=HOST, FAKE_LOG=str(self.log), FAKE_STATE=str(self.state),
@@ -267,6 +298,72 @@ class PullArchive(unittest.TestCase):
         r = self.run_tool("--end-session", FAKE_RSYNC_RC=24)
         self.assertEqual(r.returncode, 24)
         self.assertIn("sudo -n systemctl stop adsb-pull-window.service", r.log)
+
+    # --end-session's guard: the rig's clock-preflight, no sudo, before the window opens
+
+    def assert_declined(self, r):
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertNotIn("adsb-pull-window", r.log, "the window must not be touched")
+        self.assertNotIn("rsync -a", r.log, "nothing may move")
+        self.assertIn("xx  NOT ENDING THE SESSION: the rig's clock-preflight did not pass", r.stderr)
+        self.assertIn("A rig that has not yet applied the change that lets clock-preflight run without"
+                      " root declines here", r.stderr)
+        self.assertIn("The default live pull (without", r.stderr)
+        self.assertNotIn("192.0.2", r.stdout + r.stderr, "the preflight's evidence names the servers")
+
+    def test_guard_passes_runs_without_sudo_before_the_window_and_prints_the_last_line_only(self):
+        self.file(f"{utc_day(0)}/20260101T000000Z.beast.pcap")
+        r = self.run_tool("--end-session")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(f"{HOST} {RIG_PREFLIGHT}\n", r.log, "over ssh, as the login")
+        self.assertNotIn(f"sudo -n {RIG_PREFLIGHT}", r.log)
+        self.assertNotIn("sudo -n /", r.log)
+        self.assertLess(r.log.index("preflight ran"), r.log.index("sudo -n systemctl start adsb-pull-window.service"))
+        self.assertIn("==> clock-preflight on the rig: ==> READY: HOLDOVER, error bound 60.000 ms within 500 ms", r.stdout)
+        self.assertNotIn("192.0.2", r.stdout + r.stderr)
+        self.assertIn("timeout 90 ssh", r.log)
+
+    def test_guard_declines_when_not_ready(self):
+        r = self.run_tool("--end-session", FAKE_PF_RC=2)
+        self.assert_declined(r)
+        self.assertIn("it says the clock is not ready (exit 2)", r.stderr)
+        self.assertIn("its last line: xx  NOT READY: the clock is not disciplined", r.stderr)
+
+    def test_guard_declines_on_a_rig_whose_preflight_still_needs_root(self):
+        r = self.run_tool("--end-session", FAKE_PF_RC=1)
+        self.assert_declined(r)
+        self.assertIn("it exited 1", r.stderr)
+        self.assertIn("its last line: xx  CHECK FAILED TO RUN: run as root", r.stderr)
+
+    def test_guard_declines_when_the_preflight_is_missing(self):
+        r = self.run_tool("--end-session", FAKE_PREFLIGHT=str(self.preflight) + ".gone")
+        self.assert_declined(r)
+        self.assertIn("it is not installed on the rig", r.stderr)
+
+    def test_guard_declines_on_a_timeout(self):
+        r = self.run_tool("--end-session", FAKE_TIMEOUT=1)
+        self.assert_declined(r)
+        self.assertIn("it did not finish in 90 s", r.stderr)
+
+    def test_guard_declines_when_ssh_fails(self):
+        r = self.run_tool("--end-session", FAKE_SSH_FAIL="fake-clock-preflight")  # as the stub rewrote it
+        self.assert_declined(r)
+        self.assertIn("the ssh connection to the rig failed (exit 255)", r.stderr)
+
+    def test_live_pull_runs_no_guard(self):
+        r = self.run_tool()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("preflight ran", r.log)
+
+    def test_banner_after_end_session_names_the_guard_s_verdict(self):
+        r = self.run_tool("--end-session", FAKE_MARK="+")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("THE RIG'S CLOCK MAY NOT BE DISCIPLINED", r.stderr)
+        self.assertIn("Before the window opened, clock-preflight (the check the writer's start runs) judged chrony's",
+                      r.stderr)
+        self.assertIn("This banner is a different rule", r.stderr)
+        r = self.run_tool(FAKE_MARK="+")
+        self.assertNotIn("Before the window opened", r.stderr, "a live pull ran no guard")
 
     # The clock check, in both modes; it never changes the exit status
 

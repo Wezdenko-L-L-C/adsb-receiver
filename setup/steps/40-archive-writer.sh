@@ -174,9 +174,11 @@ Group=$GROUP_NAME
 NoNewPrivileges=yes
 # Files 0660, directories 2770 by inheritance (PLAN §9m).
 UMask=0007
-# '+' runs the preflights as root: both read the root-only station.yml, and
-# archive-preflight exits 1 as any other user. Any non-zero exit fails the
-# start, and Restart= retries it (PLAN §9i).
+# '+' runs the preflights as root: archive-preflight needs root (it reads the
+# root-only station.yml, among the work it does on the drive) and exits 1 as
+# any other user; clock-preflight runs as any user (its keys are step 20's
+# world-readable clock.conf) and runs as root here too.
+# Any non-zero exit fails the start, and Restart= retries it (PLAN §9i).
 ExecStartPre=+$CLOCK_PREFLIGHT
 ExecStartPre=+$ARCHIVE_PREFLIGHT
 # The recording lock, held exactly as long as the writer runs. Blocking, with no

@@ -74,7 +74,15 @@ jobs:
         #     rsync, systemctl, sudo and chronyc; the real rsync moves the files): the live pull
         #     leaves the window alone and warns on rsync exit 24, its prune spares the rig's UTC
         #     yesterday, today and tomorrow and fresh mtimes, --end-session keeps the window, the
-        #     option parsing, and the clock check's banner (needs bash and rsync).
+        #     option parsing, the clock check's banner, and --end-session's clock guard, which runs
+        #     the rig's clock-preflight with no sudo before the window opens and declines on any
+        #     failure (needs bash and rsync);
+        #   - test_clock_agreement.py: the clock's state word and error bound, as bin/adsb-slate,
+        #     bin/adsb-writer and bin/clock-preflight each compute them, held to one answer on the
+        #     same fixtures; clock-preflight run as the test's user against a stubbed chronyc
+        #     (READY in a 2026-11-11-like HOLDOVER, NOT READY on a cold boot, clock.conf refused
+        #     when invalid); and step 20's render of clock.conf feeding it (needs bash; the render
+        #     cases need python3-yaml).
         # Bytecode goes to the runner's temp directory, not beside the sources.
         run: |
           set -euo pipefail
