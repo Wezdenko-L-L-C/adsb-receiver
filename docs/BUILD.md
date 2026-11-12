@@ -321,8 +321,12 @@ disciplined (it should — see [§7](#7-software)), that wait is time stood arou
 boots on a coin cell, so the Pi comes up already approximately right and GPS then refines it. At boot
 the kernel sets the system clock from it (`hctosys`). This repo's archive writer still waits: its
 unit runs `bin/clock-preflight` before each start, and that passes, with the portable's
-`clock.require_disciplined: true`, only once chrony has a selected, synchronized source within
-`clock.max_offset_ms`, GPS in the field or NTP at home. The RTC is not one of chrony's sources: step 20
+`clock.require_disciplined: true`, only once chrony has ~~a selected, synchronized source within
+`clock.max_offset_ms`~~ *a real reference and is synchronized, with its error bound within
+`clock.max_offset_ms` (corrected 2026-11-12: a selected source is no longer required, so a clock
+coasting on its last estimate passes while the bound holds;
+[PLAN.md §9e](PLAN.md#9e-the-first-build-is-by-hand-after-that-updates-are-automatic), "Update
+2026-11-11: the clock while recording")*, GPS in the field or NTP at home. The RTC is not one of chrony's sources: step 20
 gives chrony one refclock, the puck's. ➡️ What the RTC gives is a near-right clock for the journal,
 the slate and anything else that runs before the fix.
 

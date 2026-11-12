@@ -1365,6 +1365,11 @@ from inside an update ([§9m](#9m--the-portable-rigs-archive-drive)).
   emits GGA with fix quality 0). `chronyc sources` lists the GPS refclock, whatever its reach.
   `hwclock -r` reads a plausible time from `/dev/rtc0`. `systemd-timesyncd` is inactive and masked.
   `clock-preflight` exits `0` or `2`.
+  - *Update 2026-11-12: it also checks that `/etc/adsb-receiver/clock.conf` matches what
+    `station.yml`'s `clock:` block renders now, is `root:root 0644`, and is readable by `nobody`
+    (through `setpriv`), and that the preflight is installed and executable
+    ([§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic), "As built,
+    2026-11-12").*
 - `20-stationary-clock`: `chrony` has NTP sources with nonzero reach; `systemd-timesyncd` is masked;
   `clock-preflight` exits `0` or `2`.
 - The writer's step and `30-archive-drive`: see §9m. **(Chris), 2026-10-04:** the archive drive is
@@ -2139,14 +2144,17 @@ mechanism this is. Chris: *"I have no problem with (a) and (b)."* It answers the
     the consultation's expectation is unmarked in this file.
 
 **Update 2026-11-11: the clock while recording. Ruled 2026-11-11 (Chris, 19:01 Arizona time, by
-question; the texts as put are in the private pick-up record).** 📋 **Ruled, not built.** It answers
+question; the texts as put are in the private pick-up record).** ~~📋 **Ruled, not built.**~~
+*Corrected 2026-11-12: built that day; see "As built, 2026-11-12" at the end of this update.* It answers
 part (2) of the 18:55 ruling ([§9m](#9m--the-portable-rigs-archive-drive), "Update 2026-11-11: the
 pull no longer ends the recording session by default"): what the writer does on lost sync is rig
 code, so it went to fable-architect, then to Chris. The event that raised it is in that block: a
 writer that could not restart after a pull window, because chrony had selected no source for
-about 5½ h, while the writer's `clock` events looked healthy. ➡️ It supersedes nothing yet: until it
+about 5½ h, while the writer's `clock` events looked healthy. ➡️ ~~It supersedes nothing yet: until it
 is built, `bin/clock-preflight` still requires a source marked `*`, and the writer's `clock` event
-is unchanged.
+is unchanged.~~ *Corrected 2026-11-12: built, so it supersedes both: `bin/clock-preflight` no
+longer requires a source marked `*`, and the writer's `clock` event carries the clock's state
+("As built, 2026-11-12", below).*
 
 - **Before the question:** fable-architect's call (record through and mark; the preflight judges by
   chrony's bound; openers that stop the writer check first). A rejection-checker found nothing
@@ -2159,10 +2167,15 @@ is unchanged.
   error bound within clock.max_offset_ms (500) instead of the '\*' mark, so tonight's restart would
   have passed. Openers that stop the writer (nightly window, --end-session) check first and don't
   open on a rig that couldn't restart."*
+  - *Corrected 2026-11-12, on what "status.json and the login banner show HOLDOVER" means as ruled
+    (Chris, 01:02 Arizona time, by question; "Update 2026-11-12", below):* the live HOLDOVER is in
+    `writer.json`, which the writer rewrites with its latest reading, and in the login banner, which
+    reads it. `status.json`'s clock line is the last update run's `clock-preflight` line, and the
+    banner prints it under that run's finish time, labeled "not now".
   - `clock.max_offset_ms` is 500 in the portable template and 100 in the stationary's (✅ read in
     `config/station.portable.example.yml` and `config/station.stationary.example.yml`).
   - The races in the writer that the live pull exposes go with this change (§9m, the storage
-    contract's 2026-11-11 OPEN item).
+    contract's 2026-11-11 OPEN item). *Done 2026-11-12: all four, closed there.*
 - **When, "After Stage 1", as put:** *"Finish the pull change first (it's with the implementer now),
   then this as its own change with step-reviewer, /code-review, /security-review. Possibly next
   session."*
@@ -2183,6 +2196,117 @@ is unchanged.
   case that ruling describes differs from this one. There Wi-Fi was lost, the NTP sources were
   marked offline, and chrony selected the GPS 12 min 23 s later. Here the sources were online and
   selection stalled for about 5½ h, every source in state `U`.
+
+**Update 2026-11-12: how `--end-session` reaches the check, and what "show HOLDOVER" means. Ruled
+2026-11-12 (Chris, 01:02 Arizona time, two questions; the texts as put are in the private pick-up
+record).** Both came up in building the 19:01 ruling above.
+
+- **Before the questions:** fable-architect's call. A rejection-checker found none of the options
+  refused, and each constrained by what is already here: "The privilege is a narrow NOPASSWD rule"
+  ([§9m](#9m--the-portable-rigs-archive-drive)); and, in [§9f](#9f-what-updatesh-does), `status.json`'s
+  single writer and "It points at `writer.json`, and never copies it" (a copy taken at update time is
+  stale).
+- **How `--end-session` runs the check, "Render clock keys (Recommended)", as put:** *"Step 20
+  writes clock.max_offset_ms, require_disciplined and source to a world-readable
+  /etc/adsb-receiver/clock.conf; its verify checks the file still matches station.yml.
+  clock-preflight reads that file and drops its root requirement, gains python3 -I and a fixed PATH.
+  --end-session runs the same preflight over ssh with no sudo before opening. Sudoers, step 60 and
+  the privilege text stay as ruled. Costs: clock-key edits take effect at step 20's next run;
+  --end-session declines on a rig that hasn't applied this yet (the live pull still works)."*
+- Rejected, as put to Chris:
+  - **Third sudo command:** *"Add clock-preflight to the NOPASSWD rule, widening your 'exactly two
+    commands'. The architect found that as written it hands the operator root: the heredoc Python
+    imports from the caller's directory under sudo. It needs hardening (python3 -I, cd /, fixed
+    PATH, ownership checks) and step 60's verify extended. Every later edit to the script becomes an
+    edit to a sudo target in a public repo."*
+  - **Verdict in writer.json:** *"Step 40's unit passes the threshold to the writer; writer.json
+    carries ready/not-ready, which pull-archive reads. The verdict is up to 60 s old and missing when
+    the writer is down. It judges 'the writer is running fine', not 'it could restart'."*
+- **What "show HOLDOVER" means, "Accept as built (Recommended)", as put:** *"Live in writer.json and
+  the banner; status.json's clock line is the last update run's, labeled with its date. The ruled
+  sentence gets a dated correction in PLAN through documenter."* The correction is beside the 19:01
+  text, above.
+- Rejected, as put to Chris:
+  - **Root timer refreshes it:** *"A new root timer on each rig rewrites status.json's clock entry.
+    That's a second writer on update.sh's file and a copy of what writer.json already carries
+    live."*
+  - **No HOLDOVER in status.json:** *"status.json makes no clock-state claim at all; writer.json and
+    the banner are the only homes."*
+
+**As built, 2026-11-12: the 19:01 ruling and the 01:02 rulings.** ✅ Read in the code named on each
+line. ⚠️ Nothing of it has run on a Pi.
+
+- **The writer** (`bin/adsb-writer`, its header's "THE CLOCK", `probe_clock()`, `clock_key()`,
+  `drain_probes()`): the `clock` event gains `state` (SYNCED, COARSE, HOLDOVER or UNSYNCED),
+  `ref_age_s`, `bound_ms`, and the counts `sources`, `selected`, `combined` and `reachable` from
+  `chronyc -n -c sources`. Every 60 s (`CLOCK_CHECK_S`) a thread reads chrony, and an event is
+  written when, since the last `clock` event, the state word, the reference ID, whether any source is
+  selected, or whether the bound is over `clock.max_offset_ms` changed. A check that cannot read
+  chrony counts as a change only at two in a row (`UNAVAILABLE_CHECKS`), so a flapping `chronyc` does
+  not write an event at each flip. The start and every rotation still write one whatever it says, so
+  a bound growing inside a HOLDOVER without crossing the bar is in the archive every 10 minutes. The
+  bar is read once, at start, from `clock.conf`; if it is absent or invalid, that one trigger is off
+  and the journal says so. `writer.json` carries the latest reading under `clock`, whether or not it
+  was written as an event. The writer never exits on the clock's state.
+- **One answer in three copies.** The state word and the bound are `bin/adsb-slate`'s
+  `parse_tracking()` and `clock_state()`, copied into the writer and the preflight, because each is
+  installed alone, outside the clone. `tests/test_clock_agreement.py` holds the three to the same
+  answers on the same fixtures, and runs the real preflight against a stubbed `chronyc` and step 20's
+  render; CI runs it. The bound is |system time| + root dispersion + root delay / 2 (`chronyc(1)`).
+- **`bin/clock-preflight` judges "disciplined" by chrony's error bound:** ready when the reference
+  is neither `00000000` nor `7F7F0101`, the leap status is not "Not synchronised", and the bound is
+  within `clock.max_offset_ms`. A source marked `*` is printed, and no longer required. It reads its
+  three keys from `/etc/adsb-receiver/clock.conf`, not `station.yml`, so it runs as any user; its
+  Python runs with `python3 -I`, and its `PATH` is fixed. Its exit codes are unchanged
+  ([§9i](#9i-what-is-not-chosen-yet-the-uploader)). Its last line names the state (`READY: HOLDOVER`,
+  for one), which is what `status.json`'s readiness record carries.
+- **Step 20** (`setup/steps/20-portable-clock.sh`) renders `clock.max_offset_ms`,
+  `clock.require_disciplined` and `clock.source` from `station.yml` into `clock.conf`, `root:root
+  0644`, before it installs the preflight. Every file it installs (gpsd's defaults, chrony's
+  `gps.conf`, `clock.conf` and the preflight) goes in by a temporary file in the destination's
+  directory, `.<name>.adsb-new~`, then a rename, so a reader meanwhile sees the old file or the new
+  one whole. Its verify adds: `clock.conf` matches what `station.yml` renders now, is `root:root
+  0644`, is readable by `nobody` (through `setpriv`), and the preflight is installed and executable.
+- **The openers that stop the writer check first.** Each runs `clock-preflight` and opens nothing
+  unless it exits `0`:
+  - `bin/adsb-home-update`, the nightly opener: decision `clock-not-ready`, carrying the preflight's
+    reason; the writer keeps recording.
+  - `setup/bootstrap.sh`: before it opens the window, and exits `1` before `update.sh` runs.
+  - `tools/pull-archive --end-session`, step 0 of its header: the rig's preflight over ssh, as the
+    login, with no `sudo`, bounded at 90 s. On any exit but `0`, a timeout, or the preflight missing,
+    it opens no window, moves nothing and exits `1`. It prints only the preflight's last line, never
+    its evidence. No option skips it.
+- **The login banner** (`setup/files/motd-banner.sh`) prints the writer's clock line from
+  `writer.json`, with the time of the writer's check; a HOLDOVER gets a line of its own in capitals,
+  which says the writer is still recording only when `systemctl is-active` says it is active.
+  `status.json`'s preflight lines are printed under a line naming the last update run's finish time,
+  "not now".
+- **Step 40's unit** (`setup/steps/40-archive-writer.sh`) keeps `ExecStartPre=+` on both preflights.
+  Its comment now says `clock-preflight` runs as any user, and as root there too.
+- ⚠️ **The costs, as put at 01:02:** a clock-key edit in `station.yml` takes effect at step 20's next
+  run, which on a recording 🎒 portable is the next update window (step 20's header); and
+  `--end-session` declines on a rig that has not applied this change, whose older preflight exits `1`
+  for any user but root. The live pull still works there.
+- ✅ **Seen on the 🎒 portable by Claude, 2026-11-12, by read-only SSH:** the writer's 24 refused
+  starts of 2026-11-11 all read `Leap status : Normal`, with the reference time frozen and the root
+  dispersion growing from 22.9 to 23.2 ms, about 1 ppm. The same journal (2026-11-11, 18:40 to
+  18:56) reads `Root delay : 0.132007107 seconds`, `Last offset : -0.000710347` and a system time of
+  about 0.00000009 s fast, with an NTP server, not the GPS, as the reference. So the bound
+  (`abs(offset) + root_disp + 0.5 * root_delay`, `bin/adsb-slate:201`) was about 89 ms: the root
+  dispersion's 23 ms plus half the 132 ms root delay. That is against the bar of 500, so under this
+  rule the restart would have passed. Also seen: chrony's configuration
+  carries `makestep 1 3` and `rtcsync`; `chronyc -n -c sources` prints mode, state, address,
+  stratum, poll and reach (octal), the fields `source_counts()` reads; `/etc/adsb-receiver` is
+  `root:root 0755`; the user `nobody` and the group `nogroup` exist, and so does `/usr/bin/setpriv`; and
+  `/run/chrony` is `0700`, so a `chronyc` run as a login uses chrony's command port on localhost.
+- ⚠️ **Known limits, the session's reading from the reviews, not ruled:**
+  - A long chrony stall still ends in refusal. From about 89 ms, growing about 1 ppm (86 to 100 ms a
+    day), the bound reaches the 🎒 portable's 500 ms in 4 to 5 days. On a similar root delay, the 🏠
+    stationary's 100 ms would be reached within hours; its sources and root delay are not known. The
+    openers' check keeps the writer recording through it, so only a crash or a reboot past that point
+    leaves it down. Nothing alerts on it yet.
+  - The 🏠 stationary has no step that renders `clock.conf`: step 20 asserts the portable role. Its
+    clock step must render it (#33).
 
 ### 9f. What `update.sh` does
 
@@ -4800,7 +4924,7 @@ contract stands as written, with its OPEN item closed there.*
 - ➡️ The names use wall time, so the contract does not depend on §9i's open item about the time in
   a BEAST frame.
 - ⚠️ **OPEN, for the change ruled 2026-11-11 19:01 (added 2026-11-11): four races in the writer
-  that a live pull exposes, not fixed.** Since 2026-11-11 a default pull moves files and prunes
+  that a live pull exposes, ~~not fixed~~.** *Closed 2026-11-12; see the last sub-item.* Since 2026-11-11 a default pull moves files and prunes
   directories with the writer running ("Update 2026-11-11: the pull no longer ends the recording
   session by default", below). Read in `bin/adsb-writer` on 2026-11-11:
   1. `close_file()` gives the `.part` its final name, then calls `os.path.getsize()` on that name
@@ -4818,10 +4942,24 @@ contract stands as written, with its OPEN item closed there.*
   - The cost of a crash: `main()` catches the exception, logs `fatal: <type>: <message>`, and exits
     1. The unit has `Restart=on-failure` and `RestartSec=30s`, both preflights run first
     (`ExecStartPre=+`, `clock-preflight` then `archive-preflight`), and the writer does not come back
-    while `clock-preflight` refuses (`setup/steps/40-archive-writer.sh`, lines 180–186).
+    while `clock-preflight` refuses (`setup/steps/40-archive-writer.sh`, ~~lines 180–186~~ lines
+    182–188, refreshed 2026-11-12).
   - ➡️ They go with the 2026-11-11 19:01 change
     ([§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic), "Update 2026-11-11:
     the clock while recording").
+  - *Closed 2026-11-12, built with that change. Each place now tolerates a file or directory gone
+    under it (✅ read in `bin/adsb-writer`, and its header's paragraph on the live pull):*
+    1. *`close_file()` reads the size from the open file (`os.fstat`) before the rename.*
+    2. *`closed_files()` skips a date directory that is gone, or no longer a directory, when it
+       lists it.*
+    3. *`expire()` reads free space again after a candidate already gone, before it expires the next
+       oldest.*
+    4. *`open_file()` makes its date directory again if it was removed before the `.part` opened, up
+       to three times, then raises.*
+
+    *Each has a unit test in `tests/test_adsb_writer.py`. The live prune's rule in `tools/pull-archive`
+    is unchanged. ⚠️ Not yet seen against a rig: the pre-field checklist's item for the first live
+    pulls still reads the journal for a `fatal: FileNotFoundError` line.*
 
 Rejected: hourly files. An hour of a running session is not pullable until it closes, and a torn
 tail or a bad block costs an hour instead of ten minutes. 10-minute files are only 144 a day.
@@ -5268,8 +5406,10 @@ a rejection-checker's read came before the question.
      the rig's UTC yesterday, today or tomorrow; it is empty; and its mtime is more than 15 minutes
      old. The dates and the age are read on the rig, by its clock, which is the clock the writer
      names its date directories by (`open_file()`: `time.gmtime()` of `time.time_ns()`). The reason:
-     `open_file()` makes its date directory and then opens a file in it, with nothing catching a
-     directory removed in between (race 4 under the storage contract, above).
+     `open_file()` makes its date directory and then opens a file in it, ~~with nothing catching a
+     directory removed in between~~ (race 4 under the storage contract, above). *Corrected
+     2026-11-12: `open_file()` now makes the directory again, up to three times, when it is removed
+     in between (race 4, closed). The prune's rule is unchanged.*
      - ⚠️ Removing a directory's last file sets its mtime to now, and rsync deletes as it goes, so a
        directory this pull empties is pruned by it only if emptied more than 15 minutes before the
        prune; otherwise by a later pull.
@@ -5291,12 +5431,18 @@ a rejection-checker's read came before the question.
   clock while recording").
   - **Part (1), as built** (✅ read in `tools/pull-archive`, `check_clock()`). In both modes, after
     the move, and with `--end-session` after the window is closed. One ssh, read-only, no `sudo`. It
-    raises a loud banner when `chronyc -n sources` marks no source selected (`*`, the rule
-    `bin/clock-preflight` applies); when the reference time, the fourth field of `chronyc -n -c
+    raises a loud banner when `chronyc -n sources` marks no source selected (`*`, ~~the rule
+    `bin/clock-preflight` applies~~ *corrected 2026-11-12: the rule `bin/clock-preflight` applied
+    until the 19:01 ruling was built; it now judges chrony's error bound, and does not require a
+    `*`*); when the reference time, the fourth field of `chronyc -n -c
     tracking`, is more than 3600 s older than the rig's `date +%s`, or more than 60 s ahead of it
     (within 60 s is taken as jitter); or when it cannot tell. It prints a count and an age, never
     chronyc's table, which names the clock's servers. It never changes the exit status: the move
     succeeded.
+    *Update 2026-11-12: the banner and its rule are unchanged. After a pull with `--end-session`
+    whose guard passed, the banner also prints the guard's verdict, the preflight's last line, and
+    says the two are different rules that can differ (✅ read in `tools/pull-archive`,
+    `check_clock()` and its header).*
   - **Why 3600 s, the script's reasoning:** over three polls at chrony's default maxpoll for an NTP
     source (10, that is 1024 s), so a lost sample or two raises nothing. For the GPS refclock, polled
     far more often, it is the `*` rule, not the age, that catches a dead puck. The ruling's text says
@@ -5304,7 +5450,8 @@ a rejection-checker's read came before the question.
   - ✅ **The fourth field is epoch seconds,** seen on the rig on 2026-11-11: it read 1794449853.9
     while the rig's `date +%s` read 1794450181.
   - ⛔ **It is not the guard ruled at 19:01.** It only reports, after the move; it opens nothing
-    and refuses nothing. The guard that checks before a window opens is ruled, not built (§9e).
+    and refuses nothing. The guard that checks before a window opens is ~~ruled, not built~~
+    *built 2026-11-12, corrected that day: step 0 of `--end-session`* (§9e).
 - **The event behind both rulings, 2026-11-11, on the 🎒 portable.** Seen by read-only SSH and in
   Chris's pastes (the session's record). After a pull window closed, the writer could not restart.
   chrony had selected no source for about 5½ h: tracking's reference time was frozen, every source
@@ -5313,10 +5460,16 @@ a rejection-checker's read came before the question.
   and the writer resumed. The recording gap was about 16 minutes, all of it the clock refusal.
   - The writer's `clock` events through the loss looked healthy. They carry chrony's reference id
     and name, stratum, system time and leap status (✅ read in `probe_clock()`), not the reference
-    time.
-  - *A docs agent's reading of chrony 4.6's source, through summaries; not checked here:* `U` is
+    time. *Update 2026-11-12: since the 19:01 ruling was built, they also carry the state word, the
+    reference's age, the error bound and the source counts (§9e, "As built, 2026-11-12").*
+  - *A docs agent's reading of chrony 4.6's source, through summaries; ~~not checked here~~:* `U` is
     `SRC_WAITS_UPDATE`, which logs nothing and leaves the leap status Normal; while nothing is
     selected, root dispersion grows with the time since the last update.
+    *Corrected 2026-11-12: two parts of it are now seen, in the rig's journal; the rest is still
+    not checked here.* ✅ Seen on the 🎒 portable by Claude, 2026-11-12, by read-only SSH: the
+    writer's 24 refused starts of 2026-11-11 all read `Leap status : Normal`, and the root
+    dispersion grew from 22.9 to 23.2 ms while the reference time stayed frozen, about 1 ppm. That
+    `U` is `SRC_WAITS_UPDATE` is still the docs agent's reading.
   - ⚠️ Whether it recurs is not known.
 - Rejected, as put to Chris at 18:52:
   - **Stage 1 only now:** *"Only the live pull on the portable; who owns the window and the
@@ -5483,6 +5636,11 @@ live pull uses none of it: it needs ssh, the rig's rsync (installed by step 60) 
 membership in `adsb-operator`, the drive's group (✅ read in `setup/steps/60-portable-pull.sh`'s
 header and `bin/adsb-home-update`'s; "Update 2026-11-11: the pull no longer ends the recording
 session by default", above).*
+
+*Update 2026-11-12: the rule is unchanged by `--end-session`'s clock check, which runs
+`clock-preflight` over ssh with no `sudo`. Adding it as a third NOPASSWD command was put to Chris
+and rejected, 2026-11-12 01:02 ([§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic),
+"Update 2026-11-12", "Third sudo command").*
 
 - `/etc/sudoers.d/adsb-receiver` grants group `adsb-operator` exactly two NOPASSWD commands:
   `systemctl start` and `systemctl stop` of `adsb-pull-window.service`. There are no wildcards.
@@ -5802,7 +5960,8 @@ its standing rules). Stage 2 is still written once, for the positions ingest.*
   - **Corrected 2026-10-04.** ⚠️ **As written above, the unit could never start.** `ExecStartPre=`
     runs as the unit's `User=` unless its command is prefixed `+`, and the writer runs as
     `adsb-receiver`. Both preflights refuse to run as anyone but root, and exit `1`, "run as root"
-    (`bin/archive-preflight` line 53, `bin/clock-preflight` line 59). **(Chris), 2026-10-04,** ruling
+    (`bin/archive-preflight` ~~line 53~~ line 58, refreshed 2026-11-12; `bin/clock-preflight` line 59,
+    a check it no longer has, corrected below). **(Chris), 2026-10-04,** ruling
     (g) in "The archive writer" above: the order is unchanged, and both preflights carry the `+`:
     `ExecStartPre=+/usr/local/bin/clock-preflight`, then
     `ExecStartPre=+/usr/local/bin/archive-preflight`, then
@@ -5818,6 +5977,12 @@ its standing rules). Stage 2 is still written once, for the positions ingest.*
     On step 40's first run on the 🎒 portable Pi, `systemd-analyze verify` printed nothing on
     systemd 257, and both `ExecStartPre=+` preflights ran as root and printed READY. Seen by Claude
     on 2026-10-04; see the end of this section.* Who records a refusal is ruling (f) there.
+    *Corrected 2026-11-12: "both preflights refuse to run as anyone but root" no longer holds for
+    `bin/clock-preflight`. It reads its keys from step 20's world-readable `clock.conf`, not the
+    root-only `station.yml`, and runs as any user (Chris, 2026-11-12 01:02;
+    [§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic), "Update 2026-11-12").
+    Both lines keep the `+`, so it still runs as root here. `bin/archive-preflight` still refuses
+    any user but root (✅ read in both scripts and in step 40's unit comment).*
   - **Corrected 2026-10-04: the archive's mount is wanted, not required. (Chris), 2026-10-04,
     option A1.** ⚠️ **As first written, a missing drive stopped the writer silently, with no
     retry.** `RequiresMountsFor=` adds `Requires=` and `After=` on the mount unit. When the mount
@@ -6029,10 +6194,12 @@ recording session ([§9c](#9c-every-step-ends-in-a-check-of-the-observable-effec
       exceeded the pipe buffer. Fixed in `e019b29`, with one `sed` range and no pipeline. That is the
       failure behind the trap at the end of
       [§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic). ⚠️ The same
-      `| head -n1` shape remains, reported and not fixed, in ~~`setup/bootstrap.sh:73`~~ ~~`setup/bootstrap.sh:145`~~ `setup/bootstrap.sh:146` (guarded by
-      `|| unit=''`), ~~`bin/adsb-home-update:208`~~ `bin/adsb-home-update:210` (added 2026-10-10, the same shape, also guarded by
-      `|| unit=''`), and ~~`setup/update.sh:237`~~ `setup/update.sh:299`, ~~`setup/steps/20-portable-clock.sh:366`~~ ~~`setup/steps/20-portable-clock.sh:375`~~ `setup/steps/20-portable-clock.sh:383` and
-      `bin/clock-preflight:120` and `:125` (each guarded by `|| true`).*
+      `| head -n1` shape remains, reported and not fixed, in ~~`setup/bootstrap.sh:73`~~ ~~`setup/bootstrap.sh:145`~~ ~~`setup/bootstrap.sh:146`~~ `setup/bootstrap.sh:154` (guarded by
+      `|| unit=''`), ~~`bin/adsb-home-update:208`~~ ~~`bin/adsb-home-update:210`~~ `bin/adsb-home-update:219` (added 2026-10-10, the same shape, also guarded by
+      `|| unit=''`), and ~~`setup/update.sh:237`~~ `setup/update.sh:299`, ~~`setup/steps/20-portable-clock.sh:366`~~ ~~`setup/steps/20-portable-clock.sh:375`~~ ~~`setup/steps/20-portable-clock.sh:383`~~ `setup/steps/20-portable-clock.sh:479` and
+      ~~`bin/clock-preflight:120` and `:125`~~ `bin/clock-preflight:184` (each guarded by `|| true`).*
+      *Line numbers refreshed 2026-11-12, after the clock change; `bin/clock-preflight` has one such
+      site now, not two.*
 - **(Chris), 2026-10-04:** no step's verify reads `UMask=`. That is the setting, not the effect: the
   full pull in the pre-field checklist tests the effect.
 - Rejected: step 30 installing units that belong to two later steps. Its verify could not exit 0 on
