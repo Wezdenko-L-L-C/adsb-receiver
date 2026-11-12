@@ -44,6 +44,9 @@ matching to photographs by UTC time (**(Chris)**, 2026-10-03,
 [PLAN.md §9m](PLAN.md#9m--the-portable-rigs-archive-drive)). The 🎒 portable records onto its own
 archive drive, and the data is moved off by a pull from your workstation over your home network
 ([§7](#7-software)).*
+*Update 2026-11-11: the pull is live by default. The writer keeps recording, and only the files it
+has closed move; `tools/pull-archive --end-session` is the pull that ends the recording session
+(**(Chris)**, 2026-11-11, [PLAN.md §9m](PLAN.md#9m--the-portable-rigs-archive-drive)).*
 
 ### ⭐ The two rigs want opposite things from GPS
 
@@ -470,6 +473,10 @@ runs an archive writer, `bin/adsb-writer`, which records `readsb`'s BEAST stream
 drive, with the spool on that drive too. The data is moved off by a pull from your workstation over
 your home network, `tools/pull-archive`, ~~and `uploader.endpoint` stays null~~
 ([PLAN.md §9m](PLAN.md#9m--the-portable-rigs-archive-drive)).*
+*Update 2026-11-11: the pull is live by default: the writer keeps recording, and the pull moves the
+closed files under `beast/` only. Nothing writes the spool yet, since the uploader is not written;
+a pull with `--end-session` ends the recording session and moves `spool/` too
+([PLAN.md §9m](PLAN.md#9m--the-portable-rigs-archive-drive)).*
 
 ⛔ **The portable uploader does not upload in the field.** [§2](#2-two-rigs-not-one) means it
 literally: there is no network out there. It writes numbered batches to `spool_dir` for the whole
@@ -603,7 +610,9 @@ below. Why it is shaped this way is in [PLAN.md §9e](PLAN.md#9e-the-first-build
   that was plugged in late.~~ *Corrected 2026-10-10: the update timer finishes an incomplete build
   only while nothing holds the recording lock. On a recording 🎒 portable the writer holds it from
   every boot, so every timer run skips and changes nothing. There the build is finished by the next
-  pull window, which runs the same update: `tools/pull-archive` from your workstation; `sudo
+  pull window, which runs the same update: ~~`tools/pull-archive` from your workstation~~
+  *`tools/pull-archive --end-session` from your workstation (corrected 2026-11-11: a pull without
+  it is live, opens no window and runs no update)*; `sudo
   systemctl start adsb-pull-window.service`, then `stop`, on the rig; or the home opener,
   `adsb-home-update`, which opens the window by itself at home once `update.home_ssid` is set in
   `station.yml` (the template leaves it empty, and empty means off)
@@ -649,7 +658,8 @@ on the other rig `update.sh` skips it.*
   clock step and before the writer. It never formats.
 - `40-archive-writer` 🎒: `bin/adsb-writer` and its unit.
 - `50-updater`: the updater, its timer and the login banner.
-- `60-portable-pull` 🎒: the pull window that `tools/pull-archive` opens, and the sudoers rule that
+- `60-portable-pull` 🎒: the pull window that ~~`tools/pull-archive`~~ *`tools/pull-archive
+  --end-session` (corrected 2026-11-11: a default pull opens none)* opens, and the sudoers rule that
   lets it.
 - `70-portable-home-update` 🎒: the home-gated opener, off until `update.home_ssid` is set.
 - `80-portable-slate` 🎒: the field display, `bin/adsb-slate`, which draws the camera slate on
@@ -720,6 +730,8 @@ and no script can pass them for you:
    📋 *Added 2026-10-10: 🎒 the archive's pre-field checklist (among its items: power cuts
    mid-recording, a boot with the drive pulled, a full pull, an update inside the pull window) is in
    [PLAN.md §9m](PLAN.md#9m--the-portable-rigs-archive-drive), "The pre-field checklist".*
+   *Update 2026-11-11: "a full pull" there is now a pull with `--end-session`, and the list gains
+   the checks for the first live pulls.*
 4. Write the uploader ~~last~~, against a receiver you already trust.
    *Corrected 2026-10-10, and again 2026-10-11: not last. The uploader comes before the 🏠 remote
    stationary's deploy; the 🏠 home stationary may be built before it (**(Chris)**, 2026-10-11,

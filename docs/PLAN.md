@@ -1463,6 +1463,8 @@ there, with `sudo`** (it is `root:root 0600`).
 heading is kept as written because nine links in this document point at its anchor.*
 *Update 2026-11-05: the 🎒 portable's RTC board was ruled on 2026-11-05 22:01; see the last bullet
 under `setup/foundation/rtc-overlay.sh`, in "Update 2026-10-04 (evening)" below.*
+*Update 2026-11-11: what a recording rig does when chrony loses its source was ruled on 2026-11-11
+19:01, not built; see "Update 2026-11-11: the clock while recording" at the end of this section.*
 
 ~~**The first build is by hand, one step at a time.**~~ *Superseded 2026-10-04 (Chris): the first
 build is one command, and the updater it installs finishes the build; see the evening update at the
@@ -1992,16 +1994,16 @@ mechanism this is. Chris: *"I have no problem with (a) and (b)."* It answers the
       bootstrap: `adsb-update.service` started alongside the window, as in §9m's 2026-10-05
       journal, where its "Starting" line comes before the window's "Started". Which poll of the
       opener's dispatch wait broke is not logged. The bootstrap's wait reads both the state and the
-      job (~~`setup/bootstrap.sh:183–188`~~ `setup/bootstrap.sh:190–195`), so it does not rest on this;*
+      job (~~`setup/bootstrap.sh:183–188`~~ ~~`setup/bootstrap.sh:190–195`~~ `setup/bootstrap.sh:191–196`), so it does not rest on this;*
     - `systemctl list-jobs <unit>` shows a start job still queued; *update 2026-10-10: ⚠️ not seen.
-      The opener lists the jobs at every poll (~~`bin/adsb-home-update:297`~~ `bin/adsb-home-update:308`) and logs nothing about
+      The opener lists the jobs at every poll (~~`bin/adsb-home-update:297`~~ ~~`bin/adsb-home-update:308`~~ `bin/adsb-home-update:313`) and logs nothing about
       them;*
     - `systemctl stop` blocks through `ExecStop=`, and `stop --no-block` carries through it;
       *update 2026-10-10: the blocking stop is half seen, under the opener, not under the bootstrap.
-      The opener's `timeout 120 systemctl stop` (~~`bin/adsb-home-update:156`~~ `bin/adsb-home-update:167`) returned 0 with the
+      The opener's `timeout 120 systemctl stop` (~~`bin/adsb-home-update:156`~~ ~~`bin/adsb-home-update:167`~~ `bin/adsb-home-update:169`) returned 0 with the
       update already inactive, so the `ExecStop=` wait had nothing to wait on. Seen: a stop that
       goes through `ExecStop=` and returns. ⚠️ Not seen: the stop waiting while the update is
-      `activating`, which ~~`setup/bootstrap.sh:237`~~ `setup/bootstrap.sh:246` relies on. ⚠️ `stop --no-block` is not seen:
+      `activating`, which ~~`setup/bootstrap.sh:237`~~ ~~`setup/bootstrap.sh:246`~~ `setup/bootstrap.sh:247` relies on. ⚠️ `stop --no-block` is not seen:
       only the trap path takes it;*
     - `ExecStopPost=` starts the writer, and a failed start runs none; *update 2026-10-10: the
       writer start is seen 2026-10-10 under the opener, not under the bootstrap: after the close,
@@ -2009,26 +2011,26 @@ mechanism this is. Chris: *"I have no problem with (a) and (b)."* It answers the
     - a unit ended by `RuntimeMaxSec=` reads `failed`; *update 2026-10-10: ⚠️ not seen; §9m's
       checklist owes the cap test;*
     - the shutdown cancels a queued start. *Update 2026-10-10: ⚠️ not seen; only the bootstrap's
-      reboot path relies on it (~~`setup/bootstrap.sh:397–403`~~ `setup/bootstrap.sh:406–412`).*
+      reboot path relies on it (~~`setup/bootstrap.sh:397–403`~~ ~~`setup/bootstrap.sh:406–412`~~ `setup/bootstrap.sh:411–417`).*
   - **No SD is staged to prove (b) on hardware. (Chris), 2026-10-10, about 08:55.** Ruled by
     multiple-choice question, on an architecture consultation's recommendation. (b) runs only on a
     second bootstrap of an incomplete, recording first build; that has not yet occurred.
     - **Why:**
-      - **A fresh-SD bootstrap does not reach (b) at all.** ~~`setup/bootstrap.sh:372–380`~~ *`setup/bootstrap.sh:381–389`* opens the
+      - **A fresh-SD bootstrap does not reach (b) at all.** ~~`setup/bootstrap.sh:372–380`~~ ~~*`setup/bootstrap.sh:381–389`*~~ *`setup/bootstrap.sh:386–394`* opens the
         window only on a first build (no `applied`) whose recording lock is held by
         `adsb-writer.service`, and only where `adsb-pull-window.service` is loaded. A fresh image's
         first bootstrap has no writer holding the lock, so it runs `update.sh --bootstrap` directly
         (`hint=not-writer`).
       - **The shared window unit has now run end to end on hardware,** under the opener (§9f's
         record on hardware, 2026-10-10 at 08:45): the same `adsb-pull-window.service`
-        (`setup/steps/60-portable-pull.sh:99–121`), started by a different caller.
+        (~~`setup/steps/60-portable-pull.sh:99–121`~~ `setup/steps/60-portable-pull.sh:127–156`), started by a different caller.
       - **The remaining bootstrap-only beliefs either fail closed or are bounded by the 2 h cap.**
         The bootstrap refuses to reboot over a lock holder it cannot attribute to this build's
-        writer, and prints the hand command (`lock_verdict`, ~~`setup/bootstrap.sh:146–157`~~ *`setup/bootstrap.sh:153–164`*, read at
-        ~~:432–437~~ *:441–446*); it never reboots once `applied` exists (~~:421–427~~ *:430–436*).
+        writer, and prints the hand command (`lock_verdict`, ~~`setup/bootstrap.sh:146–157`~~ ~~*`setup/bootstrap.sh:153–164`*~~ *`setup/bootstrap.sh:154–165`*, read at
+        ~~:432–437~~ ~~*:441–446*~~ *:446–451*); it never reboots once `applied` exists (~~:421–427~~ ~~*:430–436*~~ *:435–441*).
       - **(b) is attended by definition:** it runs only when a human has just typed the bootstrap
         line. The 🏠 stationary has no window unit, so it takes the refusal path (`hint=no-unit`,
-        ~~`setup/bootstrap.sh:387–390`~~ *`setup/bootstrap.sh:396–399`*), the refusal it had before `94e4f94`.
+        ~~`setup/bootstrap.sh:387–390`~~ ~~*`setup/bootstrap.sh:396–399`*~~ *`setup/bootstrap.sh:401–404`*), the refusal it had before `94e4f94`.
     - **Proof is opportunistic.** (b) is proven the next time a first build on the 🎒 portable comes
       up incomplete for real (the 2026-10-04 shape) and Chris runs the bootstrap again; its evidence
       is read from the journal of `adsb-pull-window`, `adsb-writer` and `adsb-update`. Its
@@ -2063,7 +2065,7 @@ mechanism this is. Chris: *"I have no problem with (a) and (b)."* It answers the
         with a window unit): then one deliberate incomplete-then-second-bootstrap pass is added from
         a checkout, since the hands are already committed;
       - the opener's close reporting what the belief forbids: its `124` message (the window's stop
-        not finished in 120 s, ~~`bin/adsb-home-update:159`~~ *`bin/adsb-home-update:170`*) with the update already inactive, or the
+        not finished in 120 s, ~~`bin/adsb-home-update:159`~~ ~~*`bin/adsb-home-update:170`*~~ *`bin/adsb-home-update:172`*) with the update already inactive, or the
         writer not active after a close. Then the shared mechanism is wrong, (b) inherits it, and
         its hardware proof becomes urgent; the fallback is the written two-command exit in BUILD.md
         §8 (the last "What would change it" bullet of this update);
@@ -2072,7 +2074,7 @@ mechanism this is. Chris: *"I have no problem with (a) and (b)."* It answers the
         definition" no longer holds there, and a hardware proof is required before the remote
         deploy.
     - ℹ️ *From the consultation, not the ruling's text:* the opener's guard 1
-      (~~`bin/adsb-home-update:231–235`~~ *`bin/adsb-home-update:242–246`*) opens nothing while `adsb-pull-window.service` is active,
+      (~~`bin/adsb-home-update:231–235`~~ ~~*`bin/adsb-home-update:242–246`*~~ *`bin/adsb-home-update:244–248`*) opens nothing while `adsb-pull-window.service` is active,
       activating or deactivating, so its `OnBootSec=4min` fire landing in a bootstrap's open window
       logs `window-active` and is a no-op. `94e4f94` predates the opener (`f411815`), so this
       interaction is newer than (b).
@@ -2136,6 +2138,52 @@ mechanism this is. Chris: *"I have no problem with (a) and (b)."* It answers the
   - whether §9f's *"It is the one time a human stops the writer for an update"* is Chris's ruling or
     the consultation's expectation is unmarked in this file.
 
+**Update 2026-11-11: the clock while recording. Ruled 2026-11-11 (Chris, 19:01 Arizona time, by
+question; the texts as put are in the private pick-up record).** 📋 **Ruled, not built.** It answers
+part (2) of the 18:55 ruling ([§9m](#9m--the-portable-rigs-archive-drive), "Update 2026-11-11: the
+pull no longer ends the recording session by default"): what the writer does on lost sync is rig
+code, so it went to fable-architect, then to Chris. The event that raised it is in that block: a
+writer that could not restart after a pull window, because chrony had selected no source for
+about 5½ h, while the writer's `clock` events looked healthy. ➡️ It supersedes nothing yet: until it
+is built, `bin/clock-preflight` still requires a source marked `*`, and the writer's `clock` event
+is unchanged.
+
+- **Before the question:** fable-architect's call (record through and mark; the preflight judges by
+  chrony's bound; openers that stop the writer check first). A rejection-checker found nothing
+  refused, and found it near Chris's 2026-10-04 reading "ready on any disciplined source"
+  (`bin/clock-preflight`'s header); the field GPS bound of about 0.1 s fits the rig's
+  `clock.max_offset_ms` of 500, read from the rig's `clock-preflight` log that evening.
+- **What the writer does, "Mark + bound + guard", as put:** *"Keep recording and mark it: the clock
+  event gains the reference's age, chrony's error bound and source counts, written on change;
+  status.json and the login banner show HOLDOVER. clock-preflight judges 'disciplined' by chrony's
+  error bound within clock.max_offset_ms (500) instead of the '\*' mark, so tonight's restart would
+  have passed. Openers that stop the writer (nightly window, --end-session) check first and don't
+  open on a rig that couldn't restart."*
+  - `clock.max_offset_ms` is 500 in the portable template and 100 in the stationary's (✅ read in
+    `config/station.portable.example.yml` and `config/station.stationary.example.yml`).
+  - The races in the writer that the live pull exposes go with this change (§9m, the storage
+    contract's 2026-11-11 OPEN item).
+- **When, "After Stage 1", as put:** *"Finish the pull change first (it's with the implementer now),
+  then this as its own change with step-reviewer, /code-review, /security-review. Possibly next
+  session."*
+- Rejected, as put to Chris, for what the writer does:
+  - **Mark + guard, keep '\*':** *"Mark it and add the opener guard; clock-preflight keeps requiring
+    a '\*' source. A crash or reboot in this state still leaves the writer down until someone
+    restarts chrony."*
+  - **Mark only:** *"The archive becomes honest; nothing else changes. Tonight's outage recurs after
+    any stop, and on the stationary the nightly window makes it automatic."*
+  - **Stop on loss:** *"The writer stops when discipline is lost. Timestamps never uncertain; every
+    loss becomes a gap of unknown length on an unattended rig."*
+- Rejected, as put to Chris, for when:
+  - **With #33:** *"Fold it into the stationary design session alongside Stage 2's window."*
+  - **Now, in parallel:** *"A second implementer starts on it now, alongside Stage 1."*
+- **§5's HOLDOVER ruling stands.** Ruling 2 of "Rulings after the panel run" (2026-10-11 18:26,
+  [§5](#5-proposed-the-web-interface-is-three-existing-services-not-a-new-one)), "HOLDOVER after
+  Wi-Fi is lost after boot is left as it is", is not changed by this one. *Added 2026-11-11:* the
+  case that ruling describes differs from this one. There Wi-Fi was lost, the NTP sources were
+  marked offline, and chrony selected the GPS 12 min 23 s later. Here the sources were online and
+  selection stalled for about 5½ h, every source in state `U`.
+
 ### 9f. What `update.sh` does
 
 A systemd timer runs `update.sh` as a oneshot.
@@ -2181,7 +2229,14 @@ recording lock above, it would never update. **(Chris), 2026-10-04: the pull end
 session.** *Narrowed 2026-10-05, by the ruling of 2026-10-04 (night) at the end of this section: a
 window ends the recording session; the pull and the home check open one. ~~📋 The home check is not
 built.~~* *Corrected 2026-10-09: the home check is built, in `f411815`, and applied on the 🎒
-portable; see "The opener, as built" at the end of this section.* Starting the pull window, `adsb-pull-window.service`, stops the writer and pulls in the
+portable; see "The opener, as built" at the end of this section.* *Superseded as the default
+2026-11-11 (Chris, 18:52 Arizona time, by question): a default pull is live. It leaves the writer
+recording, opens no window, and so runs no update; `tools/pull-archive --end-session` keeps the
+2026-10-04 behavior. The 2026-10-05 narrowing becomes: the opener opens a window; the pull opens one
+only when asked, with `--end-session`; a hand always can. Until Stage 2 of that ruling (#33), the 🎒
+portable updates through the opener, a pull with `--end-session`, or a window opened by hand. See
+[§9m](#9m--the-portable-rigs-archive-drive), "Update 2026-11-11: the pull no longer ends the
+recording session by default".* Starting the pull window, `adsb-pull-window.service`, stops the writer and pulls in the
 same update oneshot the timer runs, ordered after the writer's stop. When the window ends, it starts
 the writer again; after a reboot, the next boot does. The mechanism is in §9m. ~~📋 None of this is
 built.~~ *Corrected 2026-10-04: built, ~~not yet run on hardware~~. `setup/steps/60-portable-pull.sh`
@@ -2401,6 +2456,8 @@ the option rejected below as "`update.sh` stopping the writer".
     recording session (above); the lock is asymmetric and `update.sh` never waits, because a session
     lasts hours (§9m); and the pull ends the recording session, the one ruled way to end one (above).
     *(2026-10-05: a window ends it; the pull and the home check open one, as narrowed above.)*
+    *(2026-11-11: a default pull opens no window; the pull opens one only with `--end-session`, as
+    superseded above. A window is still the one ruled way to end a session.)*
   - **An update at boot before the writer starts, with a bounded network wait.** In the field the
     portable boots with no network, so the wait always runs out, and costs its whole bound at the
     start of every shoot. Ordered `Before=` the writer, a round that rebuilds `readsb` would delay
@@ -2429,6 +2486,11 @@ the option rejected below as "`update.sh` stopping the writer".
     writer, `Wants=` the update, `ExecStopPost=` starting the writer again, a short cap). The archive
     gap would be minutes, only on nights with a new commit, and recorded as `stop` and `start`
     events: a known gap, not silence ([BUILD.md §7](BUILD.md#7-software) rule 2).
+    *Update 2026-11-11: ruled in part. Stage 2 of Chris's ruling of 2026-11-11 18:52, by question,
+    is "one maintenance window on both rigs, opened by a nightly check only when an update is
+    pending (portable home-only)", to be built in #33. 📋 Ruled, not built. The rest of the design
+    is still #33's. [§9m](#9m--the-portable-rigs-archive-drive), "Update 2026-11-11: the pull no
+    longer ends the recording session by default", has the ruling and what it set aside.*
   - **A persistent journal is a separate, small step, ~~later~~; not step 2.** Step 2 writes its own logs
     (above), so it does not depend on one. The consultation's shape: `Storage=persistent` and
     `SystemMaxUse=200M` in a `journald.conf.d` drop-in, as a shared step. It matters most on the
@@ -2744,6 +2806,10 @@ is.
   with no predicate: the trigger is the candidate changing after the soak, with the §9h gate open.
   It gets its **own** window unit, with no sudoers grant and a cap of minutes. It is to be designed
   in its own session, not pre-built.
+  *Update 2026-11-11: Stage 2 of Chris's ruling of 2026-11-11 18:52 is "one maintenance window on
+  both rigs, opened by a nightly check only when an update is pending (portable home-only)", in #33
+  ("Open, ruled to be decided later", above). Whether that is this bullet's "own window unit" or
+  replaces it is #33's to settle; it is not settled here.*
 - ➡️ **What would change it:**
   - `nmcli` cannot give the SSID on this image (→ the gateway's MAC address, still local).
     *Answered 2026-10-05: it can; see below;*
@@ -2978,7 +3044,7 @@ Read on the Pi over SSH by Claude, or pasted by Chris; Arizona time, which is th
   exit code, read as `0` beside `status.json`'s `applied` (a non-zero exit has not been read
   through it); and the window's close starting the writer. ⚠️ Still not seen: whether the
   opener's dispatch wait broke on its first poll, which is not logged; the opener's "not at home"
-  and "off" exits; its close's `124` path (~~`bin/adsb-home-update:159`~~ `bin/adsb-home-update:170`, the window's stop not
+  and "off" exits; its close's `124` path (~~`bin/adsb-home-update:159`~~ ~~`bin/adsb-home-update:170`~~ `bin/adsb-home-update:172`, the window's stop not
   finished in 120 s); and a timer entering `running` on a by-hand start of its service.*
 
 **A persistent journal, step `06-journal`. (Chris), 2026-10-10, in ~~two~~ *three* rulings.** It closes the
@@ -4733,6 +4799,29 @@ contract stands as written, with its OPEN item closed there.*
     named by the UTC second they were opened; and the writer never reuses a name.*
 - ➡️ The names use wall time, so the contract does not depend on §9i's open item about the time in
   a BEAST frame.
+- ⚠️ **OPEN, for the change ruled 2026-11-11 19:01 (added 2026-11-11): four races in the writer
+  that a live pull exposes, not fixed.** Since 2026-11-11 a default pull moves files and prunes
+  directories with the writer running ("Update 2026-11-11: the pull no longer ends the recording
+  session by default", below). Read in `bin/adsb-writer` on 2026-11-11:
+  1. `close_file()` gives the `.part` its final name, then calls `os.path.getsize()` on that name
+     for its `closed` log line (line 457). A file rsync moves between the two raises
+     `FileNotFoundError`.
+  2. `closed_files()` tests a date directory with `os.path.isdir()`, then lists it (lines 550–552).
+     A directory the live prune removes between the two raises `FileNotFoundError`. It runs only
+     when free space is below the backstop: `expire()` returns before it otherwise.
+  3. `expire()` reads a candidate's size, then unlinks it, and skips one already gone (`except
+     FileNotFoundError: continue`, lines 611–615) without reading free space again. So after a file
+     rsync moved, the next oldest is expired even if the move freed enough.
+  4. `open_file()` makes its date directory, then opens the `.part` in it (lines 417–422). A
+     directory removed between the two raises `FileNotFoundError`. The live prune's rule exists for
+     this one.
+  - The cost of a crash: `main()` catches the exception, logs `fatal: <type>: <message>`, and exits
+    1. The unit has `Restart=on-failure` and `RestartSec=30s`, both preflights run first
+    (`ExecStartPre=+`, `clock-preflight` then `archive-preflight`), and the writer does not come back
+    while `clock-preflight` refuses (`setup/steps/40-archive-writer.sh`, lines 180–186).
+  - ➡️ They go with the 2026-11-11 19:01 change
+    ([§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic), "Update 2026-11-11:
+    the clock while recording").
 
 Rejected: hourly files. An hour of a running session is not pullable until it closes, and a torn
 tail or a bad block costs an hour instead of ten minutes. 10-minute files are only 144 a day.
@@ -4844,6 +4933,10 @@ advanced to `2ace345`. The mechanism below is from
   never decodes the whole destination, and it does not decode `spool/`. With no `python3`, or nothing
   moved, it says so and skips. When `--decode` exits non-zero, it prints a loud banner; the pull's exit
   status stays rsync's. A no-frames file raises no banner, because `--decode` exits 0 on it.
+  *Update 2026-11-11: since the live pull ("Update 2026-11-11: the pull no longer ends the
+  recording session by default", below), the header's steps are numbered per mode, and the decode
+  is in its "BOTH MODES" part. A default pull opens no window and leaves no recording gap. With
+  `--end-session`, step 5 runs the clock check and then the decode, after the window is closed.*
   - ⚠️ On a rerun after a pull that died part-way, rsync may find a file already identical at the
     destination. That file is deleted from the rig without being named, so it is not decoded.
   - ~~📋 Not yet seen on a real pull: no pull has run with step 5.~~ *Corrected 2026-10-10: step 5
@@ -4924,10 +5017,16 @@ named at about 15:10. The store listing was at about 14:57, between the rejectio
     `tools/pull-archive <ssh-target> <dest>`, with `<dest>` set to the store's folder for that host.
     ✅ Read in the script: the pull moves the drive's `beast/` and `spool/` to `<dest>/beast/` and
     `<dest>/spool/` (step 2 of its header, and its loop over the two).
+    *Update 2026-11-11: that is now a pull with `--end-session`. A default, live pull moves
+    `beast/` only ("Update 2026-11-11: the pull no longer ends the recording session by default",
+    below).*
   - ⚠️ **`spool/` is pulled on purpose, and the rule carries it as it is.** The spool is on the
     drive so that the pull takes it: "Rejected: the spool on the SD card", above, which is "a
     second place to pull from", among the drive's rejections and again under "Mounted at the §9i
     interface path". The ingest (A, below) ignores it.
+    *Update 2026-11-11: a pull with `--end-session` still takes it. A default pull leaves it on the
+    rig, counts its files and warns when there are any, because nothing in this repo writes
+    `spool/` yet (the same block, below).*
   - Rejected, as put to Chris:
     - **Keyed by session or shoot.** The rig does not know the shoot, so the pull would have to
       rename files, which breaks the extractor's find by name range (rule (d) in "The writer's
@@ -5069,6 +5168,8 @@ into a synced folder", above. It stages on the workstation's own disk, then goes
   - A `.torn` file in staging belongs in the store: the pull includes `.torn` files on purpose,
     and excludes `*.part` and `lost+found` (✅ read in the script: step 2 of its header, and its
     rsync options).
+    *Update 2026-11-11: still so in both modes. The header now describes the rsync options under
+    "The move", in its "BOTH MODES" part, and its step 2 is per mode.*
   - ⚠️ A belief, not checked: an rsync killed hard, rather than ended by its own timeout or a
     signal it handles, can leave a dot-named temporary file in the destination. Staging is looked
     over for such files before the copy.
@@ -5082,10 +5183,16 @@ into a synced folder", above. It stages on the workstation's own disk, then goes
   the two). So with the staging directory standing for one host's folder, the copy lands in the
   mirror layout (B, in "Update 2026-10-10 (afternoon): where the collected data lives, ruled",
   above) with no rename.
+  *Update 2026-11-11: a default, live pull writes `<dest>/beast/` only; `<dest>/spool/` comes only
+  with `--end-session` ("Update 2026-11-11: the pull no longer ends the recording session by
+  default", below). The layout still holds: each is written where the rule puts it.*
 - ✅ **No change to `tools/pull-archive`:** the destination is already its second argument (read in
   the script). Its step 5 decodes the moved files where they now sit, in staging, before the copy.
   Its closing line counts and sizes the whole destination, so here it reports the staging
   directory, not the store.
+  *Update 2026-11-11: the tool changed since, for the live pull (below). The destination is still
+  its second positional argument, and the decode, now in its "BOTH MODES" part, still runs where the files sit,
+  in staging.*
 - ⛔ **It is not automatic, and it is not the uploader**
   ([§9i](#9i-what-is-not-chosen-yet-the-uploader)'s 2026-10-10 update). Like the synced-folder
   interim, it is by hand until the uploader lands, and ends then. **(Chris), 2026-11-08, about
@@ -5110,11 +5217,142 @@ into a synced folder", above. It stages on the workstation's own disk, then goes
   - **Deciding at the first pull from this workstation,** recording nothing now. No reason for
     setting it aside is on record beyond the choice itself.
 
+**Update 2026-11-11: the pull no longer ends the recording session by default. Ruled 2026-11-11
+(Chris, 18:52 Arizona time, and the clock check at 18:55, by question; the texts as put are in the
+private pick-up record).** Chris asked first, typed: *"Is there a reason we have to stop the write
+to the current file in order to download the completed files?"*, then: *"Send it to the architect -
+this is going to apply to the stationary receiver also. I would also recommend if the upgrade
+window is a concern we could have a process check for a new stable version and when it appears
+have the station pause during a low traffic time (middle of the night)."* fable-architect's call and
+a rejection-checker's read came before the question.
+
+- **The ruling, "Both stages", as put:** *"Stage 1 now: pull-archive moves finished files with the
+  writer running; --end-session keeps today's behavior. Stage 2 in #33: one maintenance window on
+  both rigs, opened by a nightly check only when an update is pending (portable home-only).
+  Supersedes 'the pull ends the recording session' (2026-10-04) as the default."*
+- **What it supersedes.** "The pull ends the recording session" (Chris, 2026-10-04; "The pull
+  window", next, and [§9f](#9f-what-updatesh-does)'s 2026-10-04 update) as the default. `tools/pull-archive
+  --end-session` keeps it. The 2026-10-05 narrowing, "a window ends the recording session; the pull
+  and the home check open one", becomes: the opener opens a window; the pull opens one only when
+  asked, with `--end-session`; a hand always can.
+- **Why a live move is safe** (✅ read in `bin/adsb-writer`, `close_file()` and
+  `link_noclobber()`): the writer flushes, fsyncs and closes its `.part`, then links it to its final
+  name and fsyncs the directory. A file under its final name is complete, and the writer opens only
+  new `.part` names. The file still being written is the `.part`, which the move excludes.
+- **A default pull updates nothing.** It does not start `adsb-pull-window.service`, so it does not
+  start the update oneshot the window wants. Until Stage 2 (#33), the 🎒 portable updates through
+  the home opener, a pull with `--end-session`, or a window opened by hand.
+  - ✅ The opener is what runs now: seen in the rig's journal on 2026-11-11, by read-only SSH (the
+    session's reading, not repeated for this record), `adsb-home-update` ran at its daily 04:30
+    (step 70's `OnCalendar=`) on 2026-11-10 and 2026-11-11, found the rig "at home", and opened
+    nothing: *"not pending: stable is still f5b885d80d08, which is applied"*.
+- **Stage 2, in #33.** 📋 Ruled, not built. It answers in part §9f's "The 🏠 stationary cannot update
+  as designed" ("Open, ruled to be decided later").
+- **What a default pull does, as built** (✅ read in `tools/pull-archive`, its header and code):
+  1. It opens no window. A line of its own says so before the move, for a caller used to the old
+     default.
+  2. It moves `beast/` only. `spool/` stays on the rig; its file count is printed, as a `!!` warning
+     naming `--end-session` when it is not zero. The reason: nothing in this repo writes `spool/`
+     yet, so there is no close-then-rename contract a live move could rely on there. ✅ A grep of
+     `bin/`, `setup/` and `tools/` on 2026-11-11: `archive-preflight` and step 30 create `spool/`
+     and repair its modes, and `archive-preflight`'s write probe goes in `beast/`. The uploader,
+     which would write it, is not written ([§9i](#9i-what-is-not-chosen-yet-the-uploader)). The
+     ruling's text does not mention `spool/`; this is the build's choice.
+  3. rsync's exit 24, source files vanished before they could be transferred, is a warning in a
+     live pull only, with the count of rsync's "file has vanished" lines, or a word that it could not
+     count them. The reason: the writer's free-space backstop, `expire()`, may delete its oldest
+     closed files while rsync runs. Any other non-zero rsync exit is the run's exit status. With
+     `--end-session` exit 24 stays the exit status, as before (`tests/test_pull_archive.py`).
+  4. It prunes, on the rig, with `rmdir` (never `rm -r`), a directory directly under `beast/` only
+     when all of these hold: its name is a date (`YYYY-MM-DD`, the writer's form); that date is not
+     the rig's UTC yesterday, today or tomorrow; it is empty; and its mtime is more than 15 minutes
+     old. The dates and the age are read on the rig, by its clock, which is the clock the writer
+     names its date directories by (`open_file()`: `time.gmtime()` of `time.time_ns()`). The reason:
+     `open_file()` makes its date directory and then opens a file in it, with nothing catching a
+     directory removed in between (race 4 under the storage contract, above).
+     - ⚠️ Removing a directory's last file sets its mtime to now, and rsync deletes as it goes, so a
+       directory this pull empties is pruned by it only if emptied more than 15 minutes before the
+       prune; otherwise by a later pull.
+     - The old prune, `find -mindepth 1 -type d -empty -delete` at any depth under `beast/` and
+       `spool/`, only with the writer `inactive` or `failed`, stays for `--end-session` only.
+  5. It prints the writer's state (`systemctl is-active`, read-only), and warns when it is not
+     active, though this pull did not stop it.
+  - ⚠️ **Accepted consequence (the 18:52 ruling):** rsync moves every closed file it lists. What
+    stays on the rig until the next pull is the tail closed after rsync listed its directory, up to
+    one 10-minute file, and the open `.part`. The pull's count of files left includes them.
+- **The clock check, ruled at 18:55, "Both", as put:** *"(1) Stage 1 now: the live pull reads the
+  rig's clock read-only (a '\*' source in chronyc sources; reference time not stale) and prints a
+  loud banner if not. That restores tonight's detection exactly, workstation-side, in the same
+  change. (2) The ongoing check while recording is rig code (what the writer does on lost sync:
+  mark it in the file, raise a status flag, stop?), so it goes to fable-architect, then to you."*
+  It was raised by a side agent's note, relayed by Chris: a live pull no longer restarts the
+  writer, and the restart is what brought the event below to light. Part (2) was ruled at 19:01
+  ([§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic), "Update 2026-11-11: the
+  clock while recording").
+  - **Part (1), as built** (✅ read in `tools/pull-archive`, `check_clock()`). In both modes, after
+    the move, and with `--end-session` after the window is closed. One ssh, read-only, no `sudo`. It
+    raises a loud banner when `chronyc -n sources` marks no source selected (`*`, the rule
+    `bin/clock-preflight` applies); when the reference time, the fourth field of `chronyc -n -c
+    tracking`, is more than 3600 s older than the rig's `date +%s`, or more than 60 s ahead of it
+    (within 60 s is taken as jitter); or when it cannot tell. It prints a count and an age, never
+    chronyc's table, which names the clock's servers. It never changes the exit status: the move
+    succeeded.
+  - **Why 3600 s, the script's reasoning:** over three polls at chrony's default maxpoll for an NTP
+    source (10, that is 1024 s), so a lost sample or two raises nothing. For the GPS refclock, polled
+    far more often, it is the `*` rule, not the age, that catches a dead puck. The ruling's text says
+    "not stale"; the two bounds are the build's.
+  - ✅ **The fourth field is epoch seconds,** seen on the rig on 2026-11-11: it read 1794449853.9
+    while the rig's `date +%s` read 1794450181.
+  - ⛔ **It is not the guard ruled at 19:01.** It only reports, after the move; it opens nothing
+    and refuses nothing. The guard that checks before a window opens is ruled, not built (§9e).
+- **The event behind both rulings, 2026-11-11, on the 🎒 portable.** Seen by read-only SSH and in
+  Chris's pastes (the session's record). After a pull window closed, the writer could not restart.
+  chrony had selected no source for about 5½ h: tracking's reference time was frozen, every source
+  was in `selectdata` state `U`, and nothing was logged. `clock-preflight` refused, *"no source
+  selected ('\*')"*, every 30 s. `sudo systemctl restart chrony` restored selection within a minute,
+  and the writer resumed. The recording gap was about 16 minutes, all of it the clock refusal.
+  - The writer's `clock` events through the loss looked healthy. They carry chrony's reference id
+    and name, stratum, system time and leap status (✅ read in `probe_clock()`), not the reference
+    time.
+  - *A docs agent's reading of chrony 4.6's source, through summaries; not checked here:* `U` is
+    `SRC_WAITS_UPDATE`, which logs nothing and leaves the leap status Normal; while nothing is
+    selected, root dispersion grows with the time since the last update.
+  - ⚠️ Whether it recurs is not known.
+- Rejected, as put to Chris at 18:52:
+  - **Stage 1 only now:** *"Only the live pull on the portable; who owns the window and the
+    stationary's updates are left to the #33 session."*
+  - **Keep the stop:** *"The pull keeps ending the session; the stationary gets its own maintenance
+    window in #33. A gap at every pull."*
+  - **Live pull, no flag:** *"Simplest tool; no way to drain the open file on demand, and a rig
+    without the home opener loses its manual update path."*
+- Rejected, as put to Chris at 18:55:
+  - **Pull check only:** *"Just (1) in Stage 1; record the ongoing check as an open item for #33."*
+  - **Architect first:** *"Hold Stage 1 until the architect designs the ongoing check, so both land
+    together."*
+- **The window unit.** Its `Description=` and comments now name `--end-session` (✅ read in
+  `render_unit`, `setup/steps/60-portable-pull.sh`); its directives are still those "The pull
+  window", next, describes. A rig receives the rewritten unit when an update applies this change:
+  step 60's `install_if_changed`, then `systemctl daemon-reload` when the file changed. On a
+  recording 🎒 portable that update runs in a window; a live pull runs none.
+- **The test, `tests/test_pull_archive.py`.** `tools/pull-archive` end to end against a fake rig in
+  a temporary directory: stub `ssh`, `systemctl`, `sudo` and `chronyc`, and the real rsync, run
+  locally. It covers the live pull leaving the window alone, exit 24 as a warning, the prune's rule,
+  `--end-session`'s window and `spool/`, the option parsing, and the clock check's banner (✅ read
+  in the file). CI discovers it (`python3 -m unittest discover -s tests`); it skips without rsync or
+  bash. ⚠️ It does not cover a writer recording beside the pull: the races under the storage
+  contract, above, are not exercised.
+- 📋 **No live pull against a rig is recorded here.** The checks owed at the first ones are in the
+  pre-field checklist, below.
+
 **The pull window. (Chris), 2026-10-04: the pull ends the recording session.** *Narrowed
 2026-10-05, by the ruling of 2026-10-04 (night) at the end of [§9f](#9f-what-updatesh-does): a
 window ends the recording session; the pull and the home check open one. ~~📋 The home check is not
 built.~~* *Corrected 2026-10-09: the home check is built, in `f411815`, and applied on the 🎒
-portable; see "The opener, as built" at the end of §9f.* Without this,
+portable; see "The opener, as built" at the end of §9f.* *Superseded as the default 2026-11-11
+(Chris, 18:52): a default pull is live and opens no window; `tools/pull-archive --end-session` keeps
+the 2026-10-04 behavior. The narrowing becomes: the opener opens a window; the pull opens one only
+when asked, with `--end-session`; a hand always can ("Update 2026-11-11: the pull no longer ends the
+recording session by default", just above).* Without this,
 §9f's recording lock and a portable that is always recording would mean the portable never updates.
 The window is a unit, `adsb-pull-window.service`, rendered by the pull step (below):
 
@@ -5205,7 +5443,11 @@ file count, the bytes moved and what remains. *Update 2026-10-10: since `2ace345
 step, a `--decode` of the files the pull moved, after the window is closed; see "Update 2026-10-10:
 the tool half is built", after "The pull" above. ~~⚠️ No pull has run with it.~~* *Corrected
 2026-10-10: it first ran on a real pull on 2026-10-10 at about 12:59 ("Update 2026-10-10: the pull
-into a synced folder", above).*
+into a synced folder", above).* *Update 2026-11-11: the window, the stop and the any-depth prune
+described here are now `tools/pull-archive --end-session`'s. A default pull opens no window, moves
+`beast/` only, and prunes under a narrower rule ("Update 2026-11-11: the pull no longer ends the
+recording session by default", above). The usage is now `tools/pull-archive [--end-session]
+<ssh-target> <destination-dir>`.*
 
 *As built, 2026-10-04 (evening), the build's own choices after review; ~~⚠️ not yet run against the
 Pi~~:* *Corrected 2026-10-10: run against the 🎒 portable at about 10:12 on 2026-10-10, opening the
@@ -5222,6 +5464,9 @@ recorded here.*
   copied.*
 - *It prunes only while the writer is stopped, because a prune between the writer's `mkdir` and its
   open would kill the writer.*
+  *Update 2026-11-11: still so for `--end-session`'s prune. A default pull prunes with the writer
+  running, under a narrower rule that exists for this same reason ("Update 2026-11-11: the pull no
+  longer ends the recording session by default", above).*
 - *Closing: the stop is the exact command the sudoers rule allows, and it waits on the rig while the
   update runs (the unit's `ExecStop=` above), printing the update's state every 10 s. Then it waits
   up to 60 s for the writer to be active **and** a `.part` written since the close began, the
@@ -5231,6 +5476,13 @@ recorded here.*
   been recording since then, and a quiet sky need not touch its `.part`, so any `.part` counts.*
 
 **The privilege is a narrow NOPASSWD rule (Chris).**
+
+*Update 2026-11-11: since the live pull, the rule serves `tools/pull-archive --end-session` and a
+hand on the rig. The home opener runs as root, by its own unit, and does not use it. A default,
+live pull uses none of it: it needs ssh, the rig's rsync (installed by step 60) and the login's
+membership in `adsb-operator`, the drive's group (✅ read in `setup/steps/60-portable-pull.sh`'s
+header and `bin/adsb-home-update`'s; "Update 2026-11-11: the pull no longer ends the recording
+session by default", above).*
 
 - `/etc/sudoers.d/adsb-receiver` grants group `adsb-operator` exactly two NOPASSWD commands:
   `systemctl start` and `systemctl stop` of `adsb-pull-window.service`. There are no wildcards.
@@ -5243,7 +5495,7 @@ recorded here.*
     manual's warning about `!` concerns subtracting commands from `ALL`. Built, ~~not yet run on
     hardware~~: `visudo -cf` accepts the rendered rule.* *Corrected 2026-10-10: run on the 🎒
     portable. Step 60's verify asks sudo, for each of the two commands, and dies unless
-    `adsb-receiver` gets a plain refusal (~~`setup/steps/60-portable-pull.sh:253–270`~~ `setup/steps/60-portable-pull.sh:253–273`); it passed in
+    `adsb-receiver` gets a plain refusal (~~`setup/steps/60-portable-pull.sh:253–270`~~ ~~`setup/steps/60-portable-pull.sh:253–273`~~ `setup/steps/60-portable-pull.sh:280–308`); it passed in
     every update recorded in [§9f](#9f-what-updatesh-does), the last at 11:18 on 2026-10-10.*
   - *The second guard is `NoNewPrivileges=yes` on the writer's unit, so `sudo` cannot work from the
     writer's processes whatever any sudoers file says; see the writer's unit below. Two guards for
@@ -5777,8 +6029,8 @@ recording session ([§9c](#9c-every-step-ends-in-a-check-of-the-observable-effec
       exceeded the pipe buffer. Fixed in `e019b29`, with one `sed` range and no pipeline. That is the
       failure behind the trap at the end of
       [§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic). ⚠️ The same
-      `| head -n1` shape remains, reported and not fixed, in ~~`setup/bootstrap.sh:73`~~ `setup/bootstrap.sh:145` (guarded by
-      `|| unit=''`), `bin/adsb-home-update:208` (added 2026-10-10, the same shape, also guarded by
+      `| head -n1` shape remains, reported and not fixed, in ~~`setup/bootstrap.sh:73`~~ ~~`setup/bootstrap.sh:145`~~ `setup/bootstrap.sh:146` (guarded by
+      `|| unit=''`), ~~`bin/adsb-home-update:208`~~ `bin/adsb-home-update:210` (added 2026-10-10, the same shape, also guarded by
       `|| unit=''`), and ~~`setup/update.sh:237`~~ `setup/update.sh:299`, ~~`setup/steps/20-portable-clock.sh:366`~~ ~~`setup/steps/20-portable-clock.sh:375`~~ `setup/steps/20-portable-clock.sh:383` and
       `bin/clock-preflight:120` and `:125` (each guarded by `|| true`).*
 - **(Chris), 2026-10-04:** no step's verify reads `UMask=`. That is the setting, not the effect: the
@@ -5832,6 +6084,13 @@ powered-hub rule ([BUILD.md §3d](BUILD.md#3d--the-second-radio--either-rig) par
   seconds, and a new `.part` appears. The drive then holds only that `.part` and `lost+found`.
   *Added 2026-10-05, (Chris): the pull ends with the two-level review of the pulled files, the
   container and the content; see the 2026-10-05 update after "The pull" above.*
+  *Note 2026-11-11: since the live pull, this item is a pull with `--end-session`. A default pull
+  leaves the writer recording and its `.part` on the drive (the next item).*
+- [ ] *Added 2026-11-11.* The first live pulls ("Update 2026-11-11: the pull no longer ends the
+  recording session by default", above). After each: compare `--decode`'s counts for the hours the
+  pull ran with the same hours on other days, for frames dropped while rsync ran; and read the
+  writer's journal (`journalctl -u adsb-writer`) for a `fatal: FileNotFoundError` line, the races
+  under the storage contract above.
 - [ ] The cap. Start the window and walk away. After `RuntimeMaxSec` the writer is running again,
   with nothing having stopped the window.
 - [ ] An update inside the window. With a new commit on `main`, start the window: `applied-rev`
