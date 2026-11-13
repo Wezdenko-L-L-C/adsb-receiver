@@ -103,10 +103,15 @@
 #   clone, so there is no module both could import. tests/test_clock_agreement.py
 #   pins this copy, the slate's and bin/clock-preflight's to the same answers.
 #     bound = |system time| + root dispersion + root delay / 2 (chronyc(1))
-#     HOLDOVER: the reference was last updated more than 2 x the update
-#       interval + HOLDOVER_SLACK_S ago; UNSYNCED: leap status not Normal,
-#       Insert second or Delete second; COARSE: bound over BOUND_OK_S;
-#       otherwise SYNCED.
+#     UNSYNCED: leap status not Normal, Insert second or Delete second;
+#       HOLDOVER: the reference was last updated longer ago than a fixed age
+#       by its kind, from chrony's stratum (Chris, 2026-11-12 21:17):
+#       HOLDOVER_GPS_S (96 s) at stratum 1, a refclock, HOLDOVER_NTP_S
+#       (2112 s) at stratum 2 or more, an NTP server, and the GPS's 96 s for
+#       stratum 0 or a stratum that is not a whole number (the slate's
+#       comment on them has the derivations); COARSE: bound over BOUND_OK_S;
+#       otherwise SYNCED. Tested in that order. chrony's update interval is
+#       no longer an input (until 2026-11-12: 2 x it + 64 s).
 #
 # Never exits on a lost connection to readsb: it writes `disconnected`, keeps
 # its file, retries, and keeps rotating. Never exits on the clock's state.
@@ -165,7 +170,8 @@ UNAVAILABLE_CHECKS = 2
 CLOCK_CONF = "/etc/adsb-receiver/clock.conf"
 # bin/adsb-slate's thresholds, copied (THE CLOCK, in the header).
 BOUND_OK_S = 0.020
-HOLDOVER_SLACK_S = 64.0
+HOLDOVER_GPS_S = 96.0    # stratum 1: 2 x 16 s (the refclock's poll) + 64 s
+HOLDOVER_NTP_S = 2112.0  # stratum 2 or more: 2 x 1024 s (chrony's default maxpoll) + 64 s
 
 SUFFIX = ".beast.pcap"
 PART = ".part"
@@ -314,12 +320,19 @@ def parse_tracking(text):
     }
 
 
+def holdover_after_s(stratum):
+    """bin/adsb-slate's holdover_after_s(), copied: the reference age past
+    which the clock is HOLDOVER, from chrony's stratum as text."""
+    s = stratum.strip()
+    return HOLDOVER_NTP_S if re.fullmatch(r"[0-9]+", s) and int(s) >= 2 else HOLDOVER_GPS_S
+
+
 def clock_word(tracking, now_s):
     """SYNCED, COARSE, HOLDOVER or UNSYNCED: bin/adsb-slate's clock_state(),
     copied, its first word only."""
     if not tracking["synced"]:
         return "UNSYNCED"
-    if now_s - tracking["ref_time"] > 2 * tracking["interval_s"] + HOLDOVER_SLACK_S:
+    if now_s - tracking["ref_time"] > holdover_after_s(tracking["stratum"]):
         return "HOLDOVER"
     if tracking["bound_s"] > BOUND_OK_S:
         return "COARSE"

@@ -38,11 +38,12 @@ def csv_line(fields):
 
 
 def chrony(ref_time=NOW_S - 5, offset="-0.000004200", root_delay="0.000000001",
-           root_disp="0.000020000", interval="16.0", leap="Normal"):
+           root_disp="0.000020000", interval="16.0", leap="Normal", stratum="1",
+           ref_id="47505300", name="GPS"):
     return csv_line([
-        "47505300",            # 0 ref id
-        "GPS",                 # 1 ref name
-        "1",                   # 2 stratum
+        ref_id,                # 0 ref id
+        name,                  # 1 ref name
+        stratum,               # 2 stratum
         f"{ref_time:.9f}",     # 3 ref time
         offset,                # 4 system time (negative: fast)
         "0.000001100",         # 5 last offset
@@ -112,13 +113,17 @@ class Tracking(unittest.TestCase):
         self.assertEqual(state(chrony(root_disp="0.019000000"))[0], "SYNCED")
 
     def test_a_stale_update_is_holdover(self):
-        # 16 s interval: past 2 x 16 + 64 = 96 s since the last update.
+        # The GPS (stratum 1): past 96 s since the last update (ruled 2026-11-12;
+        # tests/test_clock_agreement.py holds the three copies to it).
         self.assertEqual(state(chrony(ref_time=NOW_S - 95))[0], "SYNCED")
         st, text = state(chrony(ref_time=NOW_S - 300))
         self.assertEqual(st, "HOLDOVER")
         self.assertIn("last update 300 s ago", text)
-        # A long interval (NTP over Wi-Fi, 1044.3 s seen) is not holdover at 1000 s.
-        self.assertNotEqual(state(chrony(ref_time=NOW_S - 1000, interval="1044.3"))[0], "HOLDOVER")
+        # An NTP server (stratum 2): past 2112 s, so not holdover at 1000 s. Until 2026-11-12
+        # this case was the GPS's line with a 1044.3 s interval, which then decided it.
+        ntp = dict(stratum="2", ref_id="C0000201", name="192.0.2.1", interval="1044.3")
+        self.assertNotEqual(state(chrony(ref_time=NOW_S - 1000, **ntp))[0], "HOLDOVER")
+        self.assertEqual(state(chrony(ref_time=NOW_S - 2200, **ntp))[0], "HOLDOVER")
 
     def test_unparsed_or_stale_is_a_word(self):
         self.assertIsNone(S.parse_tracking(""))

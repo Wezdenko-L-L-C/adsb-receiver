@@ -211,13 +211,29 @@ def parse_tracking(text):
 #   - SYNCED needs chrony's error bound within 20 ms: a fifth of a tenth, so
 #     the tenth shown is the true one except within 20 ms of its edge.
 #     Larger, the word is COARSE and the bound is shown.
-#   - SYNCED also needs chrony's last update to be recent: no older than two
-#     update intervals plus 64 s, i.e. it has not missed two updates in a row.
-#     Older, the word is HOLDOVER: the clock runs on its last estimate.
 #     ⚠️ Belief, not read: chrony's reported root dispersion grows with the
-#     time since that update, so the bound alone might already catch this.
+#     time since its last update, so the bound alone might already catch a
+#     stale reference (HOLDOVER, below).
 BOUND_OK_S = 0.020
-HOLDOVER_SLACK_S = 64.0
+# HOLDOVER, ruled (Chris, 2026-11-12 21:17), not gap-filled:
+# SYNCED also needs chrony's reference to be recent, by a fixed age that
+# depends on what kind of reference it is, read from chrony's stratum. Older,
+# the word is HOLDOVER: the clock runs on its last estimate.
+#   - stratum 1, a refclock (the GPS): HOLDOVER_GPS_S, 96 s = 2 x 16 s (the
+#     refclock's poll) + 64 s.
+#   - stratum 2 or more, an NTP server: HOLDOVER_NTP_S, 2112 s = 2 x 1024 s
+#     (chrony's default maxpoll) + 64 s.
+#   - stratum 0, or a stratum that is not a whole number: the GPS's 96 s, the
+#     shorter, so the mark comes sooner, never later. chrony reports stratum 0
+#     with no reference, which is UNSYNCED first anyway (leap status).
+# Until 2026-11-12 the age was 2 x chrony's update interval + 64 s. The update
+# interval follows chrony's polling, not the reference's kind: a burst can
+# shrink it to seconds, so a good NTP reference read HOLDOVER minutes after
+# one, and a stalled selection can stretch it to hours, so a reference hours
+# old did not.
+# The interval is still parsed (parse_tracking), and judges nothing.
+HOLDOVER_GPS_S = 96.0
+HOLDOVER_NTP_S = 2112.0
 # The states whose system clock has a known bound, so a fix's age can be shown.
 CLOCK_BOUNDED = ("SYNCED", "COARSE", "HOLDOVER")
 
@@ -231,6 +247,13 @@ def offset_words(off):
     return "0.000 ms off"
 
 
+def holdover_after_s(stratum):
+    """The reference age past which the clock is HOLDOVER, from chrony's
+    stratum as text (HOLDOVER_GPS_S and HOLDOVER_NTP_S, above)."""
+    s = stratum.strip()
+    return HOLDOVER_NTP_S if re.fullmatch(r"[0-9]+", s) and int(s) >= 2 else HOLDOVER_GPS_S
+
+
 def clock_state(tracking, fresh, now_s):
     """(state, the CLOCK line's text). The state, also the text's first word, is
     SYNCED, COARSE, HOLDOVER, UNSYNCED or CHRONY?. The step's verify reads it."""
@@ -242,7 +265,7 @@ def clock_state(tracking, fresh, now_s):
     bound = f"error <= {tracking['bound_s'] * 1000:.3f} ms"
     clock = f"system clock {offset_words(tracking['offset_s'])}"
     since = now_s - tracking["ref_time"]
-    if since > 2 * tracking["interval_s"] + HOLDOVER_SLACK_S:
+    if since > holdover_after_s(tracking["stratum"]):
         return "HOLDOVER", f"HOLDOVER {ref}   last update {since:.0f} s ago   {bound}"
     if tracking["bound_s"] > BOUND_OK_S:
         return "COARSE", f"COARSE {ref}   {bound}   {clock}"

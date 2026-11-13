@@ -38,11 +38,14 @@ except ImportError:
 
 
 def tracking(age_s, offset="0.00", root_delay="0.01", root_disp="0.01", interval="16.0",
-             leap="Normal", ref_id="C0000201", now=None):
-    """One chronyc -n -c tracking line, the reference age_s seconds old."""
+             leap="Normal", ref_id="C0000201", stratum="2", name=None, now=None):
+    """One chronyc -n -c tracking line, the reference age_s seconds old. Stratum 2 and an NTP
+    server's address by default; the GPS is ref_id 47505300, name GPS, stratum 1."""
     now = time.time() if now is None else now
+    if name is None:
+        name = "192.0.2.1" if ref_id != "00000000" else ""
     return ",".join([
-        ref_id, "192.0.2.1" if ref_id != "00000000" else "", "2",
+        ref_id, name, stratum,
         f"{now - age_s:.2f}",   # 3 ref time
         offset,                 # 4 system time
         "0.00", "0.01",         # 5 last offset, 6 RMS offset
@@ -54,16 +57,57 @@ def tracking(age_s, offset="0.00", root_delay="0.01", root_disp="0.01", interval
     ]) + "\n"
 
 
-# name -> (tracking kwargs, the state word every copy must give)
+GPS = dict(ref_id="47505300", name="GPS", stratum="1")
+
+# name -> (tracking kwargs, the state word every copy must give). HOLDOVER is a fixed age by the
+# reference's kind, from chrony's stratum (ruled 2026-11-12 21:17): past 96 s at stratum 1, past
+# 2112 s at stratum 2 or more, past 96 s for stratum 0 or one that is not a whole number. chrony's
+# update interval is no longer an input; the cases give it where it once decided the answer.
 CASES = {
     "synced": (dict(age_s=5), "SYNCED"),
     "coarse": (dict(age_s=5, offset="0.01", root_delay="0.10", root_disp="0.02"), "COARSE"),
-    "holdover": (dict(age_s=200), "HOLDOVER"),
-    "long interval, not yet holdover": (dict(age_s=1000, interval="1044.3"), "SYNCED"),
+    # Until 2026-11-12 this case was stratum 2 with a 16 s interval, HOLDOVER past 2 x 16 + 64 s;
+    # a 16 s poll is the GPS refclock's, so it is the GPS now.
+    "holdover, GPS": (dict(age_s=200, **GPS), "HOLDOVER"),
+    "NTP at 1000 s, not yet holdover": (dict(age_s=1000, interval="1044.3"), "SYNCED"),
     # 2026-11-11: no source selected for about 5 1/2 h, the reference frozen, the bound small.
     "2026-11-11": (dict(age_s=19800, offset="0.01", root_delay="0.04", root_disp="0.03",
                         interval="1037.6"), "HOLDOVER"),
     "unsynced": (dict(age_s=5, leap="Not synchronised"), "UNSYNCED"),
+    # After a burst the interval reads seconds: 2 x 2 + 64 s called this HOLDOVER.
+    "post-burst, NTP": (dict(age_s=204, interval="2.0"), "SYNCED"),
+    # A stalled selection stretches the interval to hours: 2 x 33091 + 64 s did not call this.
+    "stall, NTP": (dict(age_s=8000, interval="33091"), "HOLDOVER"),
+    "GPS at 40 s": (dict(age_s=40, **GPS), "SYNCED"),
+    "GPS at 100 s": (dict(age_s=100, **GPS), "HOLDOVER"),
+    "stratum 0, leap Normal, at 100 s": (dict(age_s=100, stratum="0"), "HOLDOVER"),
+    "stratum not a number, at 100 s": (dict(age_s=100, stratum="x"), "HOLDOVER"),
+    "stratum empty, at 100 s": (dict(age_s=100, stratum=""), "HOLDOVER"),
+    "stratum 0 unsynchronised": (dict(age_s=5, stratum="0", leap="Not synchronised"), "UNSYNCED"),
+    "stratum 2 unsynchronised, an old reference": (dict(age_s=8000, leap="Not synchronised"),
+                                                   "UNSYNCED"),
+}
+
+# The boundaries, exact: run only where the test sets "now" (the preflight reads its own clock;
+# its boundary cases are PREFLIGHT_BOUNDARIES, below). NOW is a whole second, so a reference time
+# NOW - age_s with two decimals is exact. Strictly older than the age is HOLDOVER.
+NOW = 1_800_000_000.0
+EXACT_CASES = {
+    "GPS at 96 s": (dict(age_s=96, **GPS), "SYNCED"),
+    "GPS at 96.01 s": (dict(age_s=96.01, **GPS), "HOLDOVER"),
+    "NTP at 2112 s": (dict(age_s=2112), "SYNCED"),
+    "NTP at 2112.01 s": (dict(age_s=2112.01), "HOLDOVER"),
+    "stratum 3 at 2112.01 s": (dict(age_s=2112.01, stratum="3"), "HOLDOVER"),
+    "stratum 3 at 2000 s": (dict(age_s=2000, stratum="3"), "SYNCED"),
+}
+
+# The same boundaries for the preflight, which reads its own clock after the test wrote the line:
+# its age only grows, so "under" is 5 s under and "over" is 1 s over.
+PREFLIGHT_BOUNDARIES = {
+    "GPS just under 96 s": (dict(age_s=91, **GPS), "SYNCED"),
+    "GPS just over 96 s": (dict(age_s=97, **GPS), "HOLDOVER"),
+    "NTP just under 2112 s": (dict(age_s=2107), "SYNCED"),
+    "NTP just over 2112 s": (dict(age_s=2113), "HOLDOVER"),
 }
 
 SOURCES_NONE_SELECTED = (
@@ -76,8 +120,8 @@ SOURCES_SELECTED = SOURCES_NONE_SELECTED.replace("^- 192.0.2.1", "^* 192.0.2.1")
 
 class SlateAndWriterAgree(unittest.TestCase):
     def test_same_word_and_bound(self):
-        now = time.time()
-        for name, (kw, want) in CASES.items():
+        now = NOW
+        for name, (kw, want) in {**CASES, **EXACT_CASES}.items():
             with self.subTest(case=name):
                 line = tracking(now=now, **kw)
                 st, _ = S.clock_state(S.parse_tracking(line), True, now)
@@ -87,7 +131,25 @@ class SlateAndWriterAgree(unittest.TestCase):
                 self.assertEqual(wt["bound_s"], S.parse_tracking(line)["bound_s"])
 
     def test_same_thresholds(self):
-        self.assertEqual((W.BOUND_OK_S, W.HOLDOVER_SLACK_S), (S.BOUND_OK_S, S.HOLDOVER_SLACK_S))
+        self.assertEqual((W.BOUND_OK_S, W.HOLDOVER_GPS_S, W.HOLDOVER_NTP_S),
+                         (S.BOUND_OK_S, S.HOLDOVER_GPS_S, S.HOLDOVER_NTP_S))
+        # As ruled 2026-11-12: 2 x 16 s + 64 s, and 2 x 1024 s + 64 s.
+        self.assertEqual((S.HOLDOVER_GPS_S, S.HOLDOVER_NTP_S), (96.0, 2112.0))
+        for stratum, want in (("1", 96.0), ("2", 2112.0), ("15", 2112.0), ("0", 96.0), ("", 96.0),
+                              ("x", 96.0), ("2_0", 96.0), (" 2 ", 2112.0), ("-2", 96.0)):
+            with self.subTest(stratum=stratum):
+                self.assertEqual(S.holdover_after_s(stratum), want)
+                self.assertEqual(W.holdover_after_s(stratum), want)
+
+    def test_the_update_interval_judges_nothing(self):
+        for interval in ("0.0", "2.0", "16.0", "1044.3", "33091"):
+            with self.subTest(interval=interval):
+                for kw, want in ((dict(age_s=90), "SYNCED"), (dict(age_s=2000), "SYNCED"),
+                                 (dict(age_s=2200), "HOLDOVER"), (dict(age_s=90, **GPS), "SYNCED"),
+                                 (dict(age_s=100, **GPS), "HOLDOVER")):
+                    line = tracking(now=NOW, interval=interval, **kw)
+                    self.assertEqual(S.clock_state(S.parse_tracking(line), True, NOW)[0], want)
+                    self.assertEqual(W.clock_word(W.parse_tracking(line), NOW), want)
 
     def test_non_finite_is_unparsed_in_both(self):
         line = tracking(age_s=5, offset="nan")
@@ -144,7 +206,7 @@ class PreflightBase(unittest.TestCase):
 @unittest.skipUnless(shutil.which("bash"), "needs bash")
 class Preflight(PreflightBase):
     def test_agrees_with_the_slate(self):
-        for name, (kw, want) in CASES.items():
+        for name, (kw, want) in {**CASES, **PREFLIGHT_BOUNDARIES}.items():
             if want == "UNSYNCED":
                 continue  # refused before the state line; test_cold_boot_is_not_ready below
             with self.subTest(case=name):
@@ -152,8 +214,23 @@ class Preflight(PreflightBase):
                 rc, out, err = self.run_it(line)
                 self.assertEqual(rc, 0, out + err)
                 bound = S.parse_tracking(line)["bound_s"] * 1000
-                self.assertIn(f"==> clock state {want}: reference C0000201, error bound {bound:.3f} ms",
+                ref = kw.get("ref_id", "C0000201")
+                self.assertIn(f"==> clock state {want}: reference {ref}, error bound {bound:.3f} ms",
                               self.state_line(out))
+                # The slate gives the same word on the same line at the preflight's own reading.
+                self.assertEqual(S.clock_state(S.parse_tracking(line), True, time.time())[0], want)
+
+    def test_the_state_line_names_the_stratum_and_its_age(self):
+        rc, out, err = self.run_it(tracking(age_s=204, interval="2.0"))
+        self.assertEqual(rc, 0, out + err)
+        self.assertIn("(stratum 2, HOLDOVER past 2112 s; update interval 2 s)", self.state_line(out))
+        rc, out, err = self.run_it(tracking(age_s=40, **GPS))
+        self.assertEqual(rc, 0, out + err)
+        self.assertIn("(stratum 1, HOLDOVER past 96 s; update interval 16 s)", self.state_line(out))
+        # A stratum that is not a whole number is not printed.
+        rc, out, err = self.run_it(tracking(age_s=40, stratum="a\tb"))
+        self.assertEqual(rc, 0, out + err)
+        self.assertIn("(stratum ?, HOLDOVER past 96 s; update interval 16 s)", self.state_line(out))
 
     def test_2026_11_11_is_ready_in_holdover_with_no_source_selected(self):
         kw, _ = CASES["2026-11-11"]
@@ -172,7 +249,7 @@ class Preflight(PreflightBase):
 
     def test_cold_boot_is_not_ready(self):
         cold = tracking(age_s=time.time(), offset="0.00", root_delay="1.00", root_disp="1.00",
-                        interval="0.0", leap="Not synchronised", ref_id="00000000")
+                        interval="0.0", leap="Not synchronised", ref_id="00000000", stratum="0")
         rc, _, err = self.run_it(cold, "")
         self.assertEqual(rc, 2, err)
         self.assertIn("NOT READY: the clock is not disciplined: chrony has no reference"

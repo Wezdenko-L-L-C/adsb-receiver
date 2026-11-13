@@ -140,13 +140,23 @@ printf '%s\n' "$sources"
 echo "----"
 
 # The judgment, from the CSV: one tab-separated line of ref id, leap status,
-# state word, bound (ms), |system time| (ms), the reference's age (s) and the
-# update interval (s). bin/adsb-slate's parse_tracking() and clock_state(),
-# copied (the header); BOUND_OK_S and HOLDOVER_SLACK_S are the slate's.
+# state word, bound (ms), |system time| (ms), the reference's age (s), the
+# update interval (s), the stratum and the age past which it is HOLDOVER (s).
+# bin/adsb-slate's parse_tracking(), holdover_after_s() and clock_state(),
+# copied (the header); BOUND_OK_S, HOLDOVER_GPS_S and HOLDOVER_NTP_S are the
+# slate's. HOLDOVER is a fixed age by the reference's kind, from chrony's
+# stratum (Chris, 2026-11-12 21:17): 96 s at stratum 1, a refclock (2 x 16 s,
+# the refclock's poll, + 64 s); 2112 s at stratum 2 or more, an NTP server
+# (2 x 1024 s, chrony's default maxpoll, + 64 s); the GPS's 96 s for stratum 0
+# or a stratum that is not a whole number. The update interval is printed and
+# judges nothing (until 2026-11-12: HOLDOVER past 2 x it + 64 s). The state
+# word is printed; readiness is the reference, the leap status and the bound
+# (below), so HOLDOVER never refuses.
 judged=$(python3 -I - "$csv" <<'PY'
-import math, sys, time
+import math, re, sys, time
 BOUND_OK_S = 0.020
-HOLDOVER_SLACK_S = 64.0
+HOLDOVER_GPS_S = 96.0
+HOLDOVER_NTP_S = 2112.0
 line = sys.argv[1].strip().splitlines()[0] if sys.argv[1].strip() else ""
 f = line.split(",")
 if len(f) < 14:
@@ -159,23 +169,27 @@ except ValueError:
 if not all(map(math.isfinite, (ref_time, offset, root_delay, root_disp, interval))):
     sys.exit(1)
 leap = f[13].strip()
+stratum = f[2].strip()
+holdover_s = HOLDOVER_NTP_S if re.fullmatch(r"[0-9]+", stratum) and int(stratum) >= 2 else HOLDOVER_GPS_S
 bound = abs(offset) + root_disp + 0.5 * root_delay
 age = time.time() - ref_time
 if leap not in ("Normal", "Insert second", "Delete second"):
     word = "UNSYNCED"
-elif age > 2 * interval + HOLDOVER_SLACK_S:
+elif age > holdover_s:
     word = "HOLDOVER"
 elif bound > BOUND_OK_S:
     word = "COARSE"
 else:
     word = "SYNCED"
-# "?" for an empty field, so the tab-separated read below cannot shift.
+# "?" for an empty field, so the tab-separated read below cannot shift; the stratum is
+# printed only as a whole number.
 print("\t".join([f[0].strip() or "?", leap or "?", word, f"{bound * 1000:.3f}", f"{abs(offset) * 1000:.3f}",
-                 f"{age:.0f}", f"{interval:g}"]))
+                 f"{age:.0f}", f"{interval:g}", stratum if re.fullmatch(r"[0-9]+", stratum) else "?",
+                 f"{holdover_s:.0f}"]))
 PY
 ) || cantrun "could not parse chronyc -n -c tracking: $(awk -F, 'NR == 1 { print NF; exit }' <<<"$csv") field(s) in its first line, 14 needed, or a value that is not a finite number (the line is not printed here: it names the reference)"
-refid='' leap='' state='' bound_ms='' offset_ms='' ref_age='' interval=''
-IFS=$'\t' read -r refid leap state bound_ms offset_ms ref_age interval <<<"$judged"
+refid='' leap='' state='' bound_ms='' offset_ms='' ref_age='' interval='' stratum='' holdover_s=''
+IFS=$'\t' read -r refid leap state bound_ms offset_ms ref_age interval stratum holdover_s <<<"$judged"
 selected=$(grep -cE '^.\*' <<<"$sources") || true
 
 # The GPS refclock's health, on a rig whose clock.source is gps (R3 above).
@@ -222,7 +236,7 @@ if ((${#why[@]} > 0)); then
   exit 0
 fi
 
-log "clock state $state: reference $refid, error bound ${bound_ms} ms, |system time| ${offset_ms} ms; the reference was last updated ${ref_age} s ago (update interval ${interval} s); ${selected:-0} source(s) selected ('*')"
+log "clock state $state: reference $refid, error bound ${bound_ms} ms, |system time| ${offset_ms} ms; the reference was last updated ${ref_age} s ago (stratum ${stratum}, HOLDOVER past ${holdover_s} s; update interval ${interval} s); ${selected:-0} source(s) selected ('*')"
 if [[ ${selected:-0} == 0 ]]; then
   log "no source is selected ('*'): chrony is running on its last estimate, judged by its error bound"
 fi
