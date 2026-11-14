@@ -2,8 +2,85 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # 20-portable-clock: gpsd on the GPS puck, chrony disciplined by it, the DS3231
-# RTC checked, systemd-timesyncd out of the way, and bin/clock-preflight
-# installed with its keys. BUILD.md §6 and §8 step 2; PLAN §9c.
+# RTC checked, systemd-timesyncd out of the way, bin/clock-preflight
+# installed with its keys, and a timer that asks chrony for a burst of NTP
+# samples every 15 minutes. BUILD.md §6 and §8 step 2; PLAN §9c.
+#
+# The burst timer (Chris, 2026-11-12 21:08): adsb-chrony-burst.timer starts
+# adsb-chrony-burst.service every 15 minutes, a oneshot running
+# `/usr/bin/chronyc burst 2/8` as _chrony. By chronyc(1)'s burst good/max, read
+# in chrony 4.8's man page on a workstation, not the rig's 4.6.1: up to 8
+# measurements of each NTP source, stopping once 2 are good. The reason: at
+# home the rig's NTP sources are the DHCP-provided servers, reached over the
+# home Wi-Fi, where a reply after the link has been idle can be held up by as
+# much as about 100 ms. The record of 2026-11-12 21:08 names the test those
+# samples fail as chrony's delay-dev-ratio test (read from `chronyc ntpdata`'s
+# test bits by the order chrony 4.6's docs list them), so with one sample per
+# poll the reference stopped updating for hours. A burst gives chrony several
+# draws in a row, while the link is awake.
+#   - Fixed arguments; it parses no output. As _chrony because chronyd accepts
+#     burst only on its Unix command socket, /run/chrony/chronyd.sock, in a
+#     directory that is _chrony's, 0700; chronyc run as any other user falls
+#     back to UDP on localhost, where burst is refused.
+#   - Every 15 minutes by OnBootSec=5min and OnUnitActiveSec=15min, monotonic
+#     time, not OnCalendar=: the wall clock is what chrony is correcting, and a
+#     step in it would move a calendar timer. No RandomizedDelaySec=: one rig,
+#     nothing to spread.
+#   - The sandbox, each setting kept because chronyc is believed to still work
+#     under it: NoNewPrivileges=yes; CapabilityBoundingSet= empty (_chrony
+#     needs no capability to talk to its own socket); ProtectSystem=strict with
+#     ReadWritePaths=-/run/chrony, because chronyc binds its own reply socket,
+#     chronyc.<pid>, beside chronyd.sock ("%s/chronyc.%d" is in the strings of
+#     a chronyc 4.8 binary on a workstation; the rig's 4.6.1 was not read), so
+#     a read-only /run would break it. Its "-" is systemd's "ignore if
+#     missing" (systemd.exec(5)): with chrony stopped or restarting,
+#     /run/chrony may be absent, and without the "-" systemd is believed to
+#     fail to build the namespace before chronyc runs; with it, chronyc runs
+#     and finds no socket. ProtectHome=yes, PrivateTmp=yes and
+#     PrivateDevices=yes, none of which it reads; and
+#     RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6, the socket and its
+#     localhost fallback. TimeoutStartSec=30s bounds a chronyc that hangs.
+#     ⚠️ Not run under this sandbox on a Pi when written.
+#   - ExecStart= carries systemd's "-" prefix (Chris, 2026-11-13 21:24, the
+#     option "A refused burst isn't a failure"), so chronyc failing does not
+#     fail the run. ⚠️ Belief, not seen on a Pi: in the field the NTP sources
+#     stay in chrony's table, offline (PLAN §5's note on the 12-minute GPS
+#     takeover: "sources marked offline keep their samples", a docs agent's
+#     reading of chrony 4.6.1's source), and a burst asks them anyway, to no
+#     answer (chronyc(1): after a burst an offline source reverts to
+#     offline); with no NTP source known to chrony at all, burst is believed
+#     to be answered "503 No such source", with chronyc exiting non-zero.
+#     Either way the run succeeds, so a burst refused in the field no longer
+#     fails the next update's verify.
+#     What still fails the run: a timeout (TimeoutStartSec=). What no longer
+#     does, seen on a workstation's systemd 259 with "-", not on the rig's: a
+#     non-zero exit, a kill by a signal (SIGSEGV), and an executable that
+#     cannot be run (exit 203, a failure while systemd sets up the process).
+#     Not seen: a sandbox that cannot be set up (a 226/NAMESPACE exit, say);
+#     it is believed to end as the exit 203 did, since both are the process
+#     failing before chronyc runs, but that was not probed (a user manager
+#     builds no such namespace). If it does, a broken sandbox no longer fails
+#     the unit either: the accepted cost. The proof that bursts
+#     work is the overnight read step 0d already requires: the reference's age
+#     at every clock event, and the timer's journal showing chrony accepting
+#     bursts at home.
+#   - The verify checks the units (they match their render, load and pass
+#     systemd-analyze), that the timer is enabled and active, and that the
+#     service's last run this boot ended Result=success. It never starts a
+#     burst itself, and judges no sample, offset or source (PLAN §9c: never
+#     the sky). With "-", Result=success holds whatever chronyc exited with;
+#     chronyc's own status, ExecMainStatus, is printed and not judged, so the
+#     verify does not read whether chrony accepted a burst. systemd keeps a
+#     unit's last run for the current boot only, so "last run" is this boot's;
+#     the active timer keeps the service loaded, so its last run stays
+#     readable (seen on the same workstation: an inactive oneshot that nothing
+#     referenced was unloaded and its run forgotten; one an active timer
+#     referenced kept its run).
+#   - No run to judge passes, and says so: a fresh install whose timer has not
+#     fired yet, the first 5 minutes after a boot, or a run still going when
+#     the verify reads it. Failing those would hold an update for something
+#     the timer does within minutes, and the verify may not start a run to
+#     find out. The next verify judges the run that follows.
 #
 # The preflight's keys (Chris, 2026-11-12 01:02): clock.max_offset_ms,
 # clock.require_disciplined and clock.source are rendered from station.yml,
@@ -97,6 +174,9 @@ RTC_MAX_SKEW_S=5
 # a symlink into one would follow the flip.
 PREFLIGHT=/usr/local/bin/clock-preflight
 CLOCK_CONF=$ADSB_ETC/clock.conf
+UNIT_DIR=/etc/systemd/system
+BURST_SERVICE=adsb-chrony-burst.service
+BURST_TIMER=adsb-chrony-burst.timer
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
@@ -104,7 +184,7 @@ trap 'rm -rf "$WORK"' EXIT
 # install_if_changed <src> <dst> <mode> <owner:group>: render, diff, install
 # (PLAN §9f). Installs only when the content, mode or owner differs, and logs
 # which. Sets CHANGED to 0 or 1. For every file this step installs (gpsd's
-# defaults, chrony's gps.conf, clock.conf and the preflight): by a temporary
+# defaults, chrony's gps.conf, clock.conf, the preflight and the burst units): by a temporary
 # file in the destination's directory and a rename (step 60's), so a reader
 # running meanwhile (the writer's ExecStartPre=, a pull's preflight over ssh,
 # chrony or gpsd starting) sees the old file or the new one whole, never a
@@ -369,6 +449,83 @@ install_preflight() {
   install_if_changed "$src" "$PREFLIGHT" 0755 root:root
 }
 
+render_burst_service() {
+  cat >"$WORK/burst.service" <<'EOF'
+# Rendered by setup/steps/20-portable-clock.sh. Do not edit; re-run the step.
+# Asks chrony for a burst of samples from each NTP source; the timer starts it
+# every 15 minutes. Why, why each sandbox setting, and why "-" on ExecStart=
+# (chronyc failing does not fail the run), in the step's header.
+[Unit]
+Description=adsb-receiver chrony burst: several NTP samples in a row (portable)
+After=chrony.service
+
+[Service]
+Type=oneshot
+User=_chrony
+ExecStart=-/usr/bin/chronyc burst 2/8
+TimeoutStartSec=30s
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ReadWritePaths=-/run/chrony
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+EOF
+}
+
+render_burst_timer() {
+  cat >"$WORK/burst.timer" <<'EOF'
+# Rendered by setup/steps/20-portable-clock.sh. Do not edit; re-run the step.
+# 5 min after boot, then 15 min after each run started: monotonic time, so a
+# step in the wall clock does not move it (the step's header).
+[Unit]
+Description=adsb-receiver chrony burst timer, every 15 minutes (portable)
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=15min
+
+[Install]
+WantedBy=timers.target
+EOF
+}
+
+# burst_need_reload: a burst unit changed on disk since systemd read it.
+burst_need_reload() {
+  local u
+  for u in "$BURST_SERVICE" "$BURST_TIMER"; do
+    [[ $(systemctl show -p NeedDaemonReload --value "$u" 2>/dev/null) == yes ]] && return 0
+  done
+  return 1
+}
+
+# The timer is enabled and started, by hand and under update.sh alike: what it
+# starts is a burst, harmless at any moment, unlike the timers of steps 50 and
+# 70. A timer started after its OnBootSec= has passed is believed to elapse at
+# once (step 70's header), which is one burst.
+install_burst() {
+  local svc_changed timer_changed
+  render_burst_service
+  render_burst_timer
+  install_if_changed "$WORK/burst.service" "$UNIT_DIR/$BURST_SERVICE" 0644 root:root
+  svc_changed=$CHANGED
+  install_if_changed "$WORK/burst.timer" "$UNIT_DIR/$BURST_TIMER" 0644 root:root
+  timer_changed=$CHANGED
+  if ((svc_changed || timer_changed)) || burst_need_reload; then
+    run systemctl daemon-reload
+  fi
+  if ! systemctl is-enabled --quiet "$BURST_TIMER"; then
+    unit enable "$BURST_TIMER"
+  fi
+  if ! systemctl is-active --quiet "$BURST_TIMER"; then
+    unit start "$BURST_TIMER"
+  elif ((timer_changed)); then
+    unit restart "$BURST_TIMER"
+  fi
+}
+
 install_step() {
   rtc_gate
   find_puck
@@ -378,6 +535,7 @@ install_step() {
   install_timesyncd
   install_clock_conf
   install_preflight
+  install_burst
 }
 
 # --- verify --------------------------------------------------------------------
@@ -422,7 +580,7 @@ verify() {
   rtc_gate
 
   local t
-  for t in gpspipe chronyc hwclock python3; do
+  for t in gpspipe chronyc hwclock python3 systemd-analyze; do
     command -v "$t" >/dev/null || die "$t is not installed; run this step without --verify"
   done
 
@@ -540,6 +698,58 @@ verify() {
        pass "clock-preflight ran (exit 2 passes the install tier, PLAN §9c)" ;;
     *) die "clock-preflight could not run its check (exit $rc); see its output above" ;;
   esac
+
+  # 7. The burst timer: both units are this checkout's and load, the timer is
+  #    enabled and active, and the service's last run this boot ended
+  #    Result=success (the header). Nothing here starts a burst, or judges a
+  #    sample, an offset or a source's reach.
+  local en t_ac svc s_active s_result s_status s_started
+  render_burst_service
+  render_burst_timer
+  cmp -s "$WORK/burst.service" "$UNIT_DIR/$BURST_SERVICE" \
+    || die "$UNIT_DIR/$BURST_SERVICE is missing or differs from its render; run this step without --verify"
+  cmp -s "$WORK/burst.timer" "$UNIT_DIR/$BURST_TIMER" \
+    || die "$UNIT_DIR/$BURST_TIMER is missing or differs from its render; run this step without --verify"
+  rc=0
+  log "systemd-analyze verify $BURST_SERVICE $BURST_TIMER (raw output follows)"
+  out=$(systemd-analyze verify "$UNIT_DIR/$BURST_SERVICE" "$UNIT_DIR/$BURST_TIMER" 2>&1) || rc=$?
+  printf '%s\n' "${out:-(no output)}"
+  echo "----"
+  ((rc == 0)) || die "systemd-analyze verify rejected the burst units (exit $rc); see above"
+  [[ $(systemctl show -p LoadState --value "$BURST_SERVICE" 2>/dev/null) == loaded ]] \
+    || die "$BURST_SERVICE is not loaded; run this step without --verify"
+  ! burst_need_reload \
+    || die "systemd has not read the current $BURST_SERVICE or $BURST_TIMER (NeedDaemonReload=yes); run this step without --verify"
+  en=$(systemctl is-enabled "$BURST_TIMER" 2>&1) || true
+  t_ac=$(systemctl is-active "$BURST_TIMER" 2>&1) || true
+  log "$BURST_TIMER: is-enabled $en, is-active $t_ac"
+  [[ $en == enabled ]] || die "$BURST_TIMER is '$en', not enabled; run this step without --verify"
+  [[ $t_ac == active ]] || die "$BURST_TIMER is '$t_ac', not active; run this step without --verify"
+  pass "$BURST_SERVICE and $BURST_TIMER match their render and load; the timer is enabled and active"
+  # The last run, as systemd recorded it; read, never started here.
+  # ExecMainStartTimestampMonotonic is 0 when the service has not run this boot.
+  # With "-" on ExecStart=, Result=success whatever chronyc exited with, and a
+  # timeout is Result=timeout; ExecMainStatus is chronyc's own status, printed
+  # and not judged (the header).
+  svc=$(LC_ALL=C systemctl show -p ActiveState -p Result -p ExecMainStatus \
+          -p ExecMainStartTimestampMonotonic -p ExecMainExitTimestamp "$BURST_SERVICE" 2>&1) \
+    || die "systemctl show $BURST_SERVICE failed (a systemctl failure, not a failed burst): $svc"
+  log "systemctl show $BURST_SERVICE (raw output follows)"
+  printf '%s\n' "$svc"
+  echo "----"
+  s_active=$(sed -n 's/^ActiveState=//p' <<<"$svc")
+  s_result=$(sed -n 's/^Result=//p' <<<"$svc")
+  s_status=$(sed -n 's/^ExecMainStatus=//p' <<<"$svc")
+  s_started=$(sed -n 's/^ExecMainStartTimestampMonotonic=//p' <<<"$svc")
+  if [[ $s_active == activating ]]; then
+    pass "$BURST_SERVICE is running now; that run is not judged here, and the next verify judges its result"
+  elif [[ -z $s_started || $s_started == 0 ]]; then
+    pass "$BURST_SERVICE has not run since boot (a fresh install, or under 5 min since boot): no run to judge yet; the next verify judges its first"
+  elif [[ $s_result == success ]]; then
+    pass "$BURST_SERVICE's last run ended Result=success. Not read: whether chrony accepted that burst (chronyc's own status, ExecMainStatus=${s_status:-?}, is not judged: \"-\" on ExecStart=, the header)"
+  else
+    die "$BURST_SERVICE's last run did not succeed (Result=${s_result:-?}; above): with \"-\" on ExecStart=, chronyc's own exit does not fail it, so this is a timeout or systemd's own failure. Check: journalctl -u $BURST_SERVICE -n 20; systemctl status chrony; ls -ld /run/chrony"
+  fi
 }
 
 if ((VERIFY_ONLY == 0)); then
