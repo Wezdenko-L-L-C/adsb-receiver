@@ -259,10 +259,17 @@ in Arizona time (UTC−7), and from `date`.
        The step installs no packages and adds no `station.yml` key.*
      - *The clock's word is SYNCED, COARSE, HOLDOVER, UNSYNCED or `CHRONY?`, and a source that is
        missing or stale shows a word, never an old value. ⚠️ The thresholds are the implementer's,
-       not rulings: SYNCED needs chronyc(1)'s error bound within 20 ms and a reference time no
-       older than twice the update interval plus 64 s; older is HOLDOVER, and a bound above 20 ms
+       not rulings: SYNCED needs chronyc(1)'s error bound within 20 ms ~~and a reference time no
+       older than twice the update interval plus 64 s; older is HOLDOVER,~~ and a bound above 20 ms
        is COARSE. A fix older than 60 s shows a word, not its age. readsb's `now` more than 2 s
        ahead of the system clock is not shown as current.*
+       *Superseded 2026-11-12 (Chris, 21:17 Arizona time, by question), recorded 2026-11-13: the
+       HOLDOVER age is ruled, no longer the implementer's, and no longer reads the update
+       interval. It is a fixed age by the reference's kind, from chrony's stratum: past 96 s at
+       stratum 1 (the GPS), past 2,112 s at stratum 2 or more (an NTP server)
+       ([§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic), "Update 2026-11-12:
+       HOLDOVER by the reference's kind, and a burst timer"). The 20 ms bound is still the
+       implementer's, not ruled (✅ read in `bin/adsb-slate`'s comment above `BOUND_OK_S`).*
      - *The surface rule, as built: the renderer logs exception type names only, never a message,
        and ~~the step's verify prints only the UTC line and the clock's word from the screen, never
        the screen itself~~.* *Corrected 2026-10-10 (fable-architect's finding, checked by Claude in
@@ -667,6 +674,15 @@ options chosen:
      `/dev/vcs1` afterwards returned nothing, and chrony was back on an NTP server by then. It was
      seen in the field run of 2026-10-11, filmed 44 s after the GPS was selected: the CLOCK line
      read `COARSE GPS` with chrony's bound ("#30's panel run, 2026-10-11", below).*
+     *Update 2026-11-13: the HOLDOVER test this note computes is superseded by the 2026-11-12 21:17
+     ruling ([§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic), "Update
+     2026-11-12: HOLDOVER by the reference's kind, and a burst timer"). `HOLDOVER_SLACK_S` is gone,
+     and the update interval no longer decides it: the age is `HOLDOVER_GPS_S`, 96 s, at stratum 1,
+     as on this reading, and `HOLDOVER_NTP_S`, 2,112 s, at stratum 2 or more. On this reading the
+     answer is unchanged: 96 s either way, against a reference 7 s old. The `bin/adsb-slate` line
+     numbers in F1 above and in the note below are of earlier trees. In the tree that carries the change (✅ read): the
+     bound's formula is at `bin/adsb-slate:201`, `BOUND_OK_S` at `:217`, the two HOLDOVER constants
+     at `:235`–`:236`, the HOLDOVER test at `:268` and the bound test at `:270`.*
      *Update 2026-10-11: the bound's formula is chrony's own, seen. Seen by Claude at 07:31 Arizona
      time, over read-only SSH: the 🎒 portable has chrony 4.6.1-3+deb13u2, and line 306 of its
      `/usr/share/man/man1/chronyc.1.gz` reads `clock_error <= |system_time_offset| +
@@ -851,6 +867,15 @@ options chosen:
         12 minutes is the agent's inference from the refclock's sample window.
       - *Claude's, not ruled:* not `prefer` or `trust`, nor a smaller `delay`, on the refclock.
         Each would let the GPS beat good NTP servers while the rig is online.
+      - *Note 2026-11-12 (Chris, 21:17 Arizona time, by question, "Dated note (Recommended)"),
+        recorded 2026-11-13: the 12-minute HOLDOVER no longer shows; the ruling stands.* HOLDOVER
+        is now a fixed age by the reference's kind, and an NTP reference reads HOLDOVER only past
+        2,112 s ([§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic), "Update
+        2026-11-12: HOLDOVER by the reference's kind, and a burst timer"). As the question put it:
+        *"Under the fixed NTP age a drive-off would read SYNCED or COARSE instead (the writer still
+        records 'selected: 0'). The ruling itself ('leave chrony alone') stands."* Rejected, as put:
+        **Keep the 12-min HOLDOVER**, *"You want a drive-off to keep showing HOLDOVER. The rule then
+        needs another input (e.g. sources going offline), back to the architect."*
    3. **The Alt-F2 test is done at home, not in the field.** The first option, and the one Claude
       recommended. No keyboard was in the field.
       - Rejected: **moving the check to the pre-field checklist (#31),** to be done on the next
@@ -1471,7 +1496,11 @@ under `setup/foundation/rtc-overlay.sh`, in "Update 2026-10-04 (evening)" below.
 *Update 2026-11-13: that board was fitted to the 🎒 portable on 2026-11-13; see "Fitted 2026-11-13"
 at the end of the same bullet.*
 *Update 2026-11-11: what a recording rig does when chrony loses its source was ruled on 2026-11-11
-19:01, not built; see "Update 2026-11-11: the clock while recording" at the end of this section.*
+19:01, ~~not built~~; see "Update 2026-11-11: the clock while recording" at the end of this section.*
+*Corrected 2026-11-13: built 2026-11-12; see "As built, 2026-11-12" in the same place.*
+*Update 2026-11-13: HOLDOVER became a fixed age by the reference's kind, and the 🎒 portable gained
+a timer that asks chrony for a burst of NTP samples (ruled 2026-11-12 and 2026-11-13); see "Update
+2026-11-12: HOLDOVER by the reference's kind, and a burst timer" at the end of this section.*
 
 ~~**The first build is by hand, one step at a time.**~~ *Superseded 2026-10-04 (Chris): the first
 build is one command, and the updater it installs finishes the build; see the evening update at the
@@ -2383,6 +2412,166 @@ line. ⚠️ Nothing of it has run on a Pi.
     leaves it down. Nothing alerts on it yet.
   - The 🏠 stationary has no step that renders `clock.conf`: step 20 asserts the portable role. Its
     clock step must render it (#33).
+
+**Update 2026-11-12: HOLDOVER by the reference's kind, and a burst timer for the 🎒 portable's
+chrony. Ruled 2026-11-12 (Chris, 21:08 and 21:17 Arizona time, by question); the texts as put are
+in the private pick-up record, and quoted here where they carry a reason.** The 2026-11-13 ruling on
+how the timer's run is judged follows this update.
+
+- **What raised it, 2026-11-12, on the 🎒 portable at home** (read by Claude over read-only SSH;
+  Chris's `sudo` for what needed root). chrony's reference stopped updating for hours while a source
+  was marked `*` and every NTP source answered (reach 377); the update interval read 16,098 s that
+  morning and 33,091 s that evening. The rig's own Wi-Fi hop holds a reply after the link has been
+  idle: a 20 ms ping train from the rig read `101 79 55 31 7 106 83 55 31 7`, then 3 to 7 ms, the
+  replies waiting for the next beacon, about 100 ms apart. Wi-Fi power save, turned off by hand for
+  the test, did not change it. NTP polls came every 1,024 s, so each sample landed on an idle link and
+  chrony rejected it: by `chronyc ntpdata`'s test bits, the delay-dev-ratio test (a docs agent's
+  reading, by the order chrony 4.6's docs list the tests).
+- **The hand test, 2026-11-12, about 21:09 (Chris's `sudo`).** `sudo chronyc burst 2/8` refreshed
+  every answering source and the reference: the update interval went from 33,091 s to 2.0 s, and the
+  selected source read −0.2 ms ±12 ms, against +31 ms ±68 ms before. `sudo -u _chrony chronyc burst
+  1/4` answered `200 OK`, exit 0. At 21:13 the root delay read 24 ms and the root dispersion 0.7 ms,
+  a bound of about 13 ms. ⚠️ The rig's banner then read *"CLOCK HOLDOVER: chrony's reference was
+  last updated 204 s ago … error bound 13.227 ms (as of 2026-11-13T04:12:31Z)"*: the old rule,
+  2 × the update interval + 64 s, used the burst's 2 s.
+- **The fix, "Burst timer, hand test first (Recommended)", as put at 21:08:** *"fable-architect's
+  call. Step 20 installs a timer that runs `chronyc burst 2/8` every ~15 min: extra measurements per
+  source until one passes. Gated on a hand test tonight (~10 min of your sudo pastes). Ends the
+  hours-long staleness; the error bound stays ~50–90 ms and the word stays COARSE on this Wi-Fi.
+  Reaches the rig at its next update window; proof is an overnight read next session. Nothing on
+  record refuses it."*
+  - ⚠️ *The option's "the error bound stays ~50–90 ms and the word stays COARSE" was
+    fable-architect's first reading, and the hand test proved it wrong (21:13: root delay 24 ms, a
+    bound of about 13 ms). The architect corrected it in its revision.*
+  - Before the question: a rejection-checker found nothing refusing it, and found "own the source
+    list" in conflict with step 20's GPS-only `clock.source` rule (BUILD §6a; step 20's header).
+  - Rejected, as put:
+    - **Leave it, alert only:** *"No rig change. Stalls of hours continue; since 0b a restart stays
+      safe for ~4–5 days of stall; the GPS can't take over during a stall."*
+    - **Chase the Wi-Fi link first:** *"You test another client's ping train on the same access
+      point and look at the router's settings before any code. The only route to SYNCED on Wi-Fi,
+      but it costs your hands and helps no other builder of the guide."*
+    - **Own the NTP source list:** *"The repo declares its own servers with a quantile filter,
+      dropping Debian's pool and the DHCP servers. Strongest chrony-side fix, but it reverses step
+      20's GPS-only source rule (BUILD §6a), edits a Debian conffile, names servers in the public
+      repo, and needs a docs check first."*
+- **How HOLDOVER is decided, "Fixed ages by reference kind (Recommended)", as put at 21:17.** The
+  question: *"The burst timer breaks the HOLDOVER test: it reads 'ref age > 2 × chrony's update
+  interval + 64 s', and a burst shrinks that interval to 2 s, so the rig would mark HOLDOVER in the
+  archive most of every 15 minutes while the clock is at its best. How should HOLDOVER be
+  decided?"* The option: *"fable-architect's call. From chrony's stratum: on GPS (stratum 1)
+  HOLDOVER after 96 s, the same as the field today; on NTP (stratum ≥2) after 2,112 s. Same rig
+  change as the timer, committed ahead of it, reviewed together. Also fixes the stall case, where
+  today's test hides HOLDOVER for hours."*
+  - Before the question: fable-architect revised its call after the hand test. A rejection-checker
+    found nothing refusing stratum as an input or fixed ages (the thresholds were then "the
+    implementer's, not ruled", in `bin/adsb-slate`'s comment), and found that the 18:26 ruling
+    constrains only the drive-off wording.
+  - Rejected, as put:
+    - **Poll-based threshold:** *"Follow the selected source's poll from `chronyc sources`. Closer
+      to chrony's own numbers, but if chrony lowers the poll the threshold drops below the 15-min
+      timer and false HOLDOVER returns; needs a second command and name matching in three
+      copies."*
+    - **Word first, timer next session:** *"Ship only the HOLDOVER change tonight. The rig then
+      honestly reads HOLDOVER during stalls for hours a day at home until the timer lands."*
+    - **Timer only:** *"Rejected by the architect: false HOLDOVER marks go into the permanent
+      archive on every cycle. Listed so the refusal is on record."*
+- **The 2026-10-11 18:26 ruling, "Dated note (Recommended)", the same question set:** the note is
+  beside ruling 2 of "Rulings after the panel run", in
+  [§5](#5-proposed-the-web-interface-is-three-existing-services-not-a-new-one).
+
+**Update 2026-11-13: a refused burst is not a failure. Ruled 2026-11-13 (Chris, 21:24 Arizona time,
+by question).** It came up in building the 21:08 ruling above.
+
+- **Why it was put:** step-reviewer found that a verify requiring the burst's last run to have
+  exited `0` judges the network, which a verify may not do
+  ([§9c](#9c-every-step-ends-in-a-check-of-the-observable-effect)): a burst refused in the field
+  would stay the last run for up to 15 minutes after the rig reached home, and fail the next
+  update's verify. A rejection-checker found that "last run exited 0" was the wording of the
+  build's brief, not of the 21:08 ruling.
+- **"A refused burst isn't a failure (Recommended)", as put:** *"The unit runs `chronyc burst` with
+  systemd's '-' prefix, so chronyc refusing for want of a source no longer fails the run; a crash or
+  timeout still does. The check stays: timer enabled and active, last run succeeded. Cost: a broken
+  sandbox stops failing the unit too. The proof that bursts work moves to the overnight read 0d
+  already requires: the reference's age at every clock event, and the timer's journal showing
+  chrony accepting bursts at home."*
+  - ⚠️ *Corrected the same evening (Claude's error in the option, put to Chris and accepted: "yes
+    let it stand corrected"):* the option's "a crash or timeout still does" was wrong. With
+    systemd's "-", a non-zero
+    exit, a kill by a signal and an executable that cannot be run (exit 203) all end
+    `Result=success`: an implementer's probes on a workstation's systemd 259 user manager, not the
+    rig's. Only a timeout fails the run. A sandbox that cannot be set up (exit 226) is believed, not
+    probed, to end the same way.
+- Rejected, as put:
+  - **Check only the timer:** *"Drop the last-run check. Step 20 checks that the timer is installed,
+    enabled and active, plus the unit-file checks. Nothing about whether a burst ran; the overnight
+    read is the only proof. Simplest; the 0d spec's wording is amended."*
+  - **Keep it as built:** *"Keep 'last run exited 0' as the spec says. Accepts that an update window
+    within 15 minutes of reaching home may fail and roll back, then retry the next night. Nothing on
+    record accepts that, and it's the case §9c's reason describes."*
+
+**As built, 2026-11-13: the 21:08, 21:17 and 21:24 rulings.** ✅ Read in the code named on each
+line. ⚠️ Nothing of it has run on a Pi. It reaches the 🎒 portable at the rig's next update window.
+
+- **HOLDOVER, in the three copies** (`bin/adsb-slate`'s `holdover_after_s()` and `clock_state()`,
+  copied into `bin/adsb-writer` and `bin/clock-preflight`): the clock is HOLDOVER when the reference
+  is strictly older than `HOLDOVER_GPS_S`, 96 s, at stratum 1, or `HOLDOVER_NTP_S`, 2,112 s, at
+  stratum 2 or more. Stratum 0, or one that is not a whole number, takes the GPS's 96 s, the
+  shorter, so the mark comes sooner, never later; chrony reports stratum 0 with no reference, which
+  is UNSYNCED first by its leap status. The code's derivations: 96 s is 2 × 16 s, the refclock's
+  poll, + 64 s; 2,112 s is 2 × 1,024 s, chrony's default maxpoll, + 64 s. The update interval is
+  still parsed and judges nothing; `clock-preflight` prints it on its state line, with the stratum
+  and the age it applied. The order is unchanged: UNSYNCED, HOLDOVER, COARSE (a bound over 20 ms),
+  SYNCED. HOLDOVER still never refuses: the preflight's readiness is the reference, the leap status
+  and the bound.
+- **Tests:** `tests/test_clock_agreement.py` holds the three copies to the architect's fixtures:
+  after a burst (stratum 2, update interval 2.0 s, age 204 s), SYNCED; a stall (stratum 2, interval
+  33,091 s, age 8,000 s), HOLDOVER; the GPS at 40 s, SYNCED, and at 100 s, HOLDOVER. The boundaries
+  are exact: SYNCED at 96 s and 2,112 s, HOLDOVER 0.01 s past each.
+- **Step 20's burst timer** (`setup/steps/20-portable-clock.sh`: its header, `render_burst_service`,
+  `render_burst_timer`, `install_burst`): `adsb-chrony-burst.timer` starts
+  `adsb-chrony-burst.service` 5 minutes after boot and 15 minutes after each run started
+  (`OnBootSec=5min`, `OnUnitActiveSec=15min`): monotonic time, not `OnCalendar=`, because the wall
+  clock is what chrony is correcting. The service is a oneshot that runs `/usr/bin/chronyc burst
+  2/8` as `_chrony`, with fixed arguments, parsing no output: by chronyc(1)'s `burst good/max`, up
+  to 8 measurements of each NTP source, stopping once 2 are good (read in chrony 4.8's man page on a
+  workstation, not the rig's 4.6.1). It runs as `_chrony` because chronyd accepts `burst` only on its
+  Unix command socket in `/run/chrony`, which is `_chrony`'s and `0700` (the step's header; the mode
+  seen on the rig, "As built, 2026-11-12", above). `ExecStart=` carries systemd's "-" (the 21:24
+  ruling), with `TimeoutStartSec=30s`. The sandbox: `NoNewPrivileges=yes`, an empty
+  `CapabilityBoundingSet=`, `ProtectSystem=strict` with `ReadWritePaths=-/run/chrony`,
+  `ProtectHome=yes`, `PrivateTmp=yes`, `PrivateDevices=yes` and `RestrictAddressFamilies=AF_UNIX
+  AF_INET AF_INET6`. ⚠️ Not run under this sandbox on a Pi when written (the step's header).
+- **Its verify** (part 7 of the step's `verify`): both units match their render, load and pass
+  `systemd-analyze verify`; the timer is enabled and active; the service's last run this boot ended
+  `Result=success`. chronyc's own status, `ExecMainStatus`, is printed and not judged, so the verify
+  does not read whether chrony accepted a burst. A run still going, or none yet this boot, passes and
+  says so. It never starts a burst, and judges no sample, offset or source.
+- ⚠️ **The archive's HOLDOVER events of the evening of 2026-11-12.** The hand bursts from about 21:09
+  Arizona time (04:09Z on 2026-11-13) shrank chrony's update interval to 2 s while the old rule was
+  on the rig, so the 🎒 portable's writer has probably written `clock` events with `state=HOLDOVER`
+  that night while the bound was about 13 ms. Not read in the archive. They are the old rule's flaw
+  that the 21:17 question describes, not a loss of the clock.
+- 📋 **Still owed: the proof on the rig, not seen.** It waits for the next update window and an
+  overnight read. Step 0d's text in the private pick-up record, as written: *"**Must show on the rig
+  (next session's start, an overnight read, ≥12 h at home on Wi-Fi, recording, no SSH session open
+  between reads; ⛔ not claimed tonight):** zero HOLDOVER events in the writer's archive for the
+  period; the reference's age under 2,112 s at every `clock` event and tracking's reference time
+  advancing within each 15-minute cycle; the word SYNCED or COARSE with a bound around 30 ms or less
+  (SYNCED not promised); the count of SYNCED↔COARSE flips (a handful fine; dozens is a hysteresis
+  follow-up, reported); per-source good/received deltas across the night (Chris's sudo) for the pass
+  rate with nobody logged in; the timer's journal runs exiting 0. **Field regression, at the next
+  field session:** on GPS alone the word behaves as before; pulling the puck reads HOLDOVER after
+  about 96 s; with Wi-Fi dropped, the GPS is selected no later than the 12 min 23 s on record. **The
+  architect's "what would change this":** a low pass rate overnight → revisit cap and cadence, or
+  the own-the-sources question; the GPS reference not giving stratum 1 on the rig → another
+  discriminator; a `maxpoll` above 10 appearing → the 2,112 s constant must follow it. #33 carries
+  the stationary's own answer (wired: expect no burst needed; on Wi-Fi: its 100 ms bar and the link
+  are one question)."* The 21:24 ruling names the same read: *"the reference's age at every clock
+  event, and the timer's journal showing chrony accepting bursts at home."*
+  - ℹ️ On the stratum: with the GPS selected, `chronyc tracking` on the 🎒 portable read Stratum 1
+    on 2026-10-11 (F1's check, in
+    [§5](#5-proposed-the-web-interface-is-three-existing-services-not-a-new-one)).
 
 ### 9f. What `update.sh` does
 
