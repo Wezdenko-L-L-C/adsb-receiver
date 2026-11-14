@@ -372,12 +372,27 @@ pins. So to wire it off the header:
   pin on the Pi (pin 9 is nearest), into the socket position that sits on pin 6.
 - Pin functions, by physical pin number (pinout.xyz, read 2026-11-05): 3V3 on 1 and 17; 5V on 2
   and 4; GND on 6, 9, 14, 20, 25, 30, 34 and 39; SDA on 3; SCL on 5.
-- ⚠️ How many pins the socket covers is not stated here. Check the board's own silkscreen labels
-  before wiring. If the board shows a 5 V position, wire it to pin 2 or 4 as well.
+- ⚠️ ~~How many pins the socket covers is not stated here. Check the board's own silkscreen labels
+  before wiring. If the board shows a 5 V position, wire it to pin 2 or 4 as well.~~
+  *Corrected 2026-11-13, from the 🎒 portable's board in hand (read from Chris's photos, zoomed, not
+  seen in person): the socket is 2×3, so on the header it would sit on pins 1 to 6. The silkscreen
+  carries no pin labels and marks no 5 V position, and all six pads are round, so there is no pin-1
+  mark to check.* Orient it by the board's shape instead. Its large mounting hole sits over the Pi's
+  corner mounting hole, so the socket column next to that hole is pins 1 and 2; the row along the
+  board's edge is the even pins, and the row toward the coin cell and the chip is the odd pins.
+  ⚠️ That mapping is Claude's, from the board's geometry, not Adafruit's text; how it was checked is
+  in [PLAN.md §9e](PLAN.md#9e-the-first-build-is-by-hand-after-that-updates-are-automatic),
+  "Fitted 2026-11-13". On the 🎒 portable the 5 V positions (2 and 4) are left unwired.
 - For example, the 🎒 portable's case fan uses header pins (Chris, 2026-11-05, by question) and has
-  no control wire (Chris, typed the same day: "nope, it is a cheap case and cheap fan"); which
-  pins, read off the board when the case is open. Whether its PiRTC is fitted:
+  no control wire (Chris, typed the same day: "nope, it is a cheap case and cheap fan"); ~~which
+  pins, read off the board when the case is open~~ *corrected 2026-11-13: red on pin 4 (5 V), black
+  on pin 6 (GND), the outer row (read from Chris's photo), both under the PiRTC's footprint*. Whether its PiRTC is fitted:
   the note on the 🎒 portable at the end of the ZS-042 subsection below.
+- ℹ️ A fan powered from the header takes its 5 V from pin 2 or pin 4, and both sit under the
+  PiRTC's footprint (pins 1 to 6), so with any such case the PiRTC stays on jumpers (Claude's
+  reasoning from the pinout above).
+- **The 🎒 portable's jumpers, fitted 2026-11-13** (read from Chris's photos), socket position → Pi
+  pin: white 1 → 1 (3V3), blue 3 → 3 (SDA), purple 5 → 5 (SCL), green 6 → 9 (GND).
 
 #### ⛔ The ZS-042 board will try to charge a non-rechargeable cell
 
@@ -397,12 +412,24 @@ prints a reminder when it adds the overlay.*
 This cell advice (CR2032, LIR2032, R5) is for the ZS-042 only. For the PiRTC, see its cell
 paragraph above.
 
-*On the 🎒 portable a ZS-042 is still fitted, and this is done on it. The diode is removed
+*On the 🎒 portable a ZS-042 ~~is still fitted, and this is done on it~~ was fitted until
+2026-11-13, and this was done on it. The diode is removed
 (**(Chris)**, 2026-10-11); Claude has not seen the board. No script can check it, as the correction
 above says, and [PLAN.md §9e](PLAN.md#9e-the-first-build-is-by-hand-after-that-updates-are-automatic)
 records the 2026-10-04 ruling that made it a hardware-assembly step. Its replacement by the PiRTC
 above was ruled on 2026-11-05, after the board lost time over two multi-day offs (the same PLAN.md
-§9e ruling), and is not yet fitted.*
+§9e ruling)~~, and is not yet fitted~~.*
+
+*Corrected 2026-11-13: the PiRTC DS3231 (4282) was fitted to the 🎒 portable on the evening of
+2026-11-13, on a new CR1220, wired by jumpers as in "Wiring the PiRTC by jumpers" above; the ZS-042
+is off the rig, and Chris kept it and its CR2032. Before the cell went in, no resistor or diode was
+seen on the PiRTC, so no charge path was seen; the area under the coin holder was not seen (read
+from Chris's photos, zoomed, not seen in person). The ZS-042's CR2032 read 3.25 V at removal
+(Chris). ✅ On the first boot the chip registered as `rtc-ds1307 1-0068` and, once chrony had set
+the clock, read the same second as `date -u` (read on the rig over SSH). The test the ruling set is
+still open: the first dry multi-day off. The full record, the old board's deposits included, is
+[PLAN.md §9e](PLAN.md#9e-the-first-build-is-by-hand-after-that-updates-are-automatic),
+"Fitted 2026-11-13".*
 
 ℹ️ Wire it to the Pi's **3.3 V** pin, not 5 V — the Pi's I²C is 3.3 V logic anyway, and it makes
 the charging circuit less aggressive if you have not removed it. ℹ️ The AT24C32 EEPROM on the same

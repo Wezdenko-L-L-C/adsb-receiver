@@ -1468,6 +1468,8 @@ there, with `sudo`** (it is `root:root 0600`).
 heading is kept as written because nine links in this document point at its anchor.*
 *Update 2026-11-05: the 🎒 portable's RTC board was ruled on 2026-11-05 22:01; see the last bullet
 under `setup/foundation/rtc-overlay.sh`, in "Update 2026-10-04 (evening)" below.*
+*Update 2026-11-13: that board was fitted to the 🎒 portable on 2026-11-13; see "Fitted 2026-11-13"
+at the end of the same bullet.*
 *Update 2026-11-11: what a recording rig does when chrony loses its source was ruled on 2026-11-11
 19:01, not built; see "Update 2026-11-11: the clock while recording" at the end of this section.*
 
@@ -1618,8 +1620,10 @@ recommendation every time, and that choice is the decision.
       covers. No diagnosis step
       comes before the purchase. The planned deliberate multi-day power-off test on the bench is
       dropped. Chris meters the old board's CR2032 when it comes off, as a record and not a gate.
-      The new board is tested on the rig's next natural multi-day off. 📋 Ruled, not fitted: the
-      ZS-042 is still on the rig.
+      The new board is tested on the rig's next natural multi-day off. ~~📋 Ruled, not fitted: the
+      ZS-042 is still on the rig.~~ *Corrected 2026-11-13: fitted that evening, and the ZS-042 is off
+      the rig; see "Fitted 2026-11-13" at the end of this bullet. The multi-day-off test is still
+      open.*
       - **Why: the ZS-042 lost time twice.** Seen in the rig's journal on 2026-10-25 and
         2026-11-05, and in the RTC's registers on 2026-10-25.
         - Offs of 15 s and 106 s kept time. Two multi-day offs did not: about 6 days, 2026-10-18 to
@@ -1676,6 +1680,78 @@ recommendation every time, and that choice is the decision.
         the board that failed twice.
       - ➡️ **What would reopen this:** the PiRTC also loses time after a dry multi-day off. Then the
         cause is environmental (moisture at the crystal) or the wiring, not the board.
+      - **Fitted 2026-11-13, in the evening (Chris's hands).** The ZS-042 is off the 🎒 portable and
+        the PiRTC DS3231 (4282) is on, wired by female-to-male jumpers as in
+        [BUILD.md §6b](BUILD.md#6b-gps-alone-does-not-close-it)'s "Wiring the PiRTC by jumpers",
+        because the case fan holds pins 4 and 6, under the board's footprint. Sources below: "Chris"
+        is what Chris typed; "photo" is read by Claude from Chris's phone photos, zoomed, not seen in
+        person; "rig" is read by Claude over read-only SSH on the rig.
+        - **Wiring (photo).** Socket position → Pi pin: white 1 → 1 (3V3), blue 3 → 3 (SDA), purple
+          5 → 5 (SCL), green 6 → 9 (GND); green on 9 confirmed from a close-up showing the 7/8 column
+          bare. The fan: red on pin 4 (5 V), black on pin 6 (GND), the outer row. No 5 V position is
+          marked on the PiRTC, and its 5 V pins are left unwired.
+        - **The PiRTC, before a cell went in (photo).** The chip is marked `DS3231SN`, date code
+          `2535`. The board carries the chip, one small tan two-terminal part (Claude's belief: a
+          ceramic capacitor), the CR1220 holder, a 2×3 female socket, and SQW and 32K pads. No
+          resistor or diode seen, so no charge path seen; the area under the coin holder was not
+          seen. No pin labels on the silkscreen, and all six pads round, so no pin-1 mark.
+        - **Which socket position is which pin, by the board's geometry, not Adafruit's text
+          (Claude).** The board's large mounting hole sits over the Pi's corner mounting hole, about
+          1.9 pin pitches past the end column: about 1.93 measured in a photo, and about 4.87 mm
+          from the Pi 4 mechanical drawing (⚠️ as Claude recalls the drawing; not checked). So the
+          socket column next to the hole is Pi pins 1 and 2, the row along the board's edge is the
+          even pins, and the row toward the coin cell and chip is the odd pins. Chris's meter, on
+          resistance with no beep: one end of the small part reads connected to pad 1 and not pad 6;
+          the other end to pad 6 and not pad 1. ⚠️ A capacitor has no polarity, so this proves pads
+          1 and 6 are the supply pair, not which is which; the reversed (180°) case was ruled out by
+          geometry only. Chris declined the further sweep of the chip's legs that would have settled
+          it by meter (typed: "Let's not"). ✅ The observable effect settles it: the chip registered
+          and keeps time (first boot, below), which a reversed supply would not.
+        - **Cells (Chris).** The new CR1220 (PKCELL) read 3.33 V open-circuit. The ZS-042's CR2032,
+          the Energizer fitted 2026-10-27, read 3.25 V at removal: that is the cell of the second
+          failure, whose voltage "Why" above records as not measured.
+        - **The old ZS-042 (photo).** White crusty deposits along the underside header solder joints,
+          on the coin holder's plastic rim and around its contact clip, around the cell's edge (its
+          seal), and on the top side by the left header (GND/VCC), with a streak from the resistors
+          toward the SDA/SCL pins. Flux would sit only on joints; deposits on the holder's rim and
+          the cell's edge fit drying after water, and a leaking cell seal would also leave white
+          crust. The photos cannot tell those apart. By the reading set down with the ruling in the
+          private pick-up record (*"a cell near 3.2 V with marks points to water"*), this points to
+          water. It is a record, not a gate, as ruled. Chris kept the old board and its cell (Chris;
+          how and where not stated).
+        - **The 2026-11-01 water, for context.** Rain reached the rig on 2026-11-01 while it was
+          recording; that evening every USB port reported over-current, the radio, the GPS puck and the archive drive dropped, and
+          Chris powered it off cleanly. Chris (2026-11-05 22:26, answering by question, typed): *"I do
+          not remember, water made it to the pi through so I could see it getting to the RTC"*. The off that followed is the second failure under
+          "Why" above (the private pick-up record holds the day's full read).
+        - **Where it sits (Chris).** Claude raised that the PiRTC sits where the water reached; Chris
+          answered *"Once the stationary comes online the portable only comes out to do its job"*,
+          and Claude dropped the concern. Chris also typed *"I will grab a new case tomorrow"*
+          (2026-11-14). If its fan also uses pins 4 and 6, the jumper wiring carries over; any fan
+          powered from the header takes 5 V from pin 2 or 4, both under the PiRTC's footprint
+          (pins 1 to 6), so the jumpers stay with any such case (Claude's reasoning from the pinout).
+        - **First boot, started 2026-11-13 20:55:05 Arizona time (rig, `uptime -s`).**
+          `/sys/class/rtc/rtc0/name` reads `rtc-ds1307 1-0068`. The kernel, at 6.51 s:
+          `rtc-ds1307 1-0068: SET TIME!`, then `hctosys: unable to read the hardware clock`, as
+          expected: a new chip boots with OSF set. The clock came up at 2026-10-03; chronyd logged
+          "System clock wrong by 3542632.958744 seconds" and stepped it at 27.9 s. The writer's
+          start failed once, at 19.15 s (clock-preflight refused, as designed), and it started on its
+          30 s retry at 20:55:55, its clock event reading `state=SYNCED … bound_ms=16.791`. ✅ The RTC
+          read `2026-11-14 03:55:44` when `date -u` read the same second (20:55:44 Arizona time), and
+          again `03:56:02` against `03:56:02`. Not yet seen: step 20's verify on the new board, which
+          runs at the rig's next update window.
+        - ⚠️ **The first boot also logged an under-voltage (rig).** `hwmon hwmon2: Undervoltage
+          detected!` at 9.54 s and `Voltage normalised` at 11.55 s, just after the archive drive
+          mounted; `vcgencmd get_throttled` read `0x50000` (under-voltage and throttling have
+          occurred, neither current). Boots −1, −2 and −3 logged none. Chris saw the fan spinning up
+          and down at boot, fine after. Not attributed to the PiRTC: it draws microamps from 3V3, and
+          the alarm watches the 5 V input. A supply sag at USB power-up, or the plug moving while the
+          rig was handled, are candidates; unverified. ➡️ If the next boot repeats it, look at the
+          supply and the cable.
+        - 📋 **Still open: the test this ruling set.** The first dry multi-day off after the swap must
+          show `setting system clock to <the right UTC>` in the kernel log and no `SET TIME!`.
+          ⚠️ An off that follows rain does not count. If the PiRTC loses time after a dry multi-day
+          off, this ruling reopens, as "What would reopen this" above says.
   - **`setup/foundation/format-archive.sh`**, under a strict rule:
     - If any device already carries the label `adsb-archive`, it formats nothing, and step 30 mounts
       that device.
