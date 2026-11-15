@@ -33,13 +33,15 @@ argument-hint: NN-name
 ## The contract — CI fails the push without these
 
 - `parse_args "$@"` and a function defined as `verify()` at the start of a line
+- In a role-specific step, `require_root "$@"` then `require_role` straight after `parse_args`
+- No `--role` flag and no `ADSB_ROLE` (§9b): the role comes from `station.yml`
 - No denylisted path or unit (`ADSB_DENY_PATHS`, `ADSB_DENY_UNITS` in `lib.sh`) on any
   non-comment line. ⛔ Those are foundation: `setup/foundation/`, run by hand (§9h)
 - `bash -n` and `shellcheck -x` clean
 
 ## Hold to these too (CI cannot see them)
 
-- ⛔ No `--role` flag. No "tested on" header. No `yq` (not on the image; use `station_get`).
+- ⛔ No "tested on" header. No `yq` (not on the image; use `station_get`).
 - ⛔ Not an `install-all.sh`, and nothing that chains steps. The first build is one command
   (PLAN §9e's 2026-10-04 evening update): `setup/bootstrap.sh` runs `setup/update.sh --bootstrap`,
   the one orchestrator, which runs every step in order. A step still chains nothing. BUILD.md §8's

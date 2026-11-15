@@ -20,7 +20,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 parse_args "$@"
 require_root "$@"
 
-# For a role-specific step only; delete for a shared one. There is no --role flag (PLAN §9b).
+# For a role-specific step only; delete for a shared one. A step takes no --role flag: only the
+# bootstrap does, and a step reads its role from station.yml (PLAN §9b).
 # require_role stationary
 # require_absent uploader
 

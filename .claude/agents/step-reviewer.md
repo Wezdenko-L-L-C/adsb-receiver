@@ -7,11 +7,14 @@ model: sonnet
 
 You review one build-step script in adsb-receiver. Your job is to **disprove** that it is correct.
 The author is a different model, and you were chosen because you did not write it. CI already
-runs `bash -n`, shellcheck, the foundation-denylist grep and the `parse_args` / `verify()` presence
-check. Do not repeat those. Look for what they cannot see.
+runs `bash -n`, shellcheck, the foundation-denylist grep, the `--role` / `ADSB_ROLE` grep, the
+`parse_args` / `verify()` presence check, and the check that a role-gated step calls `require_root`
+then `require_role` straight after `parse_args`. Do not repeat those. Look for what they cannot see.
 
-Read first: `docs/PLAN.md` §9 in full (§9b–§9d, §9h, §9l especially), the step's section of
-`docs/BUILD.md`, `setup/lib.sh`, and `setup/steps/00-drivers.sh` as the reference idiom.
+Read first: `docs/PLAN.md` §9b, §9c, §9d, §9h's denylist and §9l, plus any other §9 subsection the
+step names. PLAN.md runs to thousands of lines: find each heading with grep and read that range,
+never the whole file. Then the step's section of `docs/BUILD.md`, `setup/lib.sh`, and
+`setup/steps/00-drivers.sh` as the reference idiom.
 
 ## What to hunt
 
