@@ -1253,6 +1253,19 @@ question; the texts as put are in the private pick-up record.)**
 - Rejected: **deciding after the tuner's FPGA decision.** Every commit made until then is public
   for good.
 
+*Update 2026-11-17: reopened, and undecided. (Chris, 2026-11-17 19:17, typed in place of the
+options; the texts as put are in the private pick-up record, "Rulings as put", 2026-11-17 19:17.)*
+Asked whether rigs at other people's sites are product stations or guide rigs, Chris typed: *"We
+only have a public repo so the rigs do not need keys. This seems to be a bad decision that needs to
+be revisited."* Asked whether a per-rig, revocable key that can reach nothing else meets the
+no-credential rule for a hosted rig, he typed: *"This rule makes no sense."* ➡️ The record reads
+both answers as reopening this section's founding decision, a public repo and no credential on the
+device (Claude's reading at 19:17, not confirmed by Chris; restated at 20:48 as "reopened and
+undecided"). No ruling has replaced it, so the text above stands until one does. The 20:48
+hands-off updating design puts no new secret on a rig, so the question can be decided apart from
+it; see "Update 2026-11-17 20:48: hands-off updating", in
+[§9h](#9h--the-stationary-rigs-home-and-remote).
+
 ### 9b. One bash script per build step
 
 Plain, idempotent bash with `set -euo pipefail`. Each step in [BUILD.md §8](BUILD.md#8-build-order)
@@ -3809,6 +3822,10 @@ update below.*
     below). ⚠️ The arm64 dry run named here is still not built (`ci.yml`'s TODO,
     [§9k](#9k-the-first-deliverable-in-order) item 3), so it is what both rigs' channel lacks, not
     the stationary's alone, which makes it more load-bearing.*
+  - *Update 2026-11-17: ruled, 📋 not built: a weekly bot that updates the upstream pins advances
+    `main` and `stable` itself when every CI check and the rehearsal pass (08:02 Q1). See "Update
+    2026-11-17: software outside the repo", in [§9h](#9h--the-stationary-rigs-home-and-remote),
+    and its 20:48 update below it.*
 - ⭐ **The workflow's `GITHUB_TOKEN` is the only write credential, and it lives in GitHub, not on a
   device.** That keeps [§9a](#9a-the-repo-ships-its-own-software-and-the-pi-pulls-it)'s
   no-credential-on-the-Pi property intact.
@@ -3824,6 +3841,12 @@ update below.*
     it, one of which, `9fd4a4e`, touched `ci.yml`) and on 2026-10-05 (`c35a29c`, `e019b29`,
     `42b5115`, `1d5f631`, `d36fee6`), each time fast-forwarding `stable` within about three minutes.
     The personal-access-token fallback is not needed.*
+  - *Update 2026-11-17: this rule decided a part of the 20:48 hands-off updating design. Its stages
+    move by a scheduled GitHub job with `GITHUB_TOKEN`, and the workstation pushes nothing; the
+    architect's first draft, where the workstation moved each version from stage to stage, was
+    thrown out on this rule, and because it would stall whenever the workstation was down. That
+    design is the architect's call, not ruled by question, and 📋 not built. See "Update 2026-11-17
+    20:48: hands-off updating", in [§9h](#9h--the-stationary-rigs-home-and-remote).*
 - 🏠 The stationary rig also only takes commits older than `update.soak_days` (7 days).
   - ~~"Commits older than"~~ *Superseded 2026-10-04 (evening), (Chris): the stationary takes
     **`stable`'s tip, and only once the tip is at least `update.soak_days` old**; otherwise it waits.
@@ -3867,6 +3890,17 @@ fast-forwards: nothing on `main` says "held", so the job is right to follow the 
   change it: a need to hold `stable` without touching `main` for longer than `update.soak_days`;
   then a `stable-hold` ref, accepted as a second truth.* *Since the last resort's retirement on
   2026-10-15 at 22:08, that ref is the only named escape for a long hold.*
+  *Update 2026-11-17: reversed for the security set only. (Chris, 2026-11-17 20:48, Q3, by
+  question; the text as put is in the private pick-up record, "Rulings as put", 2026-11-17 20:48.)*
+  When the test Pi starts a night's security fixes and does not come back healthy, the other rigs
+  skip security fixes until Chris releases them; chosen, "Skip until I release (Recommended)":
+  *"The other rigs skip security fixes until you release with one click. You get an alert every day
+  while held. This changes your 08:02 answer (warn only)."* In the architect's design, not ruled by
+  question, the hold is a public ref set by the scheduled GitHub job. That accepts, for the security
+  set, a hold of the shape refused here, a marker beside the branch that the rigs honor. Nothing
+  here is struck: the refusal is not reversed for `stable` or for the versions the repo pins.
+  📋 Not built. See "Update 2026-11-17 20:48: hands-off updating", in
+  [§9h](#9h--the-stationary-rigs-home-and-remote).
 - *Restated 2026-10-05, (Chris), now that both rigs follow `stable` (the update below). ~~📋 Ruled, not
   built.~~ Corrected 2026-10-05: both rigs follow `stable` as built in `94e4f94`, ~~⚠️ not yet run on
   a Pi~~. Corrected 2026-10-10: the 🎒 portable is seen following it (the "As built" below).* A revert on `main` reaches `stable` through the job. The 🎒 portable takes it on its next
@@ -3939,6 +3973,8 @@ using stable build points instead of main to determine where to pull the latest 
   - **`update.soak_days: 0` in the portable template.** It breaks the consequences table's ⛔.
   - **A per-role channel flag in the bootstrap or `station.yml`.** A second truth; this section's
     brake ruling refused a `stable-hold` for less.
+    *Update 2026-11-17: a hold of that shape is accepted for the security set only (20:48 Q3); see
+    the note under the brake's rejections, above.*
   - **Gating `stable` on the portable's run.** The portable is off for weeks; it would freeze the
     stationary.
 - 📋 **What changes, named, ~~not implemented~~:** *Corrected 2026-10-05: implemented in `94e4f94`;
@@ -3970,6 +4006,8 @@ using stable build points instead of main to determine where to pull the latest 
     gate is in the wrong place, and the portable goes back to `main` until it is fixed;
   - a need to hold `stable` while the portable keeps moving: then the `stable-hold` ref this section
     already names;
+    *Update 2026-11-17: a hold for the security set, not for `stable`, is accepted (20:48 Q3); see
+    the note under the brake's rejections, above.*
   - the previous-green trap biting more than once at the bench: then a `--channel main` escape on
     the bootstrap, named as the unverified-tip case;
   - Actions outages freezing both rigs more than once: then a wrapper for the hand fast-forward, in
@@ -4149,6 +4187,13 @@ question; the texts as put are in the private pick-up record.)**
   with `gh api`, 2026-10-15, before the ruling: `main` and `stable` had no protection and no
   rulesets. It is ✅ only once read back with `gh api repos/Wezdenko-L-L-C/adsb-receiver/rulesets`.
   ⛔ Never verified by a trial force push.
+  *Corrected 2026-11-17: no longer "not applied". The read recorded ✅ in "Update 2026-11-17:
+  software outside the repo" ([§9h](#9h--the-stationary-rigs-home-and-remote)), made by Claude
+  between the 07:42 and 08:00 questions, found the `main` and `stable` rulesets in place, blocking
+  deletion and non-fast-forward pushes and also requiring signed commits. So "and nothing else", in
+  the ruling's first bullet above, no longer describes them: they also require signatures, the
+  prerequisite named in the 2026-10-15 signing update above. That record does not say whether the
+  read was this `gh api` call, and a trial force push is still never made.*
 - **Not yet: "Restrict updates" on `stable`.** GitHub's documentation lists no way to exempt the
   built-in Actions token from it (⚠️ community posts say it cannot be), so it would block
   `advance-stable`; it needs CI to push with a GitHub App token first.
@@ -4214,6 +4259,8 @@ replaced the rest of it. 📋 **Nothing below is built.**
   - Rejected by the architect: **a bench Pi** ([§9l](#9l-rejected)'s second canary Pi); a
     self-hosted runner on a Pi; a rig pushing a verdict; real archived BEAST in CI; the
     workstation driving the check (§9f's (D)); extra windows to test.
+    *Update 2026-11-17: the bench Pi is reversed by Chris's 20:48 Q1, a test Pi; see the reversal
+    under the second canary Pi in [§9l](#9l-rejected).*
 - **What the rejection-checker flagged, for the record:**
   - P2 reverses Variant A, above, and the premise that the rigs read `stable` only. The §9e text
     Variant A's reason cites, the rejection of "the channel from the role only", was not located.
@@ -4331,6 +4378,12 @@ of 2026-10-05 at 20:31 (run directory `20261006T033133Z`) ran them again, and `s
 carried `foundation` record reads `rtc_overlay: ok` and `format_archive` `skipped`, "already labeled
 adsb-archive, ext4: /dev/sda1", `ran_at` 2026-10-06T03:31:46Z. ⚠️ Not seen on hardware: a format
 of a blank drive, or the overlay written into `config.txt`.*
+*Update 2026-11-17: Tailscale is to leave the by-hand layer, on one condition. (Chris, 2026-11-17
+20:48, Q4, by question; the record is "Update 2026-11-17 20:48: hands-off updating", below.) If a
+trial-boot test passes on the test Pi, Tailscale updates automatically in stages, as the kernel
+does; until it passes, Tailscale stays by hand. ⚠️ The test is unverified and unbuilt, and the test
+Pi is not bought, so nothing here has changed yet. The watchdogs and the boot disk are not named
+by the ruling.*
 
 ⛔ **`update.sh` cannot touch what keeps the rig reachable.** The install and restart helpers in
 `lib.sh` carry a denylist, and CI greps `setup/steps/` for it:
@@ -4372,6 +4425,27 @@ restarting its own service while keeping the existing config files, nor a securi
 rebuilding the boot image in `/boot/firmware`, which is detected and reported, with the reboot left
 to Chris. The table above is unchanged. 📋 Not built. The rulings, and what was rejected with them,
 are in "Update 2026-11-17: software outside the repo", below.
+
+**Update 2026-11-17 20:48: to be narrowed for `/boot/firmware` and `tailscaled`, only if the
+trial-boot test passes on the test Pi. (Chris, 2026-11-17 20:48, Q4, by question; 18:44 Q3 and
+18:56 Q2 before it; the texts as put are in the private pick-up record, "Rulings as put", under
+those times.)** At 18:44 Chris answered "Yes, with rollback" to whether a rig may reboot itself to
+finish an update: *"Reboots are allowed if a bad boot falls back to the last working system on its
+own."* At 18:56 he narrowed this list and the by-hand foundation layer for whole-system images
+("Narrow both (Recommended)"); that answer was ruled for the image design and reopened with it at
+18:59, and at 19:17, asked to narrow both again for images, Chris typed a different design instead,
+so it does not narrow anything now. At 20:48 Q4 he chose "Yes,
+both (Recommended)": *"Kernel and Tailscale both update automatically in stages once the test
+passes. The bootloader chip is set once at enrollment and left alone."* ➡️ Once a trial-boot test
+on the test Pi proves that a bad kernel falls back to the old one by itself, the automatic path may
+touch `/boot/firmware` for a kernel and restart `tailscaled` for a Tailscale update; until then the
+table above is unchanged, and it stays unchanged for every other path and unit. ⚠️ **The test is
+unverified and unbuilt**: how a trial boot works on a Pi 5 is the architect's memory of Raspberry
+Pi's documentation, it is to be proven on the test Pi with a deliberately broken kernel before any
+other rig uses it, and if it fails the kernel question goes back to Chris. The test Pi is not
+bought. Rejected with it: **kernel only,** Tailscale staying by hand on every rig; **both by
+hand,** as ruled at 07:42, about 5 minutes per rig per quarter. The record is "Update 2026-11-17
+20:48: hands-off updating", below.
 
 **Before committing an update**, all of these must hold: Tailscale's `BackendState` is `Running`
 and the node is online; outbound https to github.com works; `readsb` answers on port 30005; and
@@ -4506,6 +4580,162 @@ options then put refused in writing. 📋 **Nothing below is built.**
   signed and passes the ruleset; whether a dispatched run's checks satisfy a required check on that
   SHA; `rpi-eeprom`'s apply-at-boot behavior; whether the archive records the `readsb` version per
   session.
+
+**Update 2026-11-17 20:48: hands-off updating. (Chris, 2026-11-17, 18:44 to 20:48 Arizona time, by
+question and typed in chat; the texts as put are in the private pick-up record, "Rulings as put",
+2026-11-17 18:44, 18:56, 18:59, 19:06, 19:17, "the session after the evening close — 0n", and
+20:48.)** The four answers of 20:48 are the rulings in force. The rounds before them are the path:
+each is recorded below for what it ruled or reopened, and what 20:48 then settled or left open.
+📋 **Nothing below is built, and the test Pi is not bought.** ✅ Read in the repo by documenter,
+2026-11-17: nothing outside `docs/` names `unattended-upgrades`, `tryboot` or a hold ref, and
+`.github/workflows/ci.yml` runs on `push` and `pull_request` only, with no schedule.
+
+- **What 20:48 changes in the 07:42–08:04 block above.** Q3 replaces 08:02 Q3's check that *"warns
+  you; it can't hold an update back from a rig"*, for the security set: a failed night on the test
+  Pi now holds the other rigs' security fixes until Chris releases them. Q4 changes 07:42 Q1's
+  kernel by hand, conditionally: kernel and Tailscale become automatic in stages only once the
+  trial-boot test passes on the test Pi, and stay by hand until then. With it, 07:42 Q1's "➡️
+  [§9l](#9l-rejected)'s rejection of letting the updater reboot stands" holds only until that test
+  passes. The rest of that block stands: 18:44 reopened it as a design, and the record has its
+  rulings standing until a new ruling replaces them.
+- **18:44: the design reopened.** Chris, typed while reading the 07:42–08:04 design: *"Here is my
+  issue - a lot of the updating needs me. That works for one or two stations. It becomes
+  unmanageable at scale."* and *"I want to rethink this whole thing."* The fleet's size, Q1, chosen
+  "Not known yet": *"Design so it scales, without committing to a size."* (offered, not chosen:
+  about 10; 10 to 50; hundreds). Who hosts rigs, Q2, chosen "A mix": *"Some are yours, some are
+  hosted by others."* (not chosen: only Chris; other people). Whether a rig may reboot itself to
+  finish an update, Q3, chosen "Yes, with rollback": *"Reboots are allowed if a bad boot falls back
+  to the last working system on its own."* (not chosen: "Yes, outside recording"; "Architect
+  decides"). Whether [§9l](#9l-rejected)'s rejections of prebuilt images, containers and config
+  management pushed from a workstation are reopened, Q4, typed, beginning *"Yes, open all."* (not
+  chosen: images only; none reopened).
+- **18:56: whole-system images, ruled, then reopened at 18:59.** Q1, "Images, if the test passes
+  (Recommended)": CI-built A/B images, written to a spare system partition, booted in the 04:30
+  window, falling back by themselves if a health check fails. Q2, "Narrow both (Recommended)": the
+  never-touch list and the by-hand foundation layer narrowed so an image may carry sshd, networking
+  and Tailscale. Q3, "Two checks (Recommended)": CI builds only from a `stable` commit signed by
+  Chris's key, and signs the image with a CI key his key vouches for. Q4, "Next session": the 🎒
+  portable's hand hardening left for the next session. Not chosen: **stay in place,** no rollback,
+  kernel and firmware by hand; **a fleet manager,** a third-party fleet service, not designed;
+  **keep them whole,** which turns the image design off; **Chris signs each release,** about a
+  minute of his time per release, security rebuilds included.
+- **18:59: the direction reopened over fix speed.** Under images a security fix reached the last rig
+  in about 2–4 days, against the 07:42 plan's same night. Chosen, "Reopen the direction": *"Fix
+  speed outweighs rollback. Round 1's image ruling goes back on the table."* 18:56 Q1, Q2 and Q3
+  were reopened together; 18:56 Q4 and the 18:44 answers stood. Not chosen: an architect's security
+  fast lane; keeping the 2–4 days, with an emergency flag. Round 2's four questions were stopped
+  before they were answered.
+- **19:06: two lanes.** Q1, "Two lanes (Recommended)": *"Userspace fixes reach every rig within
+  about 24 hours; kernel and firmware fixes about a night on your rigs and 2 nights elsewhere. Lane
+  1 is built first."* Lane 1 is userspace security fixes in place with no reboot; Lane 2 was kernel,
+  firmware, the boot image, Tailscale and releases as A/B images. Q2, the recommended option:
+  building and enrolling rigs to be modeled on the workstation's own scripted rebuild (the vendor's
+  signed image with a per-rig render, the bootstrap driven from another machine and rehearsed in a
+  VM), the architect to check what carries over to a Pi first. Q3, "Your rigs one night first
+  (Recommended)": *"Kernel and firmware fixes take about a night on your rigs and 2 nights
+  elsewhere. This replaces the full-day wait from 2026-11-14 for security-only images."* Not
+  chosen: in place only; images only; replacing images with whole rebuilds; context only; every
+  rig the same night; the full day, as ruled.
+- **19:17: stations that update themselves; the founding decision reopened.** All four typed in
+  place of the options. Asked to narrow the never-touch list for Lane 2's images, Chris typed:
+  *"Instead of whole images. Lets have a way to allow the stations to update themselves and the
+  loaded programs. If this is an image fine, if this a list of the programs with the latest
+  versions fine."* Asked how Lane 2's images are signed: *"The image is not going to work - needs to
+  be able to update on its own."* The other two are recorded in
+  [§9a](#9a-the-repo-ships-its-own-software-and-the-pi-pulls-it), whose founding decision the record
+  reads them as reopening. The record's reading, Claude's and not confirmed by Chris: the mechanism is open,
+  an image or a list of program versions; Lane 2 as images is set aside; 19:06's two lanes stand
+  only as far as Lane 1.
+- **0n: Chris's direction, typed in chat; not a ruling by question.** Chris: *"I do not want to have
+  to do everything by hand just to update the software."* and *"this needs to be done in a way that
+  will not break the station but also not need me to do it by hand."* Claude answered with seven
+  options in plain words (the OS's own automatic security updates; rigs pulling the repo nightly and
+  rebuilding, as today; a tested version list; containers; whole-system images with a spare copy; a
+  paid fleet service; pushing from the workstation), and for testing GitHub's tests, a spare Pi that
+  takes every update first, and a staged rollout. Chris: *"Lets take the solar rigs out of the
+  equation for now - does this change your answer?"*, then *"I think the solar rigs are going to be
+  less upgradable. I like those options, I will acquire another Pi 5 (I am using a four for the
+  mobile-station)."* The record's reading: the first two options, with a spare Pi 5 as the first
+  stage, and solar rigs out of this design. On the rollback those options keep: `setup/update.sh`'s
+  header says a rollback restores what the applied tree renders and does not remove what the
+  candidate created, recording `rollback.complete` false. Chris then typed *"I am fine with the
+  portable being left out"*, which 20:48 Q2 settles.
+- **The test Pi (20:48 Q1).** Chosen, "Yes, buy it (Recommended)": *"The earlier 'no' was written
+  when only our own code updated, and that can be rolled back. Security packages and reboots
+  cannot."* A Pi 5, with a radio and a boot disk like the 🏠 home stationary's, becomes the station
+  that takes every update first and reboots every day. It reverses [§9l](#9l-rejected)'s rejection of
+  a second canary Pi (the note there). Rejected: **the home rig goes first,** *"As ruled 2026-11-14:
+  the home stationary rig is the first to take each update, with no separate test station."*
+- **The 🎒 portable (20:48 Q2).** Chosen, "Out of test coverage (Recommended)": *"No spare Pi 4 is
+  bought to test for it. The portable still updates itself at home, security fixes included. Its
+  kernel stays by hand."* ⚠️ A Pi 5 test box proves nothing for the Pi 4 portable. 📋 Open, not
+  ruled: how "its kernel stays by hand" sits with Q4, under which kernels move to "your rigs" once
+  the test passes. Rejected: **out of auto-updating,** *"The portable gets no automatic updates at
+  all. You update it by hand, as you did tonight."*
+- **The stop (20:48 Q3).** Chosen, "Skip until I release (Recommended)": *"The other rigs skip
+  security fixes until you release with one click. You get an alert every day while held. This
+  changes your 08:02 answer (warn only)."* It accepts a hold of the shape
+  [§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable) refused, for the security set
+  only (the note under §9g's brake). Rejected: **warn only,** *"As ruled at 08:02: you get an alert,
+  but the other rigs install that night's fixes anyway."*; **skip, release by itself,** *"The rigs
+  skip, and start again once the test Pi next passes. The architect advises against it: the test Pi
+  can pass before the other rigs have the fix."*
+- **Kernel and Tailscale (20:48 Q4).** Chosen, "Yes, both (Recommended)": *"Kernel and Tailscale
+  both update automatically in stages once the test passes. The bootloader chip is set once at
+  enrollment and left alone."* Conditional on the trial-boot test, ⚠️ unverified and unbuilt; the
+  never-touch list's note above says what it narrows and when. Rejected: **kernel only,** Tailscale
+  by hand on every rig; **both by hand,** as ruled at 07:42, about 5 minutes per rig per quarter.
+- **The design the four answers rule on: the architect's call, not ruled by question.**
+  fable-architect's amended design, after a rejection-checker's list, was put to Chris on the page
+  he answered and not objected to; only the four answers above are rulings. As the page put it:
+  (A) every rig installs the security set by itself each night, the 07:42 ruling, with no reboot,
+  started by its nightly maintenance so never while recording, and the 🎒 portable first, before
+  anything else is built; (B) everything else is a version number in the repo, `readsb` and
+  `tar1090` now and later the kernel and Tailscale, with a weekly bot proposing new numbers;
+  (C) a version moves through three stages by itself: CI's tests and the rehearsal pass and the
+  test Pi takes it that night; after about 10 healthy hours there, Chris's own rigs, the 🏠 home
+  stationary and the 🎒 portable; after the home rig's full healthy day (2026-11-14, unchanged),
+  the remote and hosted rigs; each rig told once, at enrollment, which stage it follows; (D) the
+  test Pi takes the security set and new versions about 12 hours ahead of the others, then reboots
+  every day whether or not anything changed; (E) one automatic stop, for the security set only: if
+  the test Pi has not come back healthy about 2 hours after starting a night's fixes, the others
+  skip them until released, and if the test Pi is off or dead there is no stop, only a "test Pi is
+  silent" alert; (F) the kernel by hand until the trial-boot test passes, then booted once on trial;
+  the EEPROM set once at enrollment, never automatically; (G) health through the one sender ruled
+  2026-11-14, and reports from hosted rigs never used to move a version. Beyond the page, also the
+  architect's call: three branches, `stable` for the test Pi, a second for Chris's rigs and
+  `proven` for the remote and hosted rigs; a scheduled GitHub workflow that fast-forwards them with
+  `GITHUB_TOKEN` and reads health through a read-only monitoring key held as an Actions secret; one
+  version per stage per night; the hold as a public ref set by that job; and the build order: (A)
+  on the portable, the health sender, the rehearsal, the test Pi, the job that moves stages, the
+  stop, the trial-boot test, then (F). Chris's hands, as the architect estimated them (none
+  measured): about 20 minutes once for the pipeline; 15–20 minutes plus 2 per rig to enroll it
+  (the enrollment not designed); none a month; about 5 minutes per rig per quarter for the kernel
+  until the test passes; 15–30 minutes for a held night; 20–30 minutes to reflash a test Pi that
+  will not boot; a site visit for a hosted rig that will not boot, the same under every option.
+- **Thrown out of the architect's first draft,** by the two checks: **the workstation moving
+  versions from stage to stage,** because only GitHub holds the write permission
+  ([§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable)) and it would stall whenever
+  the workstation was down; **the test Pi taking every change,** because with daily pushes no
+  version would finish its wait; **kernel updates rebooting with no way back,** against 18:44 Q3;
+  **a hold with no one named to release it,** which would silently freeze security fixes; **no
+  plan for Tailscale,** which would leave it by hand on every rig for good.
+- **Left out of this design** (the page's words, not a ruling): solar rigs, containers,
+  whole-system images, a paid fleet service, and pushing from the workstation. The
+  [§9l](#9l-rejected) rejections that 18:44 reopened are not ruled again. Still open:
+  [§9a](#9a-the-repo-ships-its-own-software-and-the-pi-pulls-it)'s founding decision; this design
+  puts no new secret on a rig.
+- ⚠️ **Not checked, the page's known gaps and the architect's own list, for the implementer's
+  brief:** nothing the stages lean on exists yet (no rehearsal, no health sender, no stationary rig,
+  no automatic security updates on any rig); the trial boot on a Pi 5 (`tryboot`, `tryboot.txt`,
+  `os_prefix`), from the architect's memory of Raspberry Pi's documentation; that the Pi archive
+  keeps older kernel versions installable; that the monitoring service returns report bodies to a
+  read-only key; that GitHub pauses scheduled workflows on a quiet public repository (why the job
+  is to report its own heartbeat); `unattended-upgrades`' conffile handling. Known holes, as the
+  page put them: the EEPROM cannot be rolled back under any option; a package Debian publishes
+  between the test Pi's run and the others' goes out untested, and closing that needs the tested
+  package list rejected at 08:02; and the hold is public, so anyone watching the repository can see
+  the rigs skipping that night's security fixes.
 
 **Health is pushed, not pulled:**
 
@@ -5147,6 +5377,10 @@ direction the public repo was made for
 ([§9a](#9a-the-repo-ships-its-own-software-and-the-pi-pulls-it)). It puts a control-node toolchain
 in front of every reader. And its idempotence hides the check that
 [§9c](#9c-every-step-ends-in-a-check-of-the-observable-effect) exists to show.
+*Update 2026-11-17: reopened by Chris's 18:44 Q4 ("Yes, open all."), with the two rejections
+below. The 20:48 design leaves pushing from the workstation out, the architect's call; no ruling
+has restated this rejection. See "Update 2026-11-17 20:48: hands-off updating", in
+[§9h](#9h--the-stationary-rigs-home-and-remote).*
 
 ⛔ **Rejected: a shipped image, or pi-gen.** It bakes in the driver version, which is the
 [BUILD.md §4](BUILD.md#4-drivers-first) hazard again. An image is a tested claim. And it cannot be
@@ -5157,9 +5391,20 @@ new `stable` before it advances, and the rigs keep building from source. The opt
 CI-built images that the rigs install, would have reopened this rejection. Three rigs stand, with
 the 🏠 remote stationary (Q1, "No, it stays"). The record is "Update 2026-11-17: software outside
 the repo", in [§9h](#9h--the-stationary-rigs-home-and-remote).*
+*Update 2026-11-17, evening: reopened at 18:44, so "not reopened" above no longer holds. Chris's
+18:44 Q4, typed, beginning "Yes, open all.", reopened this rejection, containers and config
+management pushed from a workstation, for the architect. Images were ruled at 18:56 and reopened
+at 18:59; at 19:17 Chris typed "The image is not going to work - needs to be able to update on its
+own." The 20:48 design leaves images out, the architect's call; no ruling has restated this
+rejection. See "Update 2026-11-17 20:48: hands-off updating", in
+[§9h](#9h--the-stationary-rigs-home-and-remote).*
 
 ⛔ **Rejected: containers.** `gpsd`, `chrony`, the RTC overlay and the USB serials are host concerns,
 and the guide exists to teach them.
+*Update 2026-11-17: reopened by Chris's 18:44 Q4 ("Yes, open all."), with the two rejections above.
+The 20:48 design leaves containers out, the architect's call; no ruling has restated this
+rejection. See "Update 2026-11-17 20:48: hands-off updating", in
+[§9h](#9h--the-stationary-rigs-home-and-remote).*
 
 ⛔ **Rejected: one installer with a `--role` flag.** It puts both halves in one file, which is the
 same reason the templates are split.
@@ -5196,6 +5441,13 @@ not built.~~* *Corrected 2026-10-04, later that evening: built, ~~not yet run on
 bootstrap reboots only when five conditions all hold, not on the flag alone (§9e's "As built").*
 *Corrected 2026-10-10: run on the 🎒 portable: the bootstrap of 2026-10-05 rebooted at its end
 (`bootstrap.sh`'s header; [§9j](#9j--verified-on-hardware-2026-10-03), fact 8).*
+*Update 2026-11-17: to change, on one condition. At 18:44, asked whether a rig may reboot itself to
+finish an update, Chris chose "Yes, with rollback": "Reboots are allowed if a bad boot falls back to
+the last working system on its own." At 20:48 (Q4) kernel and Tailscale updates are to become
+automatic in stages once a trial-boot test passes on the test Pi, a bad kernel falling back to the
+old one by itself. ⚠️ The test is unverified and unbuilt, so this rejection holds until it passes.
+The test Pi's own daily reboot was in 20:48 Q1's question, which Chris answered yes. See "Update 2026-11-17 20:48:
+hands-off updating", in [§9h](#9h--the-stationary-rigs-home-and-remote).*
 
 ⛔ **Rejected for now: release tags.** A `stable` branch advanced by CI does the job. ℹ️ Tags become
 worth having when an outside builder appears.
@@ -5214,6 +5466,15 @@ stationary is not a soaking canary (its soak is 0, A11), and the 🏠 remote sta
 what the home one ran healthy, through a promoted branch, behind a CI rehearsal that gates
 `stable` for every rig. Both are in "Update 2026-11-14: the stationaries' soak, and the release
 gate", at the end of [§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable).*
+*Reversed 2026-11-17, so the closing above no longer holds. (Chris, 2026-11-17 20:48, Q1, by
+question; the text as put is in the private pick-up record, "Rulings as put", 2026-11-17 20:48.)*
+Chosen, "Yes, buy it (Recommended)": *"The earlier 'no' was written when only our own code updated,
+and that can be rolled back. Security packages and reboots cannot."* A Pi 5, with a radio and a
+boot disk like the 🏠 home stationary's, becomes the test station that takes every update first
+and reboots every day. It is reopened on that ground, not on the condition named above, a rollback
+failing remotely. Rejected: **the home rig goes first,** as ruled 2026-11-14, with no separate test
+station. Nothing is struck. 📋 Not bought, not built. The record is "Update 2026-11-17 20:48:
+hands-off updating", in [§9h](#9h--the-stationary-rigs-home-and-remote).
 
 ⛔ **Rejected: an overlayfs read-only root.** Every update becomes a two-reboot dance, and booting
 from the SSD with no SD card already removes the wear problem it would solve.
