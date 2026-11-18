@@ -1339,6 +1339,13 @@ code** (`setup/`, `bin/`, `config/` and `tools/`), before it is pushed. It runs 
 `step-reviewer` and `/code-review`, and replaces neither. The reason recorded with the ruling: the
 rigs run root timers that parse radio and Wi-Fi input anyone nearby can send, and this repo is
 public.
+*Update 2026-11-17: one exception. (Chris, 2026-11-17 08:02, Q2; the text as put is in the private
+pick-up record, "Rulings as put", 2026-11-17 08:02.) The weekly bot's own version-update commits
+to the `readsb` and `tar1090` pins are exempt from this rule and from `step-reviewer` and
+`/code-review`, on the condition that CI rejects any bot commit that changes more than the pinned
+version line and its comment. The bot's workflow and scripts get the full review when written and
+whenever they change. 📋 Neither the bot nor that check is built. The record is "Update
+2026-11-17: software outside the repo", in [§9h](#9h--the-stationary-rigs-home-and-remote).*
 
 ### 9c. Every step ends in a check of the observable effect
 
@@ -4356,6 +4363,16 @@ would be a reachability failure. ➡️ The step validates the rendered file wit
 installing it, and it is role-specific: it asserts the portable role
 ([§9b](#9b-one-bash-script-per-build-step)). The denylist table above is unchanged.
 
+**Update 2026-11-17: narrowed for a vendor security package's own restarts and boot-image
+rebuild, on every rig. (Chris, 2026-11-17 07:42, Q2 and Q3; reconfirmed for the 🏠 remote
+stationary at 08:04; the texts as put are in the private pick-up record, "Rulings as put", under
+those times.)** The ⛔ above covers the repo's code changing network or SSH config. It does not
+cover an automatic security update to `openssh-server`, `wpasupplicant` or `network-manager`
+restarting its own service while keeping the existing config files, nor a security update
+rebuilding the boot image in `/boot/firmware`, which is detected and reported, with the reboot left
+to Chris. The table above is unchanged. 📋 Not built. The rulings, and what was rejected with them,
+are in "Update 2026-11-17: software outside the repo", below.
+
 **Before committing an update**, all of these must hold: Tailscale's `BackendState` is `Running`
 and the node is online; outbound https to github.com works; `readsb` answers on port 30005; and
 `clock-preflight` passes.
@@ -4379,9 +4396,116 @@ update ([§9f](#9f-what-updatesh-does)). ℹ️ "Passes" here means `clock-prefl
 *Update 2026-11-14: on the Pi 5 the boot device is the NVMe drive, not a USB SSD, with the SD card
 as the possible fallback (A5 at the end of this section); and A12 there says which of these layers
 the 🏠 home stationary builds and which only the remote one needs.*
+*Update 2026-11-17: on the 🏠 home stationary the SD card stays in the slot, unused, as the fallback
+(A5, settled 2026-11-17 21:18, at the end of this section), so "with no SD card" does not hold
+there. The rig boots from the NVMe, and the boot order must try the NVMe first (belief, not
+checked).*
 
 Also: `unattended-upgrades` for security updates only, with no automatic reboot. Ask the host for a
 wired port.
+*Update 2026-11-17: the first sentence is superseded in mechanism by the 07:42 ruling in the block
+below. Security updates only, and no automatic reboot, both stand; the ruling adds which archives,
+when they install, and which packages stay by hand, on every rig.*
+
+**Update 2026-11-17: software outside the repo, on every rig: OS packages and the upstream pins.
+(Chris, 2026-11-17, 07:42 to 08:04 Arizona time, by question and typed in chat; the texts as put
+are in the private pick-up record, "Rulings as put", 2026-11-17 07:42, 08:00, 08:02 and 08:04.)**
+Partly superseded the same evening; see the 2026-11-17 20:48 update. The design is
+fable-architect's, in three passes that morning; before 07:42 a rejection-checker found none of the
+options then put refused in writing. 📋 **Nothing below is built.**
+
+- **What prompted it.** ✅ Read by Claude over SSH on the 🎒 portable, 2026-11-17, 06:55–07:25,
+  read-only: no `unattended-upgrades`, apt lists from 2026-10-04, 16 updates pending; openssl's fix
+  is a Raspberry Pi rebuild, `3.5.7-1~deb13u3+rpt1`, outranking Debian-Security's (`apt-cache
+  policy`), and wpasupplicant's is only in the Raspberry Pi archive; `auto_initramfs=1`, with
+  `initramfs8` in `/boot/firmware`. ✅ Read in the repo by documenter, 2026-11-17: nothing outside
+  `docs/` installs `unattended-upgrades` or runs an apt upgrade.
+- **OS packages (07:42 Q1).** Chosen, "Architect's design": *"Security set automatic in the window,
+  0 min per run. Kernel, firmware and EEPROM by hand with a reboot, about 1 hour a year across three
+  rigs."* As put: security updates install automatically inside the existing update window, never
+  while the rig is recording and never with a reboot. The set is Debian's security archive plus four
+  packages Raspberry Pi rebuilds itself, openssl's three and wpasupplicant. Kernel, firmware and
+  EEPROM stay by hand, about 5 minutes per rig per quarter. ➡️ [§9l](#9l-rejected)'s rejection of
+  letting the updater reboot stands. Rejected with it: **automatic, rig reboots too,** which
+  reverses the ruling that the updater never reboots, and a bad boot on the remote rig means a site
+  visit; **by hand only,** today's state, which left openssl and wpasupplicant stale for 6 weeks.
+- **The never-touch list, narrowed (07:42 Q2 and Q3; the note under the denylist above).** Q2,
+  chosen: *"Narrow the rule: it covers the repo's code changing network or SSH config, not a vendor
+  security fix that keeps config files. These are the Wi-Fi and SSH programs anyone nearby can
+  reach."* So security updates to `openssh-server`, `wpasupplicant` and `network-manager` install
+  automatically and restart their own services, keeping the existing config files. Q3, chosen,
+  "Allow, report it": *"The update records the change in the rig's status and on its login banner
+  and asks for a reboot. Same answer for every rig."* Some Debian security updates (systemd, udev)
+  rebuild the boot image in `/boot/firmware` automatically, and no package list can stop it; that
+  is allowed, detected and reported, and the reboot is left to Chris. Rejected with them: **hold
+  them for the hand run,** keeping the rule whole, with the architect then recommending a monthly
+  hand run; for the boot image, **allow on the portable only,** the remote skipping any automatic
+  run that would rebuild it, and **never automatically,** any such run stopping on every rig, both
+  waiting for the by-hand run.
+- **Both reconfirmed for the 🏠 remote stationary (08:04).** Both were answered while Chris believed
+  the remote rig dropped (his 08:00 message). Put again for the remote, he chose "Keep it for all
+  rigs" both times: *"07:42 stands as ruled. The remote reports the change and asks for a reboot;
+  nothing stops it."* and *"07:42 stands as ruled: the three update automatically on every rig, the
+  remote included."* The reasons put against, as asked: a rebuilt startup image only shows if it is
+  bad at the next reboot, which on the remote may be after a power cut with nobody there; and the
+  never-touch list exists for a remote rig with nobody on site, where a failed restart of one of the
+  three leaves the rig out of reach until someone travels to it. Rejected, the recommended option
+  both times: **portable and home only,** where on the remote the boot-image run and the three
+  packages wait for the by-hand run, after the home rig has run the same set (the architect then
+  suggesting that run be monthly for the remote). ➡️ Considered twice; not to be re-raised unless
+  Chris reopens it.
+- **The upstream pins, `readsb` and `tar1090` (07:42 Q4).** Put: a weekly GitHub job opening one
+  issue whenever a newer upstream version is out, each update ruled by Chris. Chris typed instead,
+  a design correction: *"We should be testing and integrating the 3rd party software in the GitHub
+  environment. Making new stable builds."* Offered, not chosen: the watcher with `readsb` v3.16.21
+  first; the watcher, waiting on v3.16.21; no watcher.
+- **Clarified (08:00).** Chris, typed: *"I thought we decided against the 3rd rig. I thought we were
+  using a github image and sandbox to create stable images?"* Q1, chosen "No, it stays": *"The
+  2026-11-14 ruling stands; three rigs, as written."* Q2, chosen "The ruled sandbox": *"CI tests
+  each new stable in a GitHub sandbox before it advances; rigs keep building from source. The weekly
+  bot design fits this as it stands."* The sandbox is P1, the CI rehearsal
+  ([§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable)'s release gate). Rejected:
+  **CI-built images,** a tested build that rigs install, which reopens [§9l](#9l-rejected)'s
+  shipped-image rejection (it bakes in the driver version and cannot be `git pull`ed) and would go
+  back to the architect.
+- **The bot (08:02 Q1).** Chosen, "Bot advances stable on green": *"0 min per update, about 2 min
+  per failed run, 5–10 min once for repo settings. No one reads upstream's code; the 7-day wait and
+  a skip list stand in for reading it."* As put: once a week a bot takes the newest upstream
+  release at least 7 days old and updates the pinned version on a branch; it runs every CI check
+  plus the sandbox rehearsal, then advances `main` and `stable` on its own if all pass; on a failure
+  it opens an issue and changes nothing. `main` and `stable` require signed commits, so the bot
+  commits through GitHub's API. It cannot advance anything until the rehearsal is built. From the
+  architect's design: `GITHUB_TOKEN` only, and upstream code never in a job that can write.
+  Rejected: **the bot opens a PR, Chris merges,** the same testing plus a human click before
+  `stable` moves, about 2 minutes of his time per update.
+- **The review rule's exception (08:02 Q2).** The bot's own version-update commits are exempt from
+  the 2026-10-09 review rule ([§9b](#9b-one-bash-script-per-build-step), at its end), on the
+  condition that CI rejects any bot commit that changes more than the pinned version line and its
+  comment. The bot's workflow and scripts still get the full review when written and whenever they
+  change. Chosen, "Exempt, diff-checked": *"A generated one-line version change gives the reviews
+  nothing to read."* Rejected: **no exemption,** where each update waits for a Claude session to
+  run the three reviews, forcing the pull-request route, about 2 minutes of Chris's time per update.
+- **The OS security set and the sandbox (08:02 Q3).** Chosen, "Keep 07:42 + nightly sandbox check":
+  *"Your ruling stands. A nightly sandbox run applies the same security set and reports anything
+  that breaks. It warns you; it can't hold an update back from a rig."* Rejected: **sandbox-tested
+  versions only,** CI committing a list of package versions that passed and rigs installing only
+  those, at the costs put: a near-daily bot commit to a public repo, security fixes up to a day
+  later, and a sandbox whose packages must match the rigs'.
+- **The remote is not a test rig.** Chris, typed at 08:02: *"The remote stationary rig is a
+  production rig - not a test box"*. In this design the only test system is the CI sandbox; the
+  remote takes a version only after the sandbox passed it and the home rig ran it a full day
+  healthy (§9g's P2, 2026-11-14 22:18).
+- ✅ **Read by Claude between the 07:42 and 08:00 questions:** the `main` and `stable` rulesets
+  require signed commits, and also block deletion and non-fast-forward pushes; the repository's
+  default workflow permissions are `read`; `tar1090` has 0 tags; GitHub's documentation, through a
+  documentation lookup: "`workflow_dispatch` and `repository_dispatch` events always create workflow
+  runs" when triggered by `GITHUB_TOKEN`.
+- ⚠️ **Not checked, for the implementer's brief:** how `unattended-upgrades` matches its generated
+  exclusions and handles a candidate from two origins; whether installing it writes
+  `20auto-upgrades` turned on; whether a commit made through GitHub's API with `GITHUB_TOKEN` is
+  signed and passes the ruleset; whether a dispatched run's checks satisfy a required check on that
+  SHA; `rpi-eeprom`'s apply-at-boot behavior; whether the archive records the `readsb` version per
+  session.
 
 **Health is pushed, not pulled:**
 
@@ -4449,6 +4573,14 @@ not checked.
   bootloader setting; belief, not checked; for the build's documentation lookup). Rejected with it:
   **NVMe boot, one filesystem,** where re-imaging the OS erases the archive and the code path
   differs from the portable's.
+  *Update 2026-11-17: settled. (Chris, 2026-11-17 21:18, by question; the text as put is in the
+  private pick-up record, "Rulings as put", 2026-11-17 21:18.)* Chosen, "SD stays in, as
+  fallback": *"The rig boots from the NVMe; the SD card stays in the slot, unused, ready for option
+  three. The boot order must try the NVMe first (to be checked in the docs before imaging day)."*
+  ⚠️ That the Pi 5's boot order can be set to try the NVMe first, with a card in the slot, is a
+  belief, not checked; a documentation lookup before imaging day settles it. Rejected with it: **SD
+  comes out,** option one as written, NVMe only, where falling back to option three means putting a
+  card back in; **decide on imaging day,** leaving it open until the Pi 5 is built.
 - **A6, getting data off the 🏠 home stationary until the uploader (22:04, typed in chat):** Chris
   pulls by hand over the LAN, about once a week, as from the 🎒 portable now. That is ruling B's
   accepted cost, above. The design's other options: a scheduled pull from the workstation, which
@@ -4492,6 +4624,9 @@ not checked.
   - Built on the 🏠 home stationary during its build, and required before the remote one: pushed
     health alerts (B1), the hardware watchdog, and `unattended-upgrades` for security updates only
     with no automatic reboot.
+    *Update 2026-11-17: the 07:42 ruling makes the automatic security set every rig's, the 🎒
+    portable included, and sets its mechanism; see "Update 2026-11-17: software outside the repo",
+    earlier in this section.*
   - The 🏠 remote stationary only: the install manifest, the pre-ship checklist, the smart plug, the
     uploader's hosting, the network watchdog's reboot (its fix is a reboot, which stops recording,
     and at home Chris can walk over), the signed-commit check on the rig, and asking the host for a
@@ -5016,6 +5151,12 @@ in front of every reader. And its idempotence hides the check that
 ⛔ **Rejected: a shipped image, or pi-gen.** It bakes in the driver version, which is the
 [BUILD.md §4](BUILD.md#4-drivers-first) hazard again. An image is a tested claim. And it cannot be
 `git pull`ed.
+*Update 2026-11-17: stands, not reopened. Asked at 08:00 what he meant by "a github image and
+sandbox to create stable images", Chris chose "The ruled sandbox": §9g's CI rehearsal tests each
+new `stable` before it advances, and the rigs keep building from source. The option not chosen,
+CI-built images that the rigs install, would have reopened this rejection. Three rigs stand, with
+the 🏠 remote stationary (Q1, "No, it stays"). The record is "Update 2026-11-17: software outside
+the repo", in [§9h](#9h--the-stationary-rigs-home-and-remote).*
 
 ⛔ **Rejected: containers.** `gpsd`, `chrony`, the RTC overlay and the USB serials are host concerns,
 and the guide exists to teach them.
@@ -5076,6 +5217,14 @@ gate", at the end of [§9g](#9g-channels-portable-tracks-main-stationary-tracks-
 
 ⛔ **Rejected: an overlayfs read-only root.** Every update becomes a two-reboot dance, and booting
 from the SSD with no SD card already removes the wear problem it would solve.
+*Update 2026-11-17: the second reason's premise has changed. On the Pi 5 the boot device is the
+NVMe drive, not a USB SSD (A5, 2026-11-14), and on the 🏠 home stationary the SD card stays in the
+slot, unused, as the fallback (A5, settled 2026-11-17 21:18;
+[§9h](#9h--the-stationary-rigs-home-and-remote)). While the rig boots from the NVMe the card is
+meant to go unwritten, so the wear the reason names should not arise; if the rig falls back to
+A5's option three, booting from the SD card, the reason no longer holds. 📋 Open, not ruled:
+whether this rejection stands under the fallback. The first reason, the two-reboot update, is not
+touched by A5.*
 
 ⛔ **Rejected: Tailscale as the only recovery path.** That is why the smart plug goes through the
 vendor's cloud ([§9h](#9h--the-stationary-rigs-home-and-remote)).
@@ -6706,6 +6855,10 @@ recording session ([§9c](#9c-every-step-ends-in-a-check-of-the-observable-effec
     applies there depends on how the stationary's SSD holds the archive, which is not decided. A
     role gate that can be removed is §9b's own device. If the answer is a labeled partition, the
     gate is deleted and the step is shared, with no rename.
+    *Update 2026-11-17: the premise has changed. The 🏠 home stationary boots from the NVMe drive,
+    not a USB SSD, and its SD card stays in the slot, unused, as the fallback (A5 of #33, settled
+    2026-11-17 21:18; [§9h](#9h--the-stationary-rigs-home-and-remote)). How the drive holds the
+    archive was decided 2026-11-14 (A5's update further down this section).*
   - **Install:** the mount point; the rendered mount unit and its drop-in; `daemon-reload`; enable
     and start the mount; `beast/` and `spool/`, chowned to `adsb-receiver:adsb-operator 2770`; and
     `bin/archive-preflight`. It creates no users or groups.
