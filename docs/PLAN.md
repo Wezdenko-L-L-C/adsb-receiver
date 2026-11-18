@@ -4670,7 +4670,12 @@ each is recorded below for what it ruled or reopened, and what 20:48 then settle
   bought to test for it. The portable still updates itself at home, security fixes included. Its
   kernel stays by hand."* ⚠️ A Pi 5 test box proves nothing for the Pi 4 portable. 📋 Open, not
   ruled: how "its kernel stays by hand" sits with Q4, under which kernels move to "your rigs" once
-  the test passes. Rejected: **out of auto-updating,** *"The portable gets no automatic updates at
+  the test passes.
+  *(Closed 2026-11-17 21:35 by Chris, by question: the portable's kernel stays by hand even after
+  the trial-boot test passes, and only Pi 5 rigs get automatic kernels. Chosen, "Stays by hand
+  (Recommended)": "The portable's kernel is always updated by hand, even after the trial-boot test
+  passes. Only Pi 5 rigs get automatic kernels." The text as put is in the private pick-up record,
+  "Rulings as put", 2026-11-17 21:35.)* Rejected: **out of auto-updating,** *"The portable gets no automatic updates at
   all. You update it by hand, as you did tonight."*
 - **The stop (20:48 Q3).** Chosen, "Skip until I release (Recommended)": *"The other rigs skip
   security fixes until you release with one click. You get an alert every day while held. This
@@ -4682,7 +4687,8 @@ each is recorded below for what it ruled or reopened, and what 20:48 then settle
   can pass before the other rigs have the fix."*
 - **Kernel and Tailscale (20:48 Q4).** Chosen, "Yes, both (Recommended)": *"Kernel and Tailscale
   both update automatically in stages once the test passes. The bootloader chip is set once at
-  enrollment and left alone."* Conditional on the trial-boot test, ⚠️ unverified and unbuilt; the
+  enrollment and left alone."* (For the portable's kernel, see the 2026-11-17 21:35 note under Q2
+  above.) Conditional on the trial-boot test, ⚠️ unverified and unbuilt; the
   never-touch list's note above says what it narrows and when. Rejected: **kernel only,** Tailscale
   by hand on every rig; **both by hand,** as ruled at 07:42, about 5 minutes per rig per quarter.
 - **The design the four answers rule on: the architect's call, not ruled by question.**
