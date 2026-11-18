@@ -70,6 +70,22 @@ and it does not stop a stationary site from wanting a scanner for its own sake.
 | **ACARS (POA)** | 131.550 + others | `acarsdec` | discone | 📋 Legacy traffic, low priority |
 | **HFDL** | 2–22 MHz | `dumphfdl` | ⛔ **its own HF antenna** | 📋 Conditional — see below |
 | **SATCOM Aero** | ~1.5 GHz | `JAERO` | ⛔ **aimed L-band patch** | 📋 Deferred |
+| **978 UAT** | 978 MHz | not chosen (⚠️ the design names `dump978` and `readsb`'s `uat_in`; neither checked) | not chosen | 📋 🏠 home stationary first, as an update after its first build (A2, below) |
+
+*Update 2026-11-14: the 978 UAT slot, ruled (A2 of #33; Chris, 21:57 Arizona time, by question;
+the texts as put are in the private pick-up record, "Rulings as put", 2026-11-14 21:57).* This
+table gains the UAT row, and the stationary template gains a `dongles.uat` key set to null. The 🏠
+home stationary's first bootstrap is 1090 only; 978 joins it later as an update through the
+maintenance window, once the stick's filter arrives (the stick is in hand). Whether raw 978 is
+archived stays open, and gates calling 978 done: the writer records 1090 BEAST only, so it is a
+data-contract question, not a bootstrap one. 📋 Neither the null key nor any 978 step is in the
+tree; ✅ `config/station.stationary.example.yml` has no `uat` key (a grep, 2026-11-17).
+- Rejected with it: **978 in the first bootstrap,** as Chris had said on 2026-10-15 (never put as a
+  question before this): one hands-on session instead of two, but a bad first night then has two
+  radios and two decoders as suspects. **978 after the stationary,** as ROADMAP and BUILD order it
+  today, with nothing in the template now.
+- The rest of #33's rulings are in [§9h](#9h--the-stationary-rigs-home-and-remote), "Update
+  2026-11-14: the stationary design, ruled (#33)".
 
 ⚠️ **Every slot is one more dongle.** There is no software that makes two bands share one radio —
 an RTL-SDR sees ~2.4 MHz at a time, and these bands are nowhere near each other.
@@ -131,6 +147,8 @@ for the remainder, on a board that already throttles under sustained load.
 ## 4. Proposed: split the stationary site across two Pis
 
 **Proposed 2026-08-30. Not decided.**
+*Update 2026-11-14: decided against. One Pi 5 per stationary site (A1 of #33, ruled 21:57); see
+"Update 2026-11-14: one Pi 5 per site", at the end of this section.*
 
 ⭐ **This follows from a rule the project already has.** [BUILD.md §8](BUILD.md#8-build-order)
 step 5 says to add a second radio only once the base rig is boring, *because adding dongles is
@@ -167,6 +185,30 @@ the remote one ([§9h](#9h--the-stationary-rigs-home-and-remote)'s
 "Update 2026-10-11: two 🏠 stationary rigs, the home one first"). This proposal was written for one
 stationary site. Whether the two-Pi split applies at one site, at both, or becomes a split across
 the two sites is for the stationary design (ROADMAP item 8).*
+*Closed 2026-11-14 by A1, below: at neither site, and not as a split across the sites. Both open
+notes above are answered by it.*
+
+**Update 2026-11-14: one Pi 5 per site. Ruled 2026-11-14 (Chris, 21:57 Arizona time, by question;
+the texts as put are in the private pick-up record, "Rulings as put", 2026-11-14 21:57).** A1 of
+#33, the recommended option.
+
+- **The ruling, in this file's words:** each stationary site has one Pi 5, which owns 1090 and the
+  archive. The two-Pi split above is not built, and is not turned into a split across the two sites.
+  The job this section gave the split, keeping a new dongle away from the archive, is done by order
+  across the sites instead: nothing reaches the 🏠 remote stationary until it has run without
+  trouble on the 🏠 home one. "Rejected for now: a Pi 5" above is overtaken, as its 2026-10-04 note
+  expected.
+- The hardware, from Chris's answers before the ruling (typed, 2026-11-14): a SunFounder Pironman 5
+  Mini PC case for the Pi 5; the official Pi 5 power supply; one 256 GB NVMe drive; and the 🏠
+  remote stationary is to have the same parts ("It should"). ⚠️ Nothing about the Pi 5 or the case
+  has been checked on hardware.
+- ➡️ **What would change it:** a later radio that destabilizes the 🏠 home box.
+- Rejected with it: **two Pis at home now,** an archive Pi and a radio Pi as this section proposed:
+  isolation today, at the cost of a second headless machine to update, before any experimental
+  radio exists. **A split across the sites,** the home rig running the experiments and the remote
+  one the archive only: the home archive then shares a box with the experiments.
+- The rest of #33's rulings are in [§9h](#9h--the-stationary-rigs-home-and-remote), "Update
+  2026-11-14: the stationary design, ruled (#33)".
 
 ---
 
@@ -2279,6 +2321,14 @@ longer requires a source marked `*`, and the writer's `clock` event carries the 
     banner prints it under that run's finish time, labeled "not now".
   - `clock.max_offset_ms` is 500 in the portable template and 100 in the stationary's (✅ read in
     `config/station.portable.example.yml` and `config/station.stationary.example.yml`).
+    *Corrected 2026-11-17: 100 is no longer the stationary's bar. A3 of #33 ruled 500, the
+    portable's, on 2026-11-14 at 21:57 ([§9h](#9h--the-stationary-rigs-home-and-remote), "Update
+    2026-11-14: the stationary design, ruled (#33)").* ✅ The template still reads `max_offset_ms:
+    100` (`config/station.stationary.example.yml`, read 2026-11-17), and its comment above the
+    key, that NTP over a working network gives about 1–10 ms and a loose bar would hide a real
+    fault, is now a wrong instruction to a builder: the preflight compares chrony's whole bound,
+    half the root delay included, not its offset alone. 📋 The template's change is owed with the
+    stationary clock step, which is not built.
   - The races in the writer that the live pull exposes go with this change (§9m, the storage
     contract's 2026-11-11 OPEN item). *Done 2026-11-12: all four, closed there.*
 - **When, "After Stage 1", as put:** *"Finish the pull change first (it's with the implementer now),
@@ -3199,6 +3249,42 @@ is.
   both rigs, opened by a nightly check only when an update is pending (portable home-only)", in #33
   ("Open, ruled to be decided later", above). Whether that is this bullet's "own window unit" or
   replaces it is #33's to settle; it is not settled here.*
+  *Update 2026-11-14: settled; it replaces it. A4 of #33, ruled in five parts (Chris, 22:00 Arizona
+  time by question for (c), (d) and (e); 22:04, typed in chat, for (a) and (b); the texts as put
+  are in the private pick-up record, "Rulings as put", 2026-11-14 22:00 and 22:04).* 📋 None of it
+  is built.
+  - **(a) One window unit on both rigs**, not an own unit for the 🏠 stationary. No sudoers grant
+    and a cap of minutes survive as properties of the stationary role.
+  - **(b) One opener on both rigs, one nightly script.** The 🏠 stationary skips the 🎒 portable's
+    "at home" predicate; its order is pending, then the §9h readiness gate, then the clock guard,
+    then open. In fable-architect's design, the opener never stops the writer for an update that
+    would then hold.
+  - **(c) The nightly opener records the soak's first sight.** Its check uses a mode of `update.sh`
+    that fetches and writes `stable-tip-seen` without taking the recording lock, and only when
+    `clock-preflight` passes, which also closes a first sight recorded before NTP has synced. The
+    hole it closes was read from this file, not the code, when it was put; ✅ it holds in
+    `setup/update.sh` as of 2026-11-17: `take_lock()` exits `0` in timer mode when `flock -n` finds
+    the lock held, before the resolver runs, and `resolve_candidate`'s `--check` branch writes
+    nothing ("--check writes nothing, so it cannot start the clock; the next timer run does"). So
+    on a recording stationary with a soak above 0, nothing would start the soak and the rig would
+    never update. ⚠️ The rejection-checker marked this adjacent to, not against, §9g's 2026-10-15
+    ruling B, whose words were "first timer run". Rejected with it: **open a window per new tip,**
+    which re-derives (C) above, "a daily recording gap for nothing"; **count the soak from the
+    commit date again,** which reverses §9g's 2026-10-15 ruling B.
+  - **(d) Rename `adsb-pull-window` to `adsb-maintenance-window` now,** before the stationary
+    exists, in two rounds on the 🎒 portable: an update installs the new name beside the old, and a
+    later one drops the old. The stationary only ever has the new name. The name is in the
+    portable's sudoers rule, `tools/pull-archive` and the opener, so the rename has to survive the
+    rig and the workstation being on different commits. Rejected with it: **rename after the home
+    build,** two rigs to migrate instead of one; **never rename,** a stationary running nightly
+    updates through a unit named for a pull it never makes.
+  - **(e) 04:30 rig-local on both rigs, provisionally.** ROADMAP 9.1's done-when gains a count of
+    frames per hour over the 🏠 home stationary's first 7 days; the hour moves if another carries
+    half the traffic or less. ⚠️ Assumed when put, not read: that the rigs' time zone is Arizona's.
+    Rejected with it: **measure first,** which delays the build for a small gain when the
+    stationary's own archive gives the count free; **03:30,** ratified without a count.
+  - The rest of #33's rulings are in [§9h](#9h--the-stationary-rigs-home-and-remote), "Update
+    2026-11-14: the stationary design, ruled (#33)".
 - ➡️ **What would change it:**
   - `nmcli` cannot give the SSID on this image (→ the gateway's MAC address, still local).
     *Answered 2026-10-05: it can; see below;*
@@ -3241,7 +3327,8 @@ above, from the code:
 - **Its own step, portable only,** after `50-updater`, which installs `adsb-update` with `--check`,
   and `60-portable-pull`, which installs the window. The build's choice, not ruled.
 - **The timer:** `OnBootSec=4min`, as ruled, and `OnCalendar=*-*-* 04:30:00`, in the rig's local
-  time. ⚠️ **04:30 is the implementer's pick, not ruled.** No `Persistent=` and no
+  time. ⚠️ **04:30 is the implementer's pick, not ruled.** *Update 2026-11-14: ratified,
+  provisionally, for both rigs (A4(e) of #33, above).* No `Persistent=` and no
   `RandomizedDelaySec=`.
 - **`adsb-update --check`** takes no lock and writes nothing: no `status.json`, no log directory,
   nothing under `/var/lib`, no apt heal. It fetches and runs the same resolver a timer run does,
@@ -3744,12 +3831,20 @@ update below.*
     🎒 portable's soak of 0 is seen, and a soak of 0 skips the age check (the "As built" at the end
     of the 2026-10-05 update below); the 🏠 stationary's soak of 7 has not run, since no stationary
     is built.
+  - *Superseded 2026-11-14, (Chris), for both 🏠 stationaries: neither waits on a soak. The home
+    rig takes `stable`'s tip at its next window, as the portable does; the remote rig follows a
+    second, promoted branch with a soak of 0. See "Update 2026-11-14: the release gate", at the end
+    of this section. 📋 Not built: `update.sh`'s stationary role default is still 7.*
 
 🔑 **The gate is CI, the rig's own verify, and rollback.** ⚠️ **The portable rig is an opportunistic
 canary, not a gate.** It is often powered off for weeks, so a bad commit may reach `stable` before
 the portable has ever run it.
 *Restated 2026-10-05, (Chris): the 🎒 portable is an opportunistic canary for `stable`, running
 `stable`'s tip up to `update.soak_days` ahead of the 🏠 stationary. It is still not a gate.*
+*Update 2026-11-14, (Chris, 22:18): the gate is to gain a CI rehearsal that `stable` waits on,
+before the 🏠 home stationary's first setup run, and the 🏠 remote stationary is to take only what
+the 🏠 home one ran healthy. 📋 Not built; see "Update 2026-11-14: the release gate", at the end of
+this section.*
 
 ➡️ **Emergency brake:** ~~force-push a known-good SHA to `stable`.~~ *Superseded 2026-10-04
 (evening), (Chris): **a revert commit on `main`.** It is forward-only and CI-tested, reaches `stable`
@@ -3831,6 +3926,9 @@ using stable build points instead of main to determine where to pull the latest 
   - **Variant A: `stable`, with a separate no-soak branch for the portable.** A second resolver path
     to drift; and [§9e](#9e-the-first-build-is-by-hand-after-that-updates-are-automatic)'s rejection
     of "the channel from the role only" already refused a role special case.
+    *Reopened 2026-11-14 for the 🏠 remote stationary only, (Chris, 22:18): it follows a second,
+    promoted branch. The refusal stands for the 🎒 portable. See "Update 2026-11-14: the release
+    gate", at the end of this section.*
   - **`update.soak_days: 0` in the portable template.** It breaks the consequences table's ⛔.
   - **A per-role channel flag in the bootstrap or `station.yml`.** A second truth; this section's
     brake ruling refused a `stable-hold` for less.
@@ -4048,6 +4146,86 @@ question; the texts as put are in the private pick-up record.)**
   built-in Actions token from it (⚠️ community posts say it cannot be), so it would block
   `advance-stable`; it needs CI to push with a GitHub App token first.
 
+**Update 2026-11-14: the stationaries' soak, and the release gate. (Chris, about 22:09 typed in
+chat, 22:12 typed in chat, and 22:18 by question; the texts as put are in the private pick-up
+record, "Rulings as put", 2026-11-14 ~22:09, ~22:12 and 22:18.)** A11 of #33, and the call that
+replaced the rest of it. 📋 **Nothing below is built.**
+
+- **The 🏠 home stationary's soak (A11, about 22:09).** It takes `stable`'s tip at its next window,
+  with no soak, as the 🎒 portable does (`update.soak_days: 0` in effect). Chris, typed: *"Both rigs
+  should be using a stable, both rigs install the stable at the next window."* fable-architect had
+  recommended 0 for bring-up, then 2 before ROADMAP 9.1 is done, with the remote rig staying at 7:
+  the soak is tip-aged and pushes land most days, so at 7 the home rig would almost never update,
+  and a soak of 0 skips the first-sight code that a soak of 2 would exercise before the remote rig
+  relies on it. Not taken. The other options put: 7 like the remote; 0 for good at home.
+- **Chris's design correction (about 22:12).** Asked whether anything detects a failure that gets
+  past CI, Claude answered: today, each step's install-time verify and `update.sh`'s rollback,
+  `status.json` only, and the 🎒 portable as an opportunistic canary; nothing detects a failure
+  after an install, nothing alerts, and B1 (§9h) is unbuilt. Claude offered no wait on the remote
+  rig, conditional on B1. Chris,
+  typed: *"sounds like you need a way to check the software before it reaches either station."*
+- **P1, the CI rehearsal: build it, before the 🏠 home stationary's first setup run (22:18).** No
+  version reaches any rig without it. fable-architect's design, which the ruling adopted:
+  1. a CI job that `advance-stable` needs, on a hosted native arm64 runner, in a trixie container
+     with systemd as PID 1, once per role;
+  2. it bootstraps at the current `origin/stable`, then applies the candidate through the real
+     opener, window unit and `update.sh`, the path a rig takes;
+  3. it runs every step's `--verify`, then a whole-rig acceptance check separate from the steps:
+     the expected units active, none failed, `NRestarts` 0, and `status.json` applied;
+  4. it feeds a synthetic BEAST stream into the decoder for about 10 minutes and reads the archive
+     back with `tools/adsb-extract` to compare (a real capture would localize the home);
+  5. it applies a local commit built to fail its verify, and requires `rolled_back`, the units back
+     up, and frames still archiving.
+
+  It catches install failures on arm64 and trixie, the upgrade from the previous tip (A4(d)'s
+  rename among them), crashes within the run, wrong or missing frames, and a step that passes its
+  verify but breaks the rig where the acceptance check looks. It misses the stick, USB, the Pi's
+  kernel and firmware, NVMe boot, heat, the Pironman software, the RTC, the site's network, a clock
+  stall, and failures slower than the run. No new credential. Hands: none per release; about 5
+  minutes once, to make it a required check on `stable`'s ruleset. `stable` then advances about
+  20–30 minutes after a push instead of about 3 (the architect's estimate). It reuses
+  `advance-stable`, the synthetic streams in `test_adsb_writer.py`, `tools/adsb-extract`, the
+  preflights, `status.json` and `smoke_update.sh`'s rollback cases. Rejected with it: **after the
+  home rig is up,** where until then a new version's first real run is on a rig; **no
+  rehearsal,** leaving the gate at CI's static checks, each step's own verify and rollback.
+- **P2, the 🏠 remote stationary's promoted branch: reopen the second branch (22:18).** It reverses
+  the Variant A refusal above for the remote rig. fable-architect's design, which the ruling
+  adopted: the remote follows a second branch (its name not ruled; `proven` was the example) with a
+  soak of 0. The 🏠 home stationary's health ping (B1, §9h) carries the SHA it runs and the
+  acceptance result. A scheduled CI job reads the ping history through a read-only key to the
+  monitoring service's API, held as a GitHub Actions secret, and fast-forwards the branch with
+  `GITHUB_TOKEN`, only to an ancestor of `stable` that the home rig installed at one window and was
+  still healthy at the next, with no `rolled_back`, failed run or missed heartbeat between. No
+  credential on a rig beyond the ping URL `station.yml` already carries (§9h's credential seam).
+  The home rig's day of healthy running is the proof; there is no 7-day wait. Hands: about 20–30
+  minutes once, mostly owed by B1. This closes the remote half of A11: the remote's soak is 0 on
+  the promoted branch, which reverses the 2026-10-04/05 role default of 7 for it.
+  - Rejected with it: **decide at the remote build,** recording the problem and both shapes now and
+    ruling in #34 with the rehearsal's record in hand; **one branch, keeping the remote's 7-day
+    wait,** with the rehearsal as the check before both stationaries, under which, with daily
+    pushes, the remote updates only after a quiet week.
+  - Rejected by the architect: **a bench Pi** ([§9l](#9l-rejected)'s second canary Pi); a
+    self-hosted runner on a Pi; a rig pushing a verdict; real archived BEAST in CI; the
+    workstation driving the check (§9f's (D)); extra windows to test.
+- **What the rejection-checker flagged, for the record:**
+  - P2 reverses Variant A, above, and the premise that the rigs read `stable` only. The §9e text
+    Variant A's reason cites, the rejection of "the channel from the role only", was not located.
+  - P2 has the shape of [§9l](#9l-rejected)'s "making the stationary rig wait for the portable's
+    verdict", with the home rig in the portable's place. Two of that rejection's three reasons do
+    not hold for the home rig; the third, no push credential, is met by CI reading the ping.
+  - The rulesets cover only `stable` and `main` (the 2026-10-15 block above); the new branch needs
+    its own.
+  - Whether the promotion rule interacts with the 2026-10-15 forward-only check (`is_forward`) is
+    not checked.
+  - A required rehearsal adds a second way an Actions outage freezes the channel (the costs in the
+    2026-10-05 update above).
+- ⚠️ **Not checked, the architect's beliefs, for the implementer's brief:** that hosted arm64
+  runners are available, and free for a public repository, and that systemd runs in a privileged
+  container on them (else a QEMU VM); that the monitoring service's read API returns ping bodies and
+  history; that `readsb` in a network-only mode passes fed frames one for one (it may deduplicate);
+  and that the `00-drivers` and `10-decoder` verifies can pass with no stick (probably not without a
+  seam).
+
 ### 9h. 🏠 The stationary rigs: home and remote
 
 **(Chris)** The stationary rig will sit, static, at a remote site hundreds of miles from Chris. It
@@ -4110,10 +4288,13 @@ recommended option. This is their one home in this file; other sections point he
 - 📋 Not ruled; for the stationary design (ROADMAP item 8): the rest of this section.
   fable-architect's reading, 2026-10-11: the foundation layer and the pushed health bind the role;
   asking the host for a wired port binds the remote site.
+  *Update 2026-11-14: ruled; A12 in "Update 2026-11-14: the stationary design, ruled (#33)", at
+  the end of this section.*
 
 **Open for the stationary design (ROADMAP item 8):**
 
 - From ruling B: how the 🏠 home stationary's data gets off it until the uploader lands.
+  *Closed 2026-11-14 by A6, at the end of this section: a pull by hand, about weekly.*
 - The rest are open notes from fable-architect's reading of 2026-10-11, not rulings:
   - 📋 Per-station gain. ✅ Read 2026-10-11: `setup/steps/10-decoder.sh` sets `--gain auto` in
     `RECEIVER_OPTIONS` for every rig, and neither station template has a gain key. ⚠️ Reported, not
@@ -4195,6 +4376,10 @@ update ([§9f](#9f-what-updatesh-does)). ℹ️ "Passes" here means `clock-prefl
    is a power-budget question, the same one [§3](#3--cpu-is-the-binding-constraint-not-power) says a
    part solves.
 
+*Update 2026-11-14: on the Pi 5 the boot device is the NVMe drive, not a USB SSD, with the SD card
+as the possible fallback (A5 at the end of this section); and A12 there says which of these layers
+the 🏠 home stationary builds and which only the remote one needs.*
+
 Also: `unattended-upgrades` for security updates only, with no automatic reboot. Ask the host for a
 wired port.
 
@@ -4205,6 +4390,9 @@ wired port.
 - A healthchecks.io dead-man ping, so a **missing** heartbeat emails Chris.
 - The webhook and ping URLs live in `station.yml`. They are credentials, and that file is the
   credential seam.
+
+*Update 2026-11-14: one sender for all of it, three new alerts, and the running SHA in the ping
+(B1 at the end of this section).*
 
 🎒 The portable rig gets a login banner and `status.json`, and nothing more.
 
@@ -4224,6 +4412,115 @@ wired port.
 It gates only the 🏠 remote stationary; the 🏠 home stationary rehearses it first, with Chris beside
 it (A, in this section's 2026-10-11 update). Which items the rehearsal covers is not ruled:
 fable-architect proposed, 2026-10-11, the items that do not depend on the move.
+*Update 2026-11-14: ruled; B4 in the update below.*
+
+**Update 2026-11-14: the stationary design, ruled (#33). (Chris, 2026-11-14, 21:57 to 22:24
+Arizona time, by question and typed in chat; the texts as put are in the private pick-up record,
+"Rulings as put", under each time named below.)** The design is fable-architect's of the same
+evening; a rejection-checker read every option against this file, ROADMAP, BUILD and the rulings
+before they were put. This is the home in this file of the rulings not recorded elsewhere; the
+others are A1 in [§4](#4-proposed-split-the-stationary-site-across-two-pis), A2 in
+[§2](#2-the-slots), A4 in [§9f](#9f-what-updatesh-does) (under "The 🏠 stationary"), and A11 with
+the release gate at the end of [§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable).
+📋 **Nothing below is built.** ⚠️ Every claim about the Pi 5, the Pironman 5 case and its
+software, `dump978`, and `readsb`'s `uat_in` and `gpsd_in` is the architect's or Claude's belief,
+not checked.
+
+- **A3, the clock step and its bar (21:57).** The stationary clock step is NTP only: no gpsd, no RTC
+  overlay, and no burst timer on a wired rig (Chris, before the ruling: *"Should be on ethernet"*).
+  `clock.max_offset_ms` is 500, the portable's bar. The reason: since the preflight compares
+  chrony's whole error bound, half the root delay included, a stall at 100 refuses a writer restart
+  within hours, while at 500 it has four to five days; ill health is shown by the clock's state
+  word and an alert (B1) instead. HOLDOVER stays 2,112 s for an NTP reference, by the 2026-11-12
+  21:17 ruling. 📋 The template still reads 100 (§9e's 2026-11-11 update, corrected there).
+  Rejected with it: **keep 100,** honest while the network path is short, but a chrony stall or a
+  slow upstream turns a marked COARSE into a writer that stays down until someone acts, within
+  hours; **500, measure for a week, then reset** to about 3× the worst healthy reading by a second
+  ruling.
+- **A5, storage and boot (21:57).** Chris, typed: *"start with one but we may have to fall back to
+  three"*. One is the recommended option: boot from the NVMe, with the OS and a separate ext4
+  `adsb-archive` partition on it, the same mount unit and label check as the 🎒 portable, so
+  re-imaging the OS keeps the archive; about 20–30 minutes of Chris's hands at imaging, and a
+  documentation lookup first on stopping Pi OS growing its root over the whole disk at first boot.
+  Three, the fallback, boots from the SD card with the NVMe all archive, which keeps the SD card
+  that recovery layer 4 above removes for wear and recovery. ⚠️ Chris said before the ruling that
+  "the sd card stays in", and option one's text has it come out; with the card left in as the
+  fallback, Claude raised after the ruling that the Pi 5's boot order must try the NVMe first (a
+  bootloader setting; belief, not checked; for the build's documentation lookup). Rejected with it:
+  **NVMe boot, one filesystem,** where re-imaging the OS erases the archive and the code path
+  differs from the portable's.
+- **A6, getting data off the 🏠 home stationary until the uploader (22:04, typed in chat):** Chris
+  pulls by hand over the LAN, about once a week, as from the 🎒 portable now. That is ruling B's
+  accepted cost, above. The design's other options: a scheduled pull from the workstation, which
+  re-derives §9f's refused (D); nothing until the uploader.
+- **A7, the position source and `127.0.0.1:2947` (22:00).** Chris, typed: *"Start with 1, but a more
+  accurate gps based time maybe needed"*. One is the recommended option: a small root-started,
+  socket-activated unit that speaks gpsd's protocol on `127.0.0.1:2947`, serving the surveyed
+  position from `station.yml`, so step 10's gpsd connector stays shared and role-blind. The
+  rejection-checker marked it adjacent to §5's rejection of gpsd on the 🏠 stationary as a daemon
+  with no device, which a gpsd-speaking responder arguably resembles; the architect did not address it.
+  ⚠️ What `readsb`'s `gpsd_in` needs from the far end is not read. Until it lands there is no
+  position: no map marker, and the port unowned. Chris's second clause, that GPS-based time may be
+  needed, is recorded as said; it is not a ruling on the clock, which A3 rules. Rejected with it:
+  **no position at first,** with the source decided later; **real gpsd with a puck,** refused in §5
+  as a daemon with no device, which a puck answers at the cost of a part and a second position
+  truth beside the survey.
+- **A8, the rig's name (22:04, typed in chat):** the hostname is the rig's one and only name, and
+  `station.id`, which no code reads, is dropped. This closes §9m's 2026-10-11 open note on the
+  hostname. 📋 Not done: the stationary template still carries `station.id` (✅ `id: home-01` in
+  `config/station.stationary.example.yml`, read 2026-11-17). The design's other options: keep
+  `station.id`, checked equal to the hostname; `station.id` as the name.
+- **A9, the Pi 5's built-in RTC battery (22:06):** optional, fitted when it arrives; nothing in the
+  build depends on it and no setup step touches it. At first boot Claude reads whether the Pi sees
+  its clock (`/dev/rtc0` with no overlay, and whether the kernel sets the clock from it). Charging
+  the battery would be a hand edit to `config.txt`. Rejected with it: **wait for the battery before
+  building.**
+- **A10, the Pironman 5's fan and display software (22:04, typed in chat, and its follow-up by
+  question at 22:04):** installed, against the recommendation not to install it at first and to act
+  only if a day of recording ran hot. Chris, typed: *"no - install the software"*. It is installed
+  by hand, as part of the hand-built foundation like Tailscale, outside the automatic updates:
+  first a read of what it installs and which ports it listens on, any dashboard turned off or bound
+  to localhost; updates to it are by hand. Raised once before the follow-up: it runs as root and
+  comes from outside the repo's pinned versions, on a rig whose repo is public; Claude's
+  recollection, not checked, is that it runs a web dashboard on the LAN. Rejected with it: **by a
+  step script,** repeatable on the remote rig, but its installer then runs on the automatic update
+  path, and the step needs a pinned version and a verify of what it listens on.
+- **A12, what binds the role and what binds the remote site (22:06).** Chris, typed: *"Agree - the
+  mobile station needs tailscale also"*.
+  - Before the 🏠 home stationary's first setup run: Tailscale, booting from the NVMe, and the
+    stationary clock step. (P1, the CI rehearsal, joins these by the 22:18 ruling.)
+  - Built on the 🏠 home stationary during its build, and required before the remote one: pushed
+    health alerts (B1), the hardware watchdog, and `unattended-upgrades` for security updates only
+    with no automatic reboot.
+  - The 🏠 remote stationary only: the install manifest, the pre-ship checklist, the smart plug, the
+    uploader's hosting, the network watchdog's reboot (its fix is a reboot, which stops recording,
+    and at home Chris can walk over), the signed-commit check on the rig, and asking the host for a
+    wired port.
+  - 📋 Chris's addition: the 🎒 portable gets Tailscale too. Outside #33's stationary scope, and
+    not yet placed.
+- **B1, pushed health, before the 🏠 remote stationary (22:24): one sender.** One small timer on
+  each stationary reads what the other parts already write (`status.json`, the writer's clock state,
+  disk space) and is the only thing that posts to Discord and sends the heartbeat ping; the writer
+  and the updater never hold the webhook, which stays in one root-only place. A dead part cannot
+  report itself, but the separate heartbeat going quiet does. Its alerts: a rollback, a stopped
+  writer, low disk, a watchdog reboot, a daily heartbeat, and a refused rewind; and, new, the clock
+  in HOLDOVER for over 2 hours, the opener declining on the clock guard, and an update held over
+  three nights. Since 22:18 it also carries the running SHA and the acceptance result, for the
+  remote's promotion (§9g's release gate). Rejected with it: **each part sends its own,** which
+  spreads the webhook to the unprivileged writer and leaves a dead part silent; **heartbeat only,**
+  which misses a rig that is up with a stalled clock, the failure this month produced.
+- **B2, a stationary whose clock sync stalls (22:24): no automatic restart of chrony.** B1's alert
+  tells Chris, and he runs the restart. A restart throws away chrony's history and may step the
+  clock while recording; the 🎒 portable's stall was Wi-Fi, which a wired rig does not have.
+  Rejected with it: **restart after N hours,** which hides the network fault the alert exists to
+  report, and whose clock-step-while-recording case would still need a test.
+- **B3, "a second radio after the stationary" (22:24):** means after the 🏠 home stationary's build
+  is done, not after both rigs, and every new radio goes on the home rig first. Radio work is not
+  held behind the uploader, which the remote rig waits on.
+- **B4, the rehearsal (22:24):** the 🏠 home stationary rehearses the pre-ship checklist's items
+  that do not depend on the move, plus the update wait, the first sight and B1's alerts.
+- B5, the remote rig's clock without a wired port, needed no call: A3's bar holds, with the burst
+  timer only on Wi-Fi.
 
 ### 9i. What is not chosen yet: the uploader
 
@@ -4771,6 +5068,11 @@ Chris is, with hands on site (Claude's reading, in [§9h](#9h--the-stationary-ri
 2026-10-11 update). fable-architect's reading, 2026-10-11: it is the Pi this rejects. Whether it
 serves as a canary for the 🏠 remote stationary, and what its soak is worth, is for the stationary
 design (ROADMAP item 8). The rejection is not reopened here.*
+*Closed 2026-11-14 by #33's rulings, which leave this rejection as it stands: the 🏠 home
+stationary is not a soaking canary (its soak is 0, A11), and the 🏠 remote stationary takes only
+what the home one ran healthy, through a promoted branch, behind a CI rehearsal that gates
+`stable` for every rig. Both are in "Update 2026-11-14: the stationaries' soak, and the release
+gate", at the end of [§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable).*
 
 ⛔ **Rejected: an overlayfs read-only root.** Every update becomes a two-reboot dance, and booting
 from the SSD with no SD card already removes the wear problem it would solve.
@@ -4796,6 +5098,9 @@ whether the RTC appears as `/dev/rtc0`, whether the kernel sets the clock from i
 no overlay is needed; check those on a Pi 5. ℹ️ `setup/foundation/rtc-overlay.sh`'s header already
 notes that on a Pi 5 its `/dev/rtc0` check, and step 20's, would need revisiting. What the
 stationary rigs do with the RTC is for the stationary design.*
+*Closed 2026-11-14 by A9 of #33 ([§9h](#9h--the-stationary-rigs-home-and-remote), at its end):
+the Pi 5's own RTC is optional, its battery fitted when it arrives, and nothing depends on it. The
+first-boot reads above are the ones A9 names.*
 
 ⛔ **Rejected: choosing the writer's language now.** See
 [§9i](#9i-what-is-not-chosen-yet-the-uploader).
@@ -5445,6 +5750,8 @@ named at about 15:10. The store listing was at about 14:57, between the rejectio
     `station.id` (`home-01` in `config/station.stationary.example.yml`). ✅ A grep of `setup/`,
     `bin/` and `tools/` on 2026-10-11 found no code that reads `station.id`. Which of the two is a
     rig's one name is not ruled.*
+    *Closed 2026-11-14 by A8 of #33 ([§9h](#9h--the-stationary-rigs-home-and-remote), at its end):
+    the hostname is the one name, and `station.id` is dropped.*
   - *Update 2026-10-11 (evening), from fable-architect's design that evening, and no new
     decision about the store: files in the store that no rig writes follow the same rule, host
     first. The host is the machine that wrote the file, so such a file lands under
@@ -6553,6 +6860,9 @@ step writes it under this design.
 mount. That belongs to the stationary build. ℹ️ **The consultation's lean, not a ruling:** a separate
 `adsb-archive` partition on the SSD, so a full archive cannot fill the root filesystem and
 `errors=remount-ro` cannot take the OS read-only. The cost is one partition at foundation time.
+*Update 2026-11-14: decided by A5 of #33 ([§9h](#9h--the-stationary-rigs-home-and-remote), at
+its end): the NVMe drive is both, the boot device and a separate `adsb-archive` partition, as the
+lean above had it; the fallback, if needed, is booting from the SD card with the NVMe all archive.*
 
 **Update 2026-10-04: the choices this section left open, made in the build.** Made in commit
 `47ed4ed`, and approved by Chris on 2026-10-04: he said he had no problem with them.
