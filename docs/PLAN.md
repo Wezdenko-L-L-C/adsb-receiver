@@ -2642,6 +2642,20 @@ line. ⚠️ Nothing of it has run on a Pi. It reaches the 🎒 portable at the 
   - ℹ️ On the stratum: with the GPS selected, `chronyc tracking` on the 🎒 portable read Stratum 1
     on 2026-10-11 (F1's check, in
     [§5](#5-proposed-the-web-interface-is-three-existing-services-not-a-new-one)).
+  - *Update 2026-11-18: the pass rate does not reopen cap and cadence. (Chris, 2026-11-18 18:49, by
+    question; the text as put is in the private pick-up record, "Rulings as put", 2026-11-18
+    18:49.)* Asked: *"Overnight chrony check on the portable (same boot, no restarts): five time
+    servers passed 97.6–99.4% of their replies, 67.217.246.204 passed 84.8%, and 23.143.196.201
+    passed only 57.5%. Last week the architect said a low pass rate means reopening how often and
+    how hard we burst. Nothing on record says what counts as low. Is this low enough to reopen
+    that?"* Chosen, "No, it's fine (Recommended)": *"Overall 95.5% without the one weak server.
+    chrony works around a bad pool server on its own, so the burst design stays. Record it and move
+    on to 0r."* ➡️ The architect's "a low pass rate overnight → revisit cap and cadence" is not met
+    by this read; the cap and cadence stand. Only the pass rate is recorded here. The read's
+    condition "with nobody logged in" was reworded before it, to "overnight, nothing touches
+    chrony: no restart, no forced step, no update or reboot" (Chris's "ok", typed, not by question,
+    after 22:39 on 2026-11-17), because "nobody logged in" was never given a reason and an idle
+    SSH session cannot affect the count. The quotation of 0d above is left as written.
 
 ### 9f. What `update.sh` does
 
@@ -3291,6 +3305,20 @@ is.
     ruling B, whose words were "first timer run". Rejected with it: **open a window per new tip,**
     which re-derives (C) above, "a daily recording gap for nothing"; **count the soak from the
     commit date again,** which reverses §9g's 2026-10-15 ruling B.
+    *Update 2026-11-17: dropped, not to be built. (Chris, 2026-11-17 21:49, Q1, by question; the
+    text as put is in the private pick-up record, "Rulings as put", 2026-11-17 21:49.)* Chosen,
+    "Drop it (Recommended)": *"No rig runs the code it guards. If a rig ever gets a wait above 0, it
+    comes back then."* As put: the fix only matters when a rig waits some days before updating;
+    every rig's wait is now ruled 0 (the 🎒 portable's as built; the 🏠 home stationary's in A11 and
+    the 🏠 remote's in P2, both in [§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable)),
+    and the 20:48 design does its waiting on GitHub, not on the rigs. Rejected: **build it anyway,**
+    *"Guard the code path in case a wait is set later."* The hole described above is unchanged in
+    the code. ⚠️ The stationary role's default wait in the code is still 7 days:
+    `setup/update.sh` sets `SOAK_DAYS_STATIONARY=7`, and `config/station.stationary.example.yml`
+    sets no `update.soak_days`. So a stationary built on today's code would wait 7 days and meet
+    this hole, unless that default or its `station.yml` is changed first. The record is "Update
+    2026-11-17 21:49: three follow-ups to hands-off updating", in
+    [§9h](#9h--the-stationary-rigs-home-and-remote).
   - **(d) Rename `adsb-pull-window` to `adsb-maintenance-window` now,** before the stationary
     exists, in two rounds on the 🎒 portable: an update installs the new name beside the old, and a
     later one drops the old. The stationary only ever has the new name. The name is in the
@@ -4503,6 +4531,10 @@ options then put refused in writing. 📋 **Nothing below is built.**
   letting the updater reboot stands. Rejected with it: **automatic, rig reboots too,** which
   reverses the ruling that the updater never reboots, and a bad boot on the remote rig means a site
   visit; **by hand only,** today's state, which left openssl and wpasupplicant stale for 6 weeks.
+  *Update 2026-11-17: the EEPROM leaves the quarterly hand round. Not a new question: it follows
+  from 20:48 Q4's chosen option, "The bootloader chip is set once at enrollment and left alone",
+  as stated at the 21:49 re-read. See "Update 2026-11-17 21:49: three follow-ups to hands-off
+  updating", below.*
 - **The never-touch list, narrowed (07:42 Q2 and Q3; the note under the denylist above).** Q2,
   chosen: *"Narrow the rule: it covers the repo's code changing network or SSH config, not a vendor
   security fix that keeps config files. These are the Wi-Fi and SSH programs anyone nearby can
@@ -4552,6 +4584,10 @@ options then put refused in writing. 📋 **Nothing below is built.**
   architect's design: `GITHUB_TOKEN` only, and upstream code never in a job that can write.
   Rejected: **the bot opens a PR, Chris merges,** the same testing plus a human click before
   `stable` moves, about 2 minutes of his time per update.
+  *Update 2026-11-17: it starts later than "until the rehearsal is built". (Chris, 2026-11-17
+  21:49, Q2, by question.)* The bot waits until the test Pi and the GitHub job that moves versions
+  between stages both exist, so its bumps reach the test Pi first. See "Update 2026-11-17 21:49:
+  three follow-ups to hands-off updating", below.
 - **The review rule's exception (08:02 Q2).** The bot's own version-update commits are exempt from
   the 2026-10-09 review rule ([§9b](#9b-one-bash-script-per-build-step), at its end), on the
   condition that CI rejects any bot commit that changes more than the pinned version line and its
@@ -4565,6 +4601,10 @@ options then put refused in writing. 📋 **Nothing below is built.**
   versions only,** CI committing a list of package versions that passed and rigs installing only
   those, at the costs put: a near-daily bot commit to a public repo, security fixes up to a day
   later, and a sandbox whose packages must match the rigs'.
+  *Update 2026-11-17: the nightly sandbox check is retired; the test Pi covers it. (Chris,
+  2026-11-17 21:49, Q3, by question.)* 07:42's security set itself stands. This is not §9g's CI
+  rehearsal, which the 08:00 answer above also calls the sandbox; the rehearsal stays. See "Update
+  2026-11-17 21:49: three follow-ups to hands-off updating", below.
 - **The remote is not a test rig.** Chris, typed at 08:02: *"The remote stationary rig is a
   production rig - not a test box"*. In this design the only test system is the CI sandbox; the
   remote takes a version only after the sandbox passed it and the home rig ran it a full day
@@ -4742,6 +4782,37 @@ each is recorded below for what it ruled or reopened, and what 20:48 then settle
   between the test Pi's run and the others' goes out untested, and closing that needs the tested
   package list rejected at 08:02; and the hold is public, so anyone watching the repository can see
   the rigs skipping that night's security fixes.
+
+**Update 2026-11-17 21:49: three follow-ups to hands-off updating. (Chris, 2026-11-17 21:49, by
+question; the texts as put are in the private pick-up record, "Rulings as put", 2026-11-17
+21:49.)** Put after Claude re-read step 0l against the 20:48 rulings and their record above. ✅ Read
+by Claude over read-only SSH on the 🎒 portable, 2026-11-17 21:47: openssl, libssl3t64 and
+openssl-provider-legacy at `3.5.9-1~deb13u1+rpt1`, wpasupplicant at `2:2.10-24+rpt3`,
+`unattended-upgrades` not installed. 📋 **Nothing below is built.**
+
+- **A4(c), the soak's first sight (Q1).** Chosen, "Drop it (Recommended)": *"No rig runs the code
+  it guards. If a rig ever gets a wait above 0, it comes back then."* As put: the fix only matters
+  when a rig waits some days before updating; every rig now waits 0 days, and the 20:48 design does
+  its waiting on GitHub, not on the rigs. Rejected: **build it anyway,** *"Guard the code path in
+  case a wait is set later."* The note is at A4(c) in [§9f](#9f-what-updatesh-does), with what the
+  code still defaults to.
+- **When the weekly bot starts (Q2).** Chosen, "After test Pi and stage job (Recommended)": *"The
+  bot waits until the test Pi and the GitHub job that moves versions between stages both exist, so
+  its bumps go test Pi first."* As put: the bot was planned to start once the rehearsal exists
+  (08:02 Q1, above), but the 🎒 portable follows `stable` today, so its bumps would reach the
+  portable with no test Pi in front of it, against 20:48's every version to the test Pi first.
+  Rejected: **after the rehearsal, as written,** *"The bot starts sooner. Until the test Pi exists,
+  its bumps reach the portable after CI and the rehearsal only."*
+- **The nightly sandbox check (Q3).** Chosen, "Drop it, test Pi covers it (Recommended)": *"The
+  test Pi runs the real updates on real Pi hardware and can stop the other rigs. The sandbox can
+  only warn, and it isn't a Pi."* ➡️ This retires 08:02 Q3's nightly sandbox check; 07:42's
+  security set itself stands. It does not touch
+  [§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable)'s CI rehearsal (P1), which
+  08:00 Q2 also called the sandbox. Rejected: **keep both,** *"The sandbox is a second warning. It
+  also covers nights when the test Pi is off. It's one more workflow to build and maintain."*
+- **The EEPROM, stated at the same re-read without a question,** as following from rulings already
+  made: 20:48 Q4's chosen option, *"The bootloader chip is set once at enrollment and left alone"*,
+  takes the EEPROM out of 07:42 Q1's quarterly hand round.
 
 **Health is pushed, not pulled:**
 
