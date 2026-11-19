@@ -430,7 +430,7 @@ srun
 check "SP2 applied: exit 0, one package change in the journal" rc_has 0 "^==> security: applied 1 package change(s):" "$SB/out.txt"
 check "SP2 status.json names the change" [ "$(SEC '["packages"]')" = "['openssl 1 -> 2']" ]
 check "SP2 no boot image change, no reboot reason added" \
-  [ "$(SEC '["boot_image_changed"]')/$(cat "$SB/run/reboot-required" 2>/dev/null | grep -c 'rebuilt the startup image')" = "False/0" ]
+  [ "$(SEC '["boot_image_changed"]')/$(if [ -f "$SB/run/reboot-required" ]; then grep -c 'rebuilt the startup image' "$SB/run/reboot-required"; else echo 0; fi)" = "False/0" ]
 
 touch "$SB/uu-initrd"
 srun
