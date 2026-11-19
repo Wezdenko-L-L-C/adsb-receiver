@@ -2669,6 +2669,10 @@ A systemd timer runs `update.sh` as a oneshot.
 In order:
 
 1. Heal an interrupted `apt`.
+   *Update 2026-11-18: then, in a timer-mode run on a built rig, the security phase, before the
+   fetch; it never fails the run and never reboots. Written, uncommitted on the branch
+   `security-phase`, and not run on a Pi: [§9h](#9h--the-stationary-rigs-home-and-remote), "Update
+   2026-11-18: 08:02's open items answered, and the security phase as built".*
 2. Fetch.
 3. Resolve the candidate SHA for the rig's channel ([§9g](#9g-channels-portable-tracks-main-stationary-tracks-stable)).
    **If it has not changed, exit having touched nothing.**
@@ -4453,6 +4457,11 @@ restarting its own service while keeping the existing config files, nor a securi
 rebuilding the boot image in `/boot/firmware`, which is detected and reported, with the reboot left
 to Chris. The table above is unchanged. 📋 Not built. The rulings, and what was rejected with them,
 are in "Update 2026-11-17: software outside the repo", below.
+*Update 2026-11-18: the detection is written, uncommitted on the branch `security-phase` and not run
+on a Pi. It reads the copy of the boot image in `/boot` (`/boot/initrd.img-*`), not
+`/boot/firmware`, so the table and CI's denylist are unchanged (Chris, 2026-11-18 19:33, "Watch
+/boot instead (Recommended)", by question). See "Update 2026-11-18: 08:02's open items answered,
+and the security phase as built", below.*
 
 **Update 2026-11-17 20:48: to be narrowed for `/boot/firmware` and `tailscaled`, only if the
 trial-boot test passes on the test Pi. (Chris, 2026-11-17 20:48, Q4, by question; 18:44 Q3 and
@@ -4620,6 +4629,9 @@ options then put refused in writing. 📋 **Nothing below is built.**
   signed and passes the ruleset; whether a dispatched run's checks satisfy a required check on that
   SHA; `rpi-eeprom`'s apply-at-boot behavior; whether the archive records the `readsb` version per
   session.
+  *Update 2026-11-18: all six answered, each a settled answer with its source or a test plan
+  (pick-up step 0l(i)). See "Update 2026-11-18: 08:02's open items answered, and the security phase
+  as built", below.*
 
 **Update 2026-11-17 20:48: hands-off updating. (Chris, 2026-11-17, 18:44 to 20:48 Arizona time, by
 question and typed in chat; the texts as put are in the private pick-up record, "Rulings as put",
@@ -4731,6 +4743,10 @@ each is recorded below for what it ruled or reopened, and what 20:48 then settle
   above.) Conditional on the trial-boot test, ⚠️ unverified and unbuilt; the
   never-touch list's note above says what it narrows and when. Rejected: **kernel only,** Tailscale
   by hand on every rig; **both by hand,** as ruled at 07:42, about 5 minutes per rig per quarter.
+  *Update 2026-11-18: "left alone" now holds except for an update Raspberry Pi marks critical by
+  raising `BOOTLOADER_AUTO_UPDATE_MIN_VERSION`, which `rpi-eeprom-update.service`, left enabled,
+  applies at the next boot. (Chris, 2026-11-18 19:14, Q1, "Leave it as is", by question.) See
+  "Update 2026-11-18: 08:02's open items answered, and the security phase as built", below.*
 - **The design the four answers rule on: the architect's call, not ruled by question.**
   fable-architect's amended design, after a rejection-checker's list, was put to Chris on the page
   he answered and not objected to; only the four answers above are rulings. As the page put it:
@@ -4813,6 +4829,147 @@ openssl-provider-legacy at `3.5.9-1~deb13u1+rpt1`, wpasupplicant at `2:2.10-24+r
 - **The EEPROM, stated at the same re-read without a question,** as following from rulings already
   made: 20:48 Q4's chosen option, *"The bootloader chip is set once at enrollment and left alone"*,
   takes the EEPROM out of 07:42 Q1's quarterly hand round.
+
+**Update 2026-11-18: 08:02's open items answered, and the security phase as built. (Chris,
+2026-11-18 19:14 and 19:33, by question; the texts as put are in the private pick-up record,
+"Rulings as put", 2026-11-18 19:14 and 19:33. The answers are pick-up step 0l(i), done 2026-11-18
+19:11–19:12; the build is its 0l(ii).)** 📋 **The phase is written on the branch `security-phase`,
+uncommitted as this is recorded.** ⚠️ **It has not run on any Pi.**
+
+- **The seven unchecked items (0l(i)): the six under 08:02's "Not checked" list above, plus 20:48
+  Q4's trial-boot premise.** From three documentation agents, Claude's grep of the repo and a
+  read-only SSH read of the 🎒 portable at 19:12. "Inferred" marks an agent's claim it did not read.
+  (1) **unattended-upgrades' matching and two origins.** `Package-Blacklist` entries are Python
+  regexes anchored at the start of the binary package name only, so an exact name needs `$`; a
+  blacklisted package fails only its own change set, not the run. ⚠️ No per-package origin rule
+  exists: `Allowed-Origins` and `Package-Whitelist` are both global, so limiting the Pi archive to
+  the four takes apt pins (inferred). Source: unattended-upgrades 2.12 on sources.debian.org
+  (trixie's version, inferred). Test plan, about 5 minutes, on a rig with it installed: the pins
+  written, `apt-cache policy` shows the intended candidates, and `unattended-upgrade --dry-run -d`
+  lists only the security set. (2) **`20auto-upgrades`: yes, installing the package turns it on**
+  (its postinst, when debconf's `unattended-upgrades/enable_auto_updates` is true, the template's
+  default), and `apt-daily-upgrade.timer` would then run it outside the window. Answer: preseed it
+  false before installing; masking the timer as well is inferred, not read. Source: 2.12's
+  `debian/postinst` and `debian/templates`. (3) **A commit made through GitHub's API with
+  `GITHUB_TOKEN`, signed and passing the ruleset: not settled**; the official docs name none of the
+  API routes, and the claim that such commits are signed is third-party only. Test plan, about 10
+  minutes, in a scratch public repo with the same ruleset. (4) **A dispatched run's check meeting a
+  required check on that SHA: not settled**; the ruleset docs say nothing about it. Test plan, about
+  15 minutes, in the same scratch repo. ➡️ (3) and (4) run when the weekly bot is briefed. (5)
+  **rpi-eeprom's apply-at-boot: settled on the portable.** `rpi-eeprom-update.service` is enabled
+  and runs `rpi-eeprom-update -s -a` at every boot, and the package's postinst restarts it on every
+  upgrade; `-s` skips the update when the bootloader is at or above
+  `BOOTLOADER_AUTO_UPDATE_MIN_VERSION` (`/usr/bin/rpi-eeprom-update:651`, `:1106–1109`). The
+  portable's bootloader, dated 2025/11/05, is above that floor. ⚠️ A package release that raises
+  the floor would flash the bootloader unasked at the next boot. Ruled at 19:14 Q1, below. (6)
+  **The `readsb` version per session: not recorded**; only `setup/steps/10-decoder.sh` logs it, to
+  the journal. Ruled at 19:14 Q2, below. (7) **The trial-boot premise, "a bad kernel falls back by
+  itself": half documented.** Documented: the tryboot flag is one-shot, and a reset before boot
+  completes loads the normal `config.txt`. Not documented: that a panic or hang resets the Pi at all
+  (inferred, it needs `panic=N` on the cmdline and the hardware watchdog), nor tryboot on a Pi 5
+  booting from NVMe. Sources: raspberrypi.com's `config_txt.html`, Ubuntu's piboot A/B page. Test
+  plan, about 30 minutes, on the test Pi (0q), with a deliberately broken kernel.
+- ✅ **Read after that, by Claude over read-only SSH on the 🎒 portable, 2026-11-18 19:38:** the
+  Pi archive's host is `archive.raspberrypi.com`, and its Release origin `o=Raspberry Pi
+  Foundation`; Debian-Security is `o=Debian,a=stable-security,n=trixie-security,l=Debian-Security`;
+  `/boot/firmware/initramfs8` and `initramfs_2712` are byte-identical (sha256) to the newest
+  `/boot/initrd.img-6.18.60+rpt-rpi-v8` and `-2712`, copied there by
+  `/etc/initramfs/post-update.d/z50-raspi-firmware`.
+- **The EEPROM (19:14 Q1).** Chosen, "Leave it as is": *"Accept that Raspberry Pi can push a
+  critical bootloader fix at the next reboot after a hand update. Nothing to build."* ➡️
+  `rpi-eeprom-update.service` stays enabled, and 20:48 Q4's *"set once at enrollment and left
+  alone"* now holds except for an update Raspberry Pi marks critical by raising
+  `BOOTLOADER_AUTO_UPDATE_MIN_VERSION`. Rejected: **turn it off in setup,** the recommended option,
+  *"A setup step masks the service on every rig, so nothing changes the bootloader unless you do it
+  by hand. About 2 lines in a step, built with the security-update work."*
+- **The `readsb` version in the archive (19:14 Q2).** Chosen, "Yes, add it now (Recommended)": *"A
+  small change to the writer, built alongside the security-update work. Older readers ignore the
+  extra field."* Rejected: **yes, but later,** *"Open an issue, and build it before the weekly bot
+  starts."*; **no,** *"The version isn't needed in the recordings."* ✅ The option's "older readers"
+  claim, by Claude's grep at 19:15: no code in adsb-receiver or spotcraft parses the `start`
+  record's keys.
+- **How the phase sees a boot-image rebuild (19:33).** Why it was asked: the implementer's first
+  version read `/boot/firmware/initramfs*`; CI's denylist step (`.github/workflows/ci.yml:107–132`)
+  fails on any non-comment mention of `/boot/firmware` in rig code outside
+  `setup/foundation/rtc-overlay.sh`; and the auto-mode classifier refused the implementer's
+  one-line exemption in `ci.yml` as weakening a guard. Chosen, "Watch /boot instead (Recommended)":
+  *"Check the copy of the startup image in /boot, which Raspberry Pi OS copies into /boot/firmware.
+  The CI guard stays exactly as it is. It's one step removed from the file you named at 07:42, so
+  I'll confirm on the portable that the two always change together."* ➡️ The phase checksums
+  `/boot/initrd.img-*`, and `ci.yml` is unchanged. Rejected: **let the updater past CI,** *"Add a
+  CI exemption so the updater may mention /boot/firmware. It reads the file directly, but CI would
+  then also miss a future line in the updater that writes there. It's a change to a guard, so you'd
+  approve the edit."* The confirmation the option promised is the 19:38 read above: a byte
+  comparison at one moment, not a rebuild watched as it happened. ⚠️ Only the newest kernel's image
+  is copied to the firmware partition, so a rebuild of an older kernel's image may ask for a reboot
+  that is not needed. Claude's inference from the copy hook's behavior; not tested.
+- **The security phase, as built (0l(ii)):** `security_phase` in `setup/update.sh`, and a new step,
+  `setup/steps/55-security.sh`, that installs `unattended-upgrades` and renders the phase's apt
+  configuration.
+  - **When.** A timer-mode run on a built rig, once it holds the recording lock and has run
+    [§9f](#9f-what-updatesh-does)'s step 1 (`dpkg --configure -a`), and before the fetch: so in
+    every window, whether or not the channel moved, and never while recording. A `--rev` run and a
+    first build skip it. With the configuration not rendered or `unattended-upgrade` missing, it logs
+    a skip and changes nothing.
+  - **What it installs.** `apt-get update`, then one `unattended-upgrade -v` run under the phase's
+    own `APT_CONFIG`, `/etc/adsb-receiver/security/apt.conf`. That file names the phase's own
+    preferences file, which pins the Raspberry Pi archive to 1 and openssl, libssl3t64,
+    openssl-provider-legacy and wpasupplicant from it to 500. The allowed origins are Debian-Security
+    and the host `archive.raspberrypi.com`; a changed config file is kept (`--force-confold`, 07:42
+    Q2). The pins are in the phase's `APT_CONFIG`, not `preferences.d`, because system-wide pins
+    would also hold back the kernel and firmware the by-hand round takes from that archive. *The
+    pins' scope is the implementer's choice, not ruled.*
+  - **Off apt's own schedule.** 55-security writes `/etc/apt/apt.conf.d/52adsb-security`, sorting
+    after `20auto-upgrades`, with `APT::Periodic::Unattended-Upgrade "0"`, before it installs the
+    package, and preseeds `enable_auto_updates` false; it does not mask the timer.
+  - **The never-touch list** is `Package-Blacklist`, twelve prefixes: `linux-image-`,
+    `linux-headers-`, `linux-kbuild-`, `raspberrypi-kernel`, `raspberrypi-bootloader`,
+    `raspi-firmware`, `firmware-`, `bluez-firmware`, `rpi-eeprom`, `rpi-update`, `tailscale$` and
+    `tailscale-archive-keyring$`. *Reading every `firmware-` package, Wi-Fi firmware included, as
+    "firmware" in 07:42 Q1 is the implementer's, not ruled.*
+  - **55-security's `verify()`** checks apt as it resolves, not the files as written: the three
+    files match their render; nothing turns `APT::Periodic::Unattended-Upgrade` on system-wide;
+    under the phase's `APT_CONFIG`, its preferences file and dpkg options hold, and the origins and
+    the never-touch list are exactly the step's, with no automatic reboot and no install at
+    shutdown; `apt-cache policy` puts every package file from the Pi host at 1, the four and nothing
+    else at 500, `raspberrypi-sys-mods` (only that archive carries it) at 1, and the four's
+    candidates equal to the system's; and `unattended-upgrade --dry-run -v` exits 0, reports the
+    step's origins and blacklist, and would upgrade nothing outside Debian-Security and the four,
+    and nothing on the list. ⚠️ A dry run downloads what it would upgrade, so with anything pending
+    `verify()` needs the network; it is bounded at 600 s. That a dry run downloads is the
+    implementer's read of unattended-upgrades' source, not checked by documenter.
+  - ⛔ **It never reboots.** When the `/boot/initrd.img-*` checksums differ before and after, it adds
+    a reason to `/run/adsb-receiver/reboot-required` and records `boot_image_changed` and
+    `reboot_required`.
+  - **What it records.** A `security` record in `status.json`: `result` (`nothing`, `applied` or
+    `failed`), start and finish times, exit code, note, the package changes (from `dpkg-query`
+    before and after), `boot_image_changed` and `reboot_required`. It is merged into the existing
+    `status.json` at once and carried by every later write. The login banner shows a "security
+    updates" line with that result, its finish time and the number of changes, then the note, and a
+    line asking for a reboot by hand when that run rebuilt the startup image.
+  - ⚠️ **A failed phase warns and is recorded, but never fails the run:** the run's exit code and
+    `result` are the code update's alone. *The implementer's choice, not ruled.*
+  - 📋 **The 20:48 Q3 stop is not built.** Its place is marked at the top of `security_phase`,
+    before anything changes the rig: a hold set is to record `result` "held" and return.
+  - **Time.** At worst 1290 s before the fetch: `apt-get update` bounded at 300 s plus 30 s to kill
+    it, `unattended-upgrade` at 900 s plus 60. That is inside `adsb-update.service`'s
+    `TimeoutStartSec=40min`. The sum is the implementer's; ✅ the four bounds (`setup/update.sh`)
+    and the unit's limit (`setup/steps/50-updater.sh`) read in the code by documenter, 2026-11-18.
+  - **The writer.** `bin/adsb-writer`'s `start` record gains `readsb=<version>`, from
+    `readsb --version`, or `readsb=unknown` when it cannot be run or read; the writer starts either
+    way. ✅ The portable's real output, "readsb version: 3.16.17 wiedehopf git: 0947209 (…)",
+    parses to `3.16.17` (Claude ran the writer's regex on it).
+  - **Reviews and tests, as Claude reported them; not rerun by documenter.** step-reviewer: 5
+    findings, fixed. `/code-review` at medium: 1 important finding and 5 nits, fixed. Claude's own
+    catch in `pkg_origin` (55-security's `verify()`): the installed row of `apt-cache policy`'s
+    version table, marked `***`, had its sources attributed to the candidate; fixed, with a test,
+    and checked under mawk and gawk. `/security-review`: nothing found (8/10). Unit tests 265 OK;
+    smoke 308 passed, 0 failed.
+  - ⚠️ **Not yet run on any Pi.** The must-show is step 0l's in the pick-up record ("(ii) as
+    written, except its must-show"): *"CI green; on the portable after its next window,
+    `update.sh`'s security phase in the journal and an `/var/log/apt/history.log` entry dated inside
+    the window (or the phase's "nothing to apply" line), status.json `result: applied`, no reboot,
+    the writer recording, any `initramfs8` change in status.json and the banner."*
 
 **Health is pushed, not pulled:**
 
@@ -6771,6 +6928,13 @@ records; see the end of this section, which also lists what has not yet been see
   ➡️ Concatenating the payloads that begin with `0x1a` reproduces a valid BEAST stream.
 - **Event records are payloads that do not begin with `0x1a`:** one UTF-8 line each.
   - `start`
+    *Update 2026-11-18: as built, `start adsb-writer <version>` then `key=value` fields: `source`,
+    `archive`, `min_free_gb`, `position`, `python`, and now `readsb=<version>`, from
+    `readsb --version`, or `readsb=unknown` when it cannot be read; the writer starts either way.
+    No code in adsb-receiver or spotcraft parses these keys. (Chris, 2026-11-18 19:14, Q2, "Yes,
+    add it now (Recommended)", by question.) Written, uncommitted on the branch `security-phase`;
+    [§9h](#9h--the-stationary-rigs-home-and-remote), "Update 2026-11-18: 08:02's open items
+    answered, and the security phase as built".*
   - `stop reason=…`
   - `connected <addr>`
   - `disconnected reason=…`
