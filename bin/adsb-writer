@@ -29,6 +29,9 @@
 #   A record whose payload does not start with 0x1a is an event: one UTF-8
 #   line, no newline. Readers ignore an event word they do not know.
 #     start <program> <version> key=value ...   first record of the first file
+#         keys: source, archive, min_free_gb, position, python, and readsb=<version>
+#         (from `readsb --version`, or readsb=unknown when it cannot be read: the
+#         writer starts either way). No reader parses these keys today.
 #     stop reason=<SIGTERM|SIGINT|refused|error>  last record before a clean stop
 #         ⚠️ Only if a file is open. Every refusal on space happens with none
 #         open (before the first, or after a rotation's close), so today
@@ -368,6 +371,23 @@ def _chronyc(args, run):
     if r.returncode != 0:
         return None, f"chronyc-exit-{r.returncode}"
     return r.stdout, None
+
+
+READSB_BIN = "/usr/bin/readsb"   # setup/steps/10-decoder.sh's READSB_BIN
+
+
+def readsb_version(run=subprocess.run, binary=READSB_BIN):
+    """readsb's version, one token for the start event's readsb= key, from `readsb --version`
+    (10-decoder's verify logs that output). "unknown" when it cannot be run or read. Never raises:
+    a missing or odd readsb must not stop the writer starting."""
+    try:
+        r = run([binary, "--version"], capture_output=True, text=True, timeout=5,
+                errors="replace")
+        out = f"{r.stdout or ''}\n{r.stderr or ''}"
+    except Exception:  # noqa: BLE001 - any failure here means only "unknown"
+        return "unknown"
+    m = re.search(r"(?<![\w.])v?\d+\.\d+(?:\.\d+)*(?:[-+~][0-9A-Za-z.~+-]*)?", out)
+    return m.group(0) if m else "unknown"
 
 
 def probe_clock(now_s=time.time, run=subprocess.run):
@@ -1078,7 +1098,7 @@ def main(argv=None):
                source=f"{host}:{port}", clock_probe=probe_clock, max_offset_ms=max_ms)
     start = (f"start adsb-writer {VERSION} source={host}:{port} archive={a.archive} "
              f"min_free_gb={a.min_free_gb:g} position={'off' if a.no_position else 'on'} "
-             f"python={sys.version.split()[0]}")
+             f"python={sys.version.split()[0]} readsb={readsb_version()}")
     log(f"start {VERSION}: source {host}:{port}, archive {a.archive}, min free {a.min_free_gb:g} GiB")
     try:
         w.begin(start)

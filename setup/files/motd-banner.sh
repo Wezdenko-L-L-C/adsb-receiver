@@ -32,6 +32,9 @@
 #     The ruled text
 #     abbreviates the URL as "…/setup/bootstrap.sh"; the banner prints BUILD.md §8's whole URL, so
 #     the line can be copied (the implementer's reading, not ruled);
+#   - the last security phase (status.json's security record): its result and finish time, its
+#     note, and a line when that run rebuilt the startup image (shown until the next phase runs,
+#     after a reboot too: the record is of that run, not of the boot);
 #   - a needed reboot, with its reasons (/run/adsb-receiver/reboot-required);
 #   - recording: who holds the recording lock, read from the holder's cgroup (not `ps -o unit=`),
 #     when that process started (not when it took the lock: the writer may wait on the lock
@@ -142,6 +145,21 @@ if fa.get("result") in ("refused", "failed") and os.environ.get("ARCHIVE_MOUNTED
     out.append(f"  ARCHIVE DRIVE NOT FORMATTED by the first build ({found.get('ran_at')}): {fa.get('reason')}")
     if fa.get("manual"):
         out.append(f"    by hand, after checking the device: {fa['manual']}")
+# The update's security phase (PLAN §9h, 07:42 Q1–Q3): its last outcome, and a rebuilt boot image.
+sec = s.get("security") if isinstance(s.get("security"), dict) else {}
+if sec:
+    pk = sec.get("packages") or []
+    # Strings from the record go through the filter below, as every line does; a missing time is skipped.
+    when = f" ({sec['finished_at']})" if sec.get("finished_at") else ""
+    line = f"  security updates{when}: {sec.get('result')}"
+    if pk:
+        line += f", {len(pk)} package change(s)"
+    out.append(line)
+    if sec.get("note"):
+        out.append(f"    {sec['note']}")
+    if sec.get("boot_image_changed"):
+        out.append("    the startup image (/boot/initrd.img-*) was rebuilt by that run: reboot by hand when convenient;"
+                   " the update never reboots")
 if s.get("log"):
     out.append(f"  log: {s['log']}")
 # The header's filter: C0, DEL and C1 become '?'.

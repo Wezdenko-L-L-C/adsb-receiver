@@ -688,5 +688,39 @@ class ProbeTest(unittest.TestCase):
         self.assertEqual(W.probe_position(addr, 1), "position unavailable reason=refused")
 
 
+class ReadsbVersion(unittest.TestCase):
+    """The start event's readsb= key (Chris, 2026-11-18): a version token, or unknown, never a raise."""
+
+    @staticmethod
+    def fake(stdout="", stderr="", exc=None):
+        def run(cmd, **kw):
+            if exc:
+                raise exc
+            return types.SimpleNamespace(returncode=0, stdout=stdout, stderr=stderr)
+        return run
+
+    def test_version_line(self):
+        # The output's shape is assumed, not read from a rig: a version number somewhere in it.
+        out = "readsb version: 3.16.10 wiedehopf git: 1a2b3c4 (committed: 2025-01-01)\n"
+        self.assertEqual(W.readsb_version(run=self.fake(stdout=out)), "3.16.10")
+
+    def test_version_on_stderr_with_a_suffix(self):
+        self.assertEqual(W.readsb_version(run=self.fake(stderr="readsb v3.16.21-dev\n")), "v3.16.21-dev")
+
+    def test_unreadable_output_is_unknown(self):
+        self.assertEqual(W.readsb_version(run=self.fake(stdout="usage: readsb [options]\n")), "unknown")
+
+    def test_failures_are_unknown(self):
+        import subprocess
+        for exc in (FileNotFoundError(), PermissionError(), subprocess.TimeoutExpired("readsb", 5),
+                    OSError(5, "EIO")):
+            self.assertEqual(W.readsb_version(run=self.fake(exc=exc)), "unknown", exc)
+
+    def test_the_token_has_no_space(self):
+        v = W.readsb_version(run=self.fake(stdout="readsb version 3.16 x\n"))
+        self.assertNotIn(" ", v)
+        self.assertEqual(v, "3.16")
+
+
 if __name__ == "__main__":
     unittest.main()

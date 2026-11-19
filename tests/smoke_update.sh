@@ -26,7 +26,7 @@
 set -uo pipefail
 # The number of check cases a full run makes. Bump it when cases are added or removed: a run that
 # makes fewer (a section skipped by an early return, a wait loop that timed out) fails.
-readonly EXPECTED_CHECKS=290
+readonly EXPECTED_CHECKS=308
 ((EUID != 0)) || { echo "refusing to run as root: the sandbox remaps real system paths by sed"; exit 1; }
 # The sandbox is not under systemd; update.sh adds a <N> journal prefix to its marker line when it is.
 unset INVOCATION_ID
@@ -48,6 +48,8 @@ remap_update() {
   sed -e "s#/opt/adsb-receiver#$SB/opt#; s#^readonly STATE=/var/lib/adsb-receiver#readonly STATE=$SB/var#; s#/var/log/adsb-receiver#$SB/log#; s#^readonly RUN_DIR=/run/adsb-receiver#readonly RUN_DIR=$SB/run#; s#^readonly HOME_DIR=/run/adsb-home-update#readonly HOME_DIR=$SB/home#; s#/etc/adsb-receiver/station.yml#$SB/etc/station.yml#" \
       -e 's#((EUID == 0)) || {#true || {#' -e 's#^  DEBIAN_FRONTEND=noninteractive dpkg --configure -a \\#  true \\#' \
       -e 's#install -m 0600 -o root -g root #install -m 0600 #' \
+      -e "s#^readonly SEC_DIR=/etc/adsb-receiver/security#readonly SEC_DIR=$SB/etc/security#" \
+      -e "s#^readonly BOOT_DIR=/boot#readonly BOOT_DIR=$SB/boot#" \
       -e "s#\"/proc/\\\$pid/cgroup\"#\"$SB/cgroup\"#" "${UPD_SRC:-$REAL/setup/update.sh}"
 }
 remap_bootstrap() {
@@ -84,7 +86,9 @@ assert_remaps "$U" \
   "root check"    "true || {"                          "((EUID == 0))" \
   "dpkg"          "  true \\"                          "DEBIAN_FRONTEND=noninteractive dpkg --configure -a" \
   "root install"  "install -m 0600 \""                 "install -m 0600 -o root -g root" \
-  "cgroup"        "\"$SB/cgroup\""                     '"/proc/$pid/cgroup"'
+  "cgroup"        "\"$SB/cgroup\""                     '"/proc/$pid/cgroup"' \
+  "SEC_DIR"       "readonly SEC_DIR=$SB/etc/security"  "readonly SEC_DIR=/etc/adsb-receiver/security" \
+  "BOOT_DIR"      "readonly BOOT_DIR=$SB/boot"         "readonly BOOT_DIR=/boot"
 # shellcheck disable=SC2016  # $s and $pid are bootstrap.sh's text, matched literally
 assert_remaps "$B" \
   "cgroup"        "\"$SB/cgroup\""                     '"/proc/$pid/cgroup"' \
@@ -382,6 +386,100 @@ rm -f "$SB/reboot-step"
 echo "== E. timer unchanged: exit 0, status untouched"
 m=$(mt); sleep 1; run bash "$U"
 check "E exit 0 and untouched" [ "$RC/$(mt)" = "0/$m" ]
+
+echo "== SP. the security phase (PLAN §9h, 07:42 Q1–Q3): under the lock, before the fetch, never a reboot"
+# Stubs on a PATH of their own, for these cases only: apt-get, unattended-upgrade and dpkg-query
+# log to sec.log; unattended-upgrade swaps in dpkg-after and rebuilds the boot image on cue.
+mkdir -p "$SB/secbin" "$SB/boot"
+cat >"$SB/secbin/apt-get" <<EOF
+#!/usr/bin/env bash
+echo "apt-get \$*" >>"$SB/sec.log"; [[ -e "$SB/apt-fails" ]] && exit 100; exit 0
+EOF
+cat >"$SB/secbin/unattended-upgrade" <<EOF
+#!/usr/bin/env bash
+echo "unattended-upgrade \$* APT_CONFIG=\${APT_CONFIG:-}" >>"$SB/sec.log"
+[[ -e "$SB/uu-applies" ]] && cp "$SB/dpkg-after" "$SB/dpkg-state"
+[[ -e "$SB/uu-initrd" ]] && echo rebuilt >>"$SB/boot/initrd.img-test"
+exit 0
+EOF
+printf '#!/usr/bin/env bash\ncat "%s"\n' "$SB/dpkg-state" >"$SB/secbin/dpkg-query"
+chmod +x "$SB/secbin/"*
+printf 'ii openssl 1\nii wpasupplicant 1\nrc gone 1\n' >"$SB/dpkg-state"
+echo image >"$SB/boot/initrd.img-test"
+cp -p "$SB/run/reboot-required" "$SB/flag-before" 2>/dev/null || rm -f "$SB/flag-before"
+srun() { : >"$SB/sec.log"; run env PATH="$SB/secbin:$PATH" bash "$U"; }
+SEC() { S "s.get('security') and s['security']$1"; }
+no_reboot_since() { ! grep -q "FAKE REBOOT" "$SB/out.txt" && ! tail -n +$(($1 + 1)) "$SB/systemctl.log" 2>/dev/null | grep -qi reboot; }
+quiet_phase() { lacks "security:" "$SB/out.txt" && [ ! -s "$SB/sec.log" ]; }
+sl0=$(wc -l <"$SB/systemctl.log" 2>/dev/null || echo 0)
+
+srun
+check "SP0 not set up: skipped, one line, nothing run" \
+  [ "$RC/$(grep -c 'security: skipped: unattended-upgrades is not set up' "$SB/out.txt")/$(wc -l <"$SB/sec.log")" = "0/1/0" ]
+mkdir -p "$SB/etc/security"; : >"$SB/etc/security/apt.conf"
+srun
+check "SP1 nothing to apply: exit 0, the phase's start line and its nothing line" \
+  rc_has 0 "^==> security: nothing to apply$" "$SB/out.txt"
+check "SP1 status.json: result still applied, security.result nothing, no boot image change" \
+  [ "$(S 's["result"]+"/"+s["security"]["result"]+"/"+str(s["security"]["boot_image_changed"])')" = "applied/nothing/False" ]
+check "SP1 apt-get update, then unattended-upgrade with the phase's APT_CONFIG" \
+  [ "$(cut -d' ' -f1-2 "$SB/sec.log" | tr '\n' '|')/$(grep -c "APT_CONFIG=$SB/etc/security/apt.conf$" "$SB/sec.log")" = "apt-get update|unattended-upgrade -v|/1" ]
+
+printf 'ii openssl 2\nii wpasupplicant 1\nrc gone 1\n' >"$SB/dpkg-after"; touch "$SB/uu-applies"
+srun
+check "SP2 applied: exit 0, one package change in the journal" rc_has 0 "^==> security: applied 1 package change(s):" "$SB/out.txt"
+check "SP2 status.json names the change" [ "$(SEC '["packages"]')" = "['openssl 1 -> 2']" ]
+check "SP2 no boot image change, no reboot reason added" \
+  [ "$(SEC '["boot_image_changed"]')/$(cat "$SB/run/reboot-required" 2>/dev/null | grep -c 'rebuilt the startup image')" = "False/0" ]
+
+touch "$SB/uu-initrd"
+srun
+check "SP3 startup image rebuilt: recorded in status.json" \
+  [ "$(SEC '["boot_image_changed"]')/$(SEC '["reboot_required"]')/$(S 's["result"]')" = "True/True/applied" ]
+check "SP3 the reboot flag carries the reason, once" \
+  [ "$(grep -cF 'a security update rebuilt the startup image (/boot/initrd.img-*)' "$SB/run/reboot-required")" = 1 ]
+RC=0; bash "$BN" >"$SB/banner.txt" 2>&1 || RC=$?
+check "SP3 the login banner shows it" \
+  grep -qF "    the startup image (/boot/initrd.img-*) was rebuilt by that run: reboot by hand" "$SB/banner.txt"
+check "SP3 never a reboot: none printed, none asked of systemctl" \
+  no_reboot_since "$sl0"
+rm -f "$SB/uu-initrd" "$SB/uu-applies"
+
+touch "$SB/apt-fails"
+srun
+check "SP4 apt-get update fails: exit 0, recorded failed, the run carries on" \
+  [ "$RC/$(SEC '["result"]')" = "0/failed" ]
+check "SP4 unattended-upgrade not run" lacks "unattended-upgrade" "$SB/sec.log"
+check "SP4 the record's exit is apt-get's own (100), not 0" [ "$(SEC '["exit"]')" = 100 ]
+cp -p "$SB/var/status.json" "$SB/status.sp4"
+python3 - "$SB/var/status.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+d["security"]["finished_at"] = None
+d["security"]["note"] = "bad\x1b[31mnote"
+json.dump(d, open(sys.argv[1], "w"))
+PY
+RC=0; bash "$BN" >"$SB/banner.txt" 2>&1 || RC=$?
+# shellcheck disable=SC2016  # the inner bash expands $1 itself
+check "SP4 banner: no finished_at prints no '(None)'; the note is filtered of control characters" \
+  bash -c 'grep -qE "^  security updates: failed" "$1" && ! grep -q None "$1" && grep -qF "    bad?[31mnote" "$1" && ! grep -q "$(printf "\033")" "$1"' _ "$SB/banner.txt"
+mv -f "$SB/status.sp4" "$SB/var/status.json"
+rm -f "$SB/apt-fails"
+
+m=$(mt); flock "$SB/run/recording.lock" sleep 6 & sleep 0.5
+srun
+check "SP5 lock held: exit 0, status.json untouched" [ "$RC/$(mt)" = "0/$m" ]
+check "SP5 lock held: no security line, nothing run" \
+  quiet_phase
+wait
+
+echo "# sp6" >>"$R/setup/steps/00-a.sh"; commit "sp6"
+srun
+check "SP6 a code update in the same run: applied, and its status.json keeps the phase's record" \
+  [ "$RC/$(S 's["result"]+"/"+s["applied_rev"]')/$(SEC '["result"]')" = "0/applied/$(sha)/nothing" ]
+A1=$(sha)   # SP6 applied it: the later cases' "old commit" is this one now
+rm -rf "${SB:?}/etc/security" "$SB/sec.log" "$SB/dpkg-after"
+if [[ -f $SB/flag-before ]]; then mv -f "$SB/flag-before" "$SB/run/reboot-required"; else rm -f "$SB/run/reboot-required"; fi
 
 echo "== E2. 40-c's install exits the role-skip code from a failing command, with no skip line: failed, rolled back (2)"
 touch "$R/setup/RCSKIP-40-c"; commit "e2: a tool exits the role-skip code"

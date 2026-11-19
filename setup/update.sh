@@ -76,6 +76,24 @@
 # the build is still incomplete. The foundation's record (status.json foundation{}, with the
 # notes its scripts printed) is carried into every later status.json.
 #
+# The security phase (PLAN §9h, "Update 2026-11-17: software outside the repo", 07:42 Q1–Q3, as
+# reconfirmed at 08:04 for every rig): a timer-mode run on a built rig, once it holds the recording
+# lock and has healed apt, and before the fetch, runs unattended-upgrade once, with the apt
+# configuration setup/steps/55-security.sh renders (SEC_APT_CONF): everything from Debian-Security,
+# plus openssl, libssl3t64, openssl-provider-legacy and wpasupplicant from the Raspberry Pi archive,
+# never the kernel, firmware, the EEPROM or Tailscale. So it runs in every window, whether or not
+# the channel moved, and never while the rig records (the lock held means the run has already
+# exited). Every line it logs starts "security:"; with nothing to apply it says "security: nothing
+# to apply". It records its outcome as status.json's `security` record, merged into the existing
+# status.json at once (so a run that then finds the channel unchanged still leaves it there, the
+# one thing such a run writes) and carried by every later write_status. A failure there is
+# recorded and warned, never fatal: the run's exit code and `result` are the code update's alone
+# (the implementer's choice, not ruled). It reads the startup images in /boot (initrd.img-*) before and
+# after; a change (07:42 Q3) is recorded as security.boot_image_changed and as a reason in the
+# reboot flag, which the login banner shows. ⛔ It never reboots. ➡️ The stop (20:48 Q3, a hold
+# that makes rigs skip security fixes) is to be a check at the top of security_phase; not built.
+# ⚠️ Not run on a Pi: the pins' effect on unattended-upgrade's candidates is inferred.
+#
 # ⛔ It never reboots (PLAN §9l); steps record a needed reboot in /run/adsb-receiver/reboot-required,
 #    and setup/bootstrap.sh is the one thing that may act on it, once, on a first build.
 # ⛔ Its own code never stops the writer (a step may: 40 restarts it when its unit or binary
@@ -186,6 +204,13 @@ readonly SOAK_DAYS_PORTABLE=0 SOAK_DAYS_STATIONARY=7
 readonly FETCH_TIMEOUT=300
 readonly PREFLIGHT_TIMEOUT=120
 readonly BACKOFF_SECS=86400   # a failed candidate is skipped this long after its run
+# The security phase (the header). Its apt configuration, rendered by setup/steps/55-security.sh:
+# the APT_CONFIG file its unattended-upgrade run reads, which names that run's own pins.
+readonly SEC_DIR=/etc/adsb-receiver/security
+readonly SEC_APT_CONF=$SEC_DIR/apt.conf
+# Read only, never written: the /boot/initrd.img-* images are checksummed before and after (07:42 Q3).
+readonly BOOT_DIR=/boot
+readonly SEC_UPDATE_TIMEOUT=300 SEC_UU_TIMEOUT=900
 
 readonly RC_FAILED=1 RC_ROLLED_BACK=2 RC_INCOMPLETE=3 RC_NOT_READY=4 RC_USAGE=64
 # --check's "not pending" codes (the header).
@@ -1109,6 +1134,7 @@ write_status() {
   S_CAND=$CAND S_FAILED=$FAILED_STEP S_FAILED_STEPS=$failed_steps S_RB=$ROLLBACK_RESULT \
   S_RB_STEP=$ROLLBACK_FAILED_STEP S_LEFT=$leftovers S_GATE=$GATE S_RTC=$FOUND_RTC S_FNOTES=$fnotes \
   S_LOG=${RUN_LOGS:+$RUN_LOGS/run.log} S_WRITER=$WRITER_JSON S_TRIGGER=$TRIGGER S_OPENED_BY=$OPENED_BY \
+  S_SEC=$WORK/security.json \
   python3 - <<'PY' || { warn "could not write $STATUS"; return 0; }
 import json, os, socket
 E = os.environ
@@ -1151,6 +1177,13 @@ if E["S_RTC"] or fa:
                   "notes": [l for l in E["S_FNOTES"].split("\n") if l], "ran_at": E["S_NOW"]}
 else:
     foundation = prev.get("foundation") if isinstance(prev.get("foundation"), dict) else None
+# The security phase's record (the header): this run's, else the last one, carried.
+security = prev.get("security") if isinstance(prev.get("security"), dict) else None
+if os.path.exists(E["S_SEC"]):
+    try:
+        security = json.load(open(E["S_SEC"]))
+    except ValueError:
+        security = {"result": "unreadable"}
 doc = {
     "schema": 1,
     "host": socket.gethostname(),
@@ -1184,6 +1217,7 @@ doc = {
     "reboot_reasons": reasons,
     "log": nz(E["S_LOG"]),
     "writer_json": E["S_WRITER"],
+    "security": security,
 }
 tmp = E["S_STATUS"] + ".new"
 with open(tmp, "w") as fh:
@@ -1443,6 +1477,115 @@ check_pending() {
   exit 0
 }
 
+# --- The security phase (the header) --------------------------------------------
+
+# The startup images initramfs-tools rebuilds, /boot/initrd.img-<ver>: "<sha256>  <path>" per line,
+# sorted; empty when there are none. Read only. Raspberry Pi OS copies them into the firmware
+# partition; that copy is assumed to follow the /boot image (unverified on a rig), so it is not read.
+boot_image_sums() {
+  local f
+  for f in "$BOOT_DIR"/initrd.img-*; do
+    if [[ -f $f ]]; then sha256sum "$f" 2>/dev/null || true; fi
+  done | sort -k2
+}
+
+# Installed packages, "<package> <version>" per line, sorted: before and after, to name what the
+# phase changed without reading unattended-upgrades' own log format.
+installed_versions() {
+  # shellcheck disable=SC2016  # dpkg-query's own ${...} fields
+  dpkg-query -W -f '${db:Status-Abbrev} ${binary:Package} ${Version}\n' 2>/dev/null \
+    | awk '$1 == "ii" { print $2, $3 }' | sort || true
+}
+
+# security_phase: the header's security phase. Records into $WORK/security.json and status.json;
+# never fails the run, never reboots.
+security_phase() {
+  # A timer-mode run on a built rig only: --rev applies one commit by hand, and a first build is
+  # started by hand.
+  [[ $MODE == timer ]] && ((FIRST_BUILD == 0)) || return 0
+  # ➡️ The stop (PLAN §9h, 2026-11-17 20:48 Q3: rigs skip security fixes while a hold is set) goes
+  #    here, before anything below changes the rig: a hold set records result "held" through
+  #    record_security and returns. 📋 Not built.
+  if [[ ! -f $SEC_APT_CONF ]] || ! command -v unattended-upgrade >/dev/null; then
+    log "security: skipped: unattended-upgrades is not set up on this rig yet (step 55-security sets it up); nothing was changed"
+    return 0
+  fi
+  local started rc=0 result note='' boot_changed=0 before after pk_before pk_after changed
+  started=$(utc_now)
+  log "security: the security phase starts (PLAN §9h, 07:42 Q1): Debian-Security, and openssl, libssl3t64, openssl-provider-legacy and wpasupplicant from the Raspberry Pi archive; never the kernel, firmware, EEPROM or Tailscale; never a reboot"
+  before=$(boot_image_sums)
+  pk_before=$(installed_versions)
+  DEBIAN_FRONTEND=noninteractive timeout -k 30 "$SEC_UPDATE_TIMEOUT" apt-get update -q || rc=$?
+  if ((rc != 0)); then
+    result=failed note="apt-get update exited $rc (no network, or an archive unreachable); nothing was installed"
+  else
+    APT_CONFIG=$SEC_APT_CONF DEBIAN_FRONTEND=noninteractive \
+      timeout -k 60 "$SEC_UU_TIMEOUT" unattended-upgrade -v || rc=$?
+  fi
+  pk_after=$(installed_versions)
+  after=$(boot_image_sums)
+  changed=$(join -j1 -a1 -a2 -e none -o '0,1.2,2.2' <(printf '%s\n' "$pk_before") <(printf '%s\n' "$pk_after") 2>/dev/null \
+              | awk '$2 != $3 { print $1, $2, "->", $3 }' || true)
+  if [[ -z ${result:-} ]]; then
+    if ((rc != 0)); then
+      result=failed note="unattended-upgrade exited $rc; its log is in /var/log/unattended-upgrades/"
+      ((rc == 124 || rc == 137)) && note="unattended-upgrade did not finish in ${SEC_UU_TIMEOUT}s and was stopped; the next run heals dpkg first"
+    elif [[ -n $changed ]]; then
+      result=applied
+    else
+      result=nothing
+    fi
+  fi
+  if [[ $before != "$after" ]]; then
+    boot_changed=1
+    local reason="a security update rebuilt the startup image (/boot/initrd.img-*); reboot by hand when convenient: the update never reboots (PLAN §9h, 07:42 Q3)"
+    install -d -m 0755 "$RUN_DIR"
+    grep -qxF -- "$reason" "$REBOOT_FLAG" 2>/dev/null || printf '%s\n' "$reason" >>"$REBOOT_FLAG"
+    warn "security: REBOOT REQUIRED: $reason (recorded in $REBOOT_FLAG)"
+  fi
+  case $result in
+    nothing) log "security: nothing to apply" ;;
+    applied) log "security: applied $(wc -l <<<"$changed") package change(s):"
+             printf '%s\n' "$changed" | sed 's/^/==> security:   /' ;;
+    *) warn "security: FAILED: $note. The code update carries on; the next window tries again"
+       [[ -z $changed ]] || printf '%s\n' "$changed" | sed 's/^/==> security: changed anyway:   /' ;;
+  esac
+  S_OUT=$WORK/security.json S_RESULT=$result S_NOTE=$note S_STARTED=$started S_NOW=$(utc_now) \
+  S_RC=$rc S_BOOT=$boot_changed S_CHANGED=$changed python3 - <<'PY' || warn "security: could not record the phase's outcome"
+import json, os
+E = os.environ
+doc = {"result": E["S_RESULT"], "started_at": E["S_STARTED"], "finished_at": E["S_NOW"],
+       "exit": int(E["S_RC"]), "note": E["S_NOTE"] or None,
+       "packages": [l for l in E["S_CHANGED"].split("\n") if l],
+       "boot_image_changed": E["S_BOOT"] == "1", "reboot_required": E["S_BOOT"] == "1"}
+with open(E["S_OUT"], "w") as fh:
+    json.dump(doc, fh, indent=1)
+PY
+  merge_security
+}
+
+# merge_security: put $WORK/security.json into the existing status.json as its `security` record,
+# changing nothing else, atomically. No status.json: nothing to merge into; write_status carries it.
+merge_security() {
+  [[ -f $WORK/security.json && -f $STATUS ]] || return 0
+  S_STATUS=$STATUS S_SEC=$WORK/security.json python3 - <<'PY' || warn "security: could not record the outcome in $STATUS"
+import json, os
+E = os.environ
+doc = json.load(open(E["S_STATUS"]))
+if not isinstance(doc, dict):
+    raise SystemExit(1)
+doc["security"] = json.load(open(E["S_SEC"]))
+tmp = E["S_STATUS"] + ".new"
+with open(tmp, "w") as fh:
+    json.dump(doc, fh, indent=1)
+    fh.write("\n")
+    fh.flush()
+    os.fsync(fh.fileno())
+os.chmod(tmp, 0o644)
+os.replace(tmp, E["S_STATUS"])
+PY
+}
+
 # --- Main --------------------------------------------------------------------------
 
 main() {
@@ -1507,6 +1650,10 @@ main() {
   # PLAN §9f step 1.
   DEBIAN_FRONTEND=noninteractive dpkg --configure -a \
     || warn "dpkg --configure -a failed (is another apt running?); a step that needs apt may fail"
+
+  # The security phase (the header), under the lock, before the fetch: every timer window runs it.
+  security_phase
+  ((TERMINATED)) && { STAGE=finished; release_lock; exit "$(sig_exit)"; }
 
   # Step 2. A signal during the fetch ends the run here, before any offline branch reads FETCH_OK.
   fetch
