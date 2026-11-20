@@ -5095,8 +5095,10 @@ not checked.
     uploader's hosting, the network watchdog's reboot (its fix is a reboot, which stops recording,
     and at home Chris can walk over), the signed-commit check on the rig, and asking the host for a
     wired port.
-  - 📋 Chris's addition: the 🎒 portable gets Tailscale too. Outside #33's stationary scope, and
-    not yet placed.
+  - ~~📋~~ Chris's addition: the 🎒 portable gets Tailscale too. Outside #33's stationary scope~~, and
+    not yet placed~~. *Done 2026-11-20: installed by hand, with a tailnet rule that lets the rig open
+    no connection; see "Update 2026-11-20: the 🎒 portable on Tailscale", at the end of this
+    section.*
 - **B1, pushed health, before the 🏠 remote stationary (22:24): one sender.** One small timer on
   each stationary reads what the other parts already write (`status.json`, the writer's clock state,
   disk space) and is the only thing that posts to Discord and sends the heartbeat ping; the writer
@@ -5120,6 +5122,51 @@ not checked.
   that do not depend on the move, plus the update wait, the first sight and B1's alerts.
 - B5, the remote rig's clock without a wired port, needed no call: A3's bar holds, with the burst
   timer only on Wi-Fi.
+
+**Update 2026-11-20: the 🎒 portable on Tailscale. (Chris, 2026-11-20, typed in chat, not by
+question; Arizona times.)** This places his 2026-11-14 addition under A12, above. His words: *"lets
+get [the 🎒 portable] connected to my tailscale account"*, then *"implement the rule about the rig
+not being able to reach the other devices"*.
+
+- **Installed by hand, not from `setup/foundation/`.** Chris ran Tailscale's own install script on
+  the rig, then `tailscale up` with a hostname. ✅ Before, the rig had no `tailscale` command (07:11,
+  read-only SSH; Debian 13 trixie, aarch64); after, it had joined, at version 1.104.7 (07:29).
+  ⚠️ The foundation paragraph above names Tailscale among what lives in `setup/foundation/`, but no
+  Tailscale script is there: ✅ read 2026-11-20, it holds `format-archive.sh`, `rtc-overlay.sh` and
+  their two Python helpers. Tailscale SSH (`--ssh`) was left off, so OpenSSH's key-only login stays
+  the only SSH path (Claude's recommendation, followed); ⚠️ unchecked: the rig's prefs were not read
+  for it.
+- **Tagged `tag:rig`,** in the admin console after joining, so its key does not expire. ✅ devbox's
+  `tailscale status --json`, 07:27: the tag, and no key expiry. The pre-ship checklist's "Tailscale
+  key expiry disabled" is the 🏠 remote stationary's and stays unticked; ℹ️ the tag is how expiry
+  was disabled here.
+- **The rig can open no connection over the tailnet; Chris's own devices reach it.** The policy is
+  account-wide and held in Tailscale's admin console, not in this repo: `tag:rig` is owned by
+  `autogroup:admin`; the default allow-all grant (`src ["*"]`) is replaced by one grant from
+  `autogroup:member` to every destination and port; the default SSH check rule is unchanged; and a
+  policy test denies `tag:rig` devbox's port 22 and port 445 on one of Chris's own devices. Chris's
+  own devices are untagged and reach everything, the rig included; a tagged device matches no rule.
+  ✅ Chris's screenshots of the console's rule preview: "tag:rig cannot access any ports on the
+  network". ⚠️ Unchecked: whether the console accepted the test on save (no error was reported).
+  ✅ The effect, by Claude, TCP connects from the rig over the tailnet: at 07:15, before the tag,
+  devbox's port 22 and port 445 on one of Chris's own devices opened; at 07:27, tagged, devbox's
+  22 and ports 445, 3389 and 62078 on Chris's own devices all timed out. devbox reaches the rig over
+  SSH on the tailnet (07:27, 07:29).
+  - Why: the rig runs root timers that parse radio and Wi-Fi input anyone nearby can send, the
+    reason `/security-review` stands for the rigs' code. Raised by Claude; Chris chose to build it.
+    Rejected with it: **the default allow-all policy,** under which a compromised rig would be on
+    the tailnet with reach to devbox and Chris's own devices.
+  - ⚠️ The limit, reasoned and not tested: the rule covers the tailnet only. At home the rig shares
+    the LAN with devbox, so it can still reach devbox's LAN address directly.
+- **Tailscale's own auto-update was on after the install, and is off.** ✅ `tailscale debug prefs`,
+  07:27: `AutoUpdate.Apply: true`, against the 20:48 Q4 ruling above that Tailscale stays by hand
+  until the trial-boot test passes. Chris ran `tailscale set --auto-update=false`; ✅ 07:29: `Apply:
+  false`, `Check: true` (Check only notices new versions). ⚠️ Unchecked: the tailnet-wide
+  "Auto-update new devices" setting, so ➡️ a future rig's build reads `Apply` after joining. The
+  repo's own update path does not touch Tailscale here: ✅ read 2026-11-20, the security phase's
+  never-touch list in `setup/steps/55-security.sh` names `tailscale$` and
+  `tailscale-archive-keyring$`, and `update.sh`'s `readiness()` checks Tailscale only when the role
+  is `stationary`, so a Tailscale fault on the 🎒 portable holds no update.
 
 ### 9i. What is not chosen yet: the uploader
 
