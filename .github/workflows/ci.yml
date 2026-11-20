@@ -36,12 +36,18 @@ jobs:
             done
           } | xargs -0 -n1 bash -n
 
-      # The runner's shellcheck is not pinned, and the author's is 0.11. The one difference this
-      # tree meets: a function called only from a trap is SC2317 ("unreachable") to 0.9 and SC2329
-      # ("never invoked") to 0.11, so those directives disable both codes, which works on either.
+      # shellcheck is pinned to the author's version (0.11.0), hash-locked, so CI and a local run
+      # report the same findings. The runner's own (0.9.0 on ubuntu-24.04) failed main on e76051f
+      # with SC2002, a style finding 0.11 does not report. Directives that disable both SC2317 and
+      # SC2329 (a function called only from a trap) still work on either version.
       - name: shellcheck
         run: |
           set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/shellcheck"
+          "$RUNNER_TEMP/shellcheck/bin/pip" install -q --require-hashes -r /dev/stdin <<'REQ'
+          shellcheck-py==0.11.0.1 --hash=sha256:1b274df81de5b000ff78db433e7328b87e52e3c38481c60f8e488c3095beef05
+          REQ
+          export PATH="$RUNNER_TEMP/shellcheck/bin:$PATH"
           shellcheck --version
           {
             find setup tests -name '*.sh' -print0
