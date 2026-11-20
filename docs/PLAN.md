@@ -4416,6 +4416,16 @@ trial-boot test passes on the test Pi, Tailscale updates automatically in stages
 does; until it passes, Tailscale stays by hand. ⚠️ The test is unverified and unbuilt, and the test
 Pi is not bought, so nothing here has changed yet. The watchdogs and the boot disk are not named
 by the ruling.*
+*Corrected 2026-11-20: the by-hand part of the ruling stands; the location is wrong. ✅ Read
+2026-11-20, `setup/foundation/` holds `format-archive.sh`, `rtc-overlay.sh` and their two Python
+helpers, `archive_candidates.py` and `rtc_config.py`: no Tailscale script, no watchdog script and
+no boot-disk script. A search of `setup/`, `bin/`, `config/` and `tools/` found none of the three
+anywhere else. Tailscale appears there only as something the repo keeps away from (`tailscaled` in
+`lib.sh`'s denylist, below; the never-touch list in `setup/steps/55-security.sh`) and in
+`update.sh`'s readiness check; a watchdog only in a comment in `setup/steps/06-journal.sh`. On the
+🎒 portable, Tailscale was installed by hand on 2026-11-20 from Tailscale's own install script,
+outside the repo ("Update 2026-11-20: the 🎒 portable on Tailscale", at the end of this section).
+Whether its install becomes a foundation script is not decided.*
 
 ⛔ **`update.sh` cannot touch what keeps the rig reachable.** The install and restart helpers in
 `lib.sh` carry a denylist, and CI greps `setup/steps/` for it:
@@ -5133,7 +5143,8 @@ not being able to reach the other devices"*.
   read-only SSH; Debian 13 trixie, aarch64); after, it had joined, at version 1.104.7 (07:29).
   ⚠️ The foundation paragraph above names Tailscale among what lives in `setup/foundation/`, but no
   Tailscale script is there: ✅ read 2026-11-20, it holds `format-archive.sh`, `rtc-overlay.sh` and
-  their two Python helpers. Tailscale SSH (`--ssh`) was left off, so OpenSSH's key-only login stays
+  their two Python helpers. *Corrected the same day: the foundation paragraph now carries a dated
+  correction saying so.* Tailscale SSH (`--ssh`) was left off, so OpenSSH's key-only login stays
   the only SSH path (Claude's recommendation, followed); ⚠️ unchecked: the rig's prefs were not read
   for it.
 - **Tagged `tag:rig`,** in the admin console after joining, so its key does not expire. ✅ devbox's
