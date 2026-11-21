@@ -5157,6 +5157,10 @@ not being able to reach the other devices"*.
   `autogroup:member` to every destination and port; the default SSH check rule is unchanged; and a
   policy test denies `tag:rig` devbox's port 22 and port 445 on one of Chris's own devices. Chris's
   own devices are untagged and reach everything, the rig included; a tagged device matches no rule.
+  *Corrected 2026-11-21: the policy now has two grants, the one above plus one from
+  `autogroup:shared` to `tag:rig` on `tcp:80` ("Update 2026-11-21", below). `tag:rig` is now a
+  destination in that grant; as a source it still matches no rule, so the rig still opens no
+  connection over the tailnet.*
   ✅ Chris's screenshots of the console's rule preview: "tag:rig cannot access any ports on the
   network". ⚠️ Unchecked: whether the console accepted the test on save (no error was reported).
   ✅ The effect, by Claude, TCP connects from the rig over the tailnet: at 07:15, before the tag,
