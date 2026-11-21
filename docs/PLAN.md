@@ -7544,6 +7544,12 @@ powered-hub rule ([BUILD.md §3d](BUILD.md#3d--the-second-radio--either-rig) par
 
 - [ ] Three cold power cuts mid-recording. After each one: the mount returns; fsck is clean or says
   what it repaired; exactly one `.part` became `.torn`; every earlier closed file reads back.
+  *Note 2026-11-21: the ignition cutting the power while the writer records counts as one of these
+  cuts; `sudo poweroff` does not, because it stops the writer with SIGTERM, which closes its file
+  cleanly. The drive of 2026-11-20 exercised none. Its five boots that recorded all ended in
+  `sudo poweroff`, with the writer's last file closed about 3 s before; every preflight logged
+  "torn .part files renamed: 0"; and the day's one hard cut, a 1-second boot at 12:26 MST, had no
+  writer running.*
 - [ ] One boot with the drive pulled. The banner says refused within ~20 s, and nothing appears
   under the bare mount point.
 - [ ] *Added 2026-10-04.* Pull the drive while recording. Expect a `fatal:` in the writer's
@@ -7583,6 +7589,23 @@ powered-hub rule ([BUILD.md §3d](BUILD.md#3d--the-second-radio--either-rig) par
   second time, and `journalctl --list-boots` shows two boots or more.
   *Done 2026-10-10: Chris rebooted the 🎒 portable at about 11:14, and `journalctl --list-boots`
   showed two boots, the earlier one readable; see §9f, "✅ A second reboot".*
+- [ ] *Added 2026-11-21.* The clock on GPS alone. For a stretch of a drive, keep the rig off Wi-Fi
+  and the phone hotspot, so chrony's only source is the GPS refclock. The check: the writer's `clock`
+  lines for those hours (`journalctl -u adsb-writer`) name `GPS` as the reference (`name=GPS`), and
+  their `bound_ms` stays within `clock.max_offset_ms` (500 on the 🎒 portable, in
+  `/etc/adsb-receiver/clock.conf`, as clock-preflight printed it). *The check is Claude's proposal,
+  not ruled.* *Why: on 2026-11-20 the writer's `clock` lines named internet NTP servers as the
+  reference in every boot, and `GPS` only in a boot's first minute, so the clock was never on GPS
+  alone. The worst bound that day was 214.8 ms.*
+- [ ] *Added 2026-11-21.* Before leaving: the archive drive and the GPS are both plugged in. Seen
+  as: the archive mounted, and `systemctl is-active adsb-writer` reading `active`; and the GPS
+  refclock's reach non-zero, in `chronyc -n sources` or in clock-preflight's "the GPS refclock:
+  reach" line in the writer's journal. At home a network keeps the clock disciplined, and
+  clock-preflight only warns at reach 0, so the writer can run there with the puck unplugged.
+  *Why: on the morning of 2026-11-21 the kernel log showed no GPS USB-serial adapter (`pl2303`) in
+  four boots and no archive drive (`usb-storage`) in the first two. Both had been unplugged by hand
+  while Chris was getting the Wi-Fi online. clock-preflight refused every start of the writer
+  before 12:54 MST ("NOT READY: the clock is not disciplined"), so nothing was recorded until then.*
 
 ➡️ If the cuts leave garbage in closed, renamed files, the answer is a different drive or an SSD on
 the hub, not a different filesystem.
