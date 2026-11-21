@@ -5169,6 +5169,24 @@ not being able to reach the other devices"*.
     the tailnet with reach to devbox and Chris's own devices.
   - ⚠️ The limit, reasoned and not tested: the rule covers the tailnet only. At home the rig shares
     the LAN with devbox, so it can still reach devbox's LAN address directly.
+  - **Update 2026-11-21: a person the rig is shared with sees its map page and nothing else.
+    (Chris, 2026-11-21, typed in chat, not by question; Arizona times.)** Chris shared the 🎒
+    portable from the admin console with a person, to see the map; it did not work at first.
+    ⚠️ Claude's reasoning, not tested on its own: a user a device is shared with is
+    `autogroup:shared`, not `autogroup:member`, so the one grant above admitted them nowhere. Claude
+    wrote, and Chris saved, a second grant with the rest of the policy unchanged:
+    `{ "src": ["autogroup:shared"], "dst": ["tag:rig"], "ip": ["tcp:80"] }`, the rig's port 80
+    only: no SSH, and none of Chris's own devices. The policy test is unchanged; none was added for
+    the shared user, because a policy test needs a named user or device. ⚠️ Unchecked: whether the
+    console accepted the save with the test passing (no error was reported). ✅ By Claude, 13:40:
+    from devbox over the tailnet, the rig's `/` and `/tar1090/` on port 80 answer HTTP 200, which
+    shows lighttpd serving on the tailnet address, not the shared user's path. Chris: *"Yep, that
+    worked"*; not seen by Claude. The cost, raised by Claude; Chris went ahead: the map carries the
+    rig's exact position. The 2026-11-05 20:10 ruling that the exact-everywhere ruling stands
+    ([§5](#5-proposed-the-web-interface-is-three-existing-services-not-a-new-one), "Update
+    2026-10-27: #35's receiver position, exact everywhere, from gpsd live") accepted that for anyone
+    on a foreign LAN; this grant extends it to a person the rig is shared with, from anywhere.
+    Mentioned and not chosen: **viewing on the host's own LAN only,** which needs no policy change.
 - **Tailscale's own auto-update was on after the install, and is off.** ✅ `tailscale debug prefs`,
   07:27: `AutoUpdate.Apply: true`, against the 20:48 Q4 ruling above that Tailscale stays by hand
   until the trial-boot test passes. Chris ran `tailscale set --auto-update=false`; ✅ 07:29: `Apply:
