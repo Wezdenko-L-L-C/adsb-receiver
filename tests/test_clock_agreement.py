@@ -390,3 +390,20 @@ class Step20Render(PreflightBase):
                 self.assertEqual(rc, 1)
                 self.assertIn(want, err)
                 self.assertIn("is not valid for clock-preflight", err)
+
+
+class Step20StationaryRender(unittest.TestCase):
+    """setup/steps/20-stationary-clock.sh renders clock.conf with the same code as step 20's
+    portable render, which Step20Render feeds to the preflight: the two functions agree but for
+    the step's own name in the file's first comment and in the comment on clock.source."""
+
+    def fn(self, rel):
+        step = (ROOT / rel).read_text()
+        self.assertEqual(step.count("\nrender_clock_conf() {\n"), 1, rel)
+        start = step.index("\nrender_clock_conf() {\n") + 1
+        return step[start:step.find("\n}\n", start) + 3]
+
+    def test_same_render(self):
+        port = self.fn("setup/steps/20-portable-clock.sh")
+        stat = self.fn("setup/steps/20-stationary-clock.sh")
+        self.assertEqual(stat.replace("20-stationary-clock.sh", "20-portable-clock.sh"), port)

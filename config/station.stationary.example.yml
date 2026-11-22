@@ -39,10 +39,13 @@ clock:
   #    network, and NTP over it beats a USB puck. BUILD.md §2.
   source: ntp
 
-  # Fail the preflight if chrony reports an offset worse than this.
-  # ⚠️ NTP over a working network gives ~1–10 ms. A loose bar here would hide a
-  #    real fault — if this trips, chrony is not actually syncing.
-  max_offset_ms: 100
+  # Fail the preflight if chrony's error bound is worse than this.
+  # ⚠️ NTP over a working network gives ~1–10 ms.
+  # Corrected 2026-11-22: 500, not 100, by A3 of #33 (PLAN §9h, 2026-11-14):
+  #    the preflight compares chrony's whole error bound, half the root delay
+  #    included, so a stall at 100 refuses a writer restart within hours; at
+  #    500 it has days. Ill health shows in the clock's state word instead.
+  max_offset_ms: 500
 
 dongles:
   # ⛔ Set unique EEPROM serials or USB enumeration order will shuffle at boot
@@ -64,6 +67,17 @@ archive:
   # ⛔ Not a bespoke format — BUILD.md §9. ⚠️ Planned: no code reads `format`
   #    yet; the archive writer (bin/adsb-writer) writes BEAST and nothing else.
   format: beast
+
+  # Added 2026-11-22: the ext4 label of the archive's filesystem, which step 30
+  #    mounts at /var/lib/adsb-receiver/archive, the same as the 🎒 portable's
+  #    (PLAN §9m). On the stand-in home stationary (a Pi 4, PLAN §9i's
+  #    2026-11-22 update) it is a USB drive; on the Pi 5 it is the NVMe's
+  #    separate adsb-archive partition (A5 of #33, PLAN §9h). On a first build
+  #    the bootstrap formats a new, empty USB drive with it when exactly one
+  #    qualifies (setup/foundation/format-archive.sh); otherwise step 30
+  #    prints the command.
+  # ⚠️ ext4 caps a label at 16 bytes. Letters, digits, - and _ only.
+  label: adsb-archive
 
   # ⚠️ Retention is planned, not enforced: no code reads `retention_days` yet.
   #    Enforcing it in the writer, not in a cron job somebody forgets, is
@@ -91,11 +105,29 @@ feeders:
     enabled: false
     station_id: null
 
-# ⛔ THERE IS DELIBERATELY NO `uploader:` BLOCK HERE. On this rig the archive
-#    and the feeder clients are the equivalent, and they are above. A rig with a
-#    permanent network does not need to spool for a trip home. See BUILD.md §7.
-# Corrected 2026-10-10: both rigs get an automatic uploader (Chris, 2026-10-10,
-#    PLAN §9i), and automatic upload must work before this rig deploys. It is
-#    not written; its design is issue #1. The refusal of an `uploader:` block
-#    on this rig stays in force until the change that lands it. It is planned,
-#    not code: PLAN §9b rules it for 20-stationary-clock, which is not written.
+uploader:
+  # Added 2026-11-22: the uploader lands (issue #1; PLAN §9i's 2026-11-22
+  #    update), and this block replaces the refusal that stood here: "THERE IS
+  #    DELIBERATELY NO `uploader:` BLOCK HERE", which held until the change that
+  #    lands the uploader.
+  # What it does: every 10 minutes, setup/steps/45-uploader.sh's timer runs
+  #    bin/adsb-uploader, which copies the writer's closed files to the
+  #    archive's off-site store under the mirror rule
+  #    (<store>/<this rig's hostname>/beast/YYYY-MM-DD/<file>, PLAN §9m), checks
+  #    each one's size and MD5 against the store's, and deletes the local copy
+  #    only when both match. The rig's hostname is its one name (A8 of #33).
+  # ⭐ false: nothing uploads, the timer is stopped, and the archive stays on
+  #    the drive. That is a valid rig.
+  enabled: false
+  # The store is a Google Drive shared drive, reached by rclone as a service
+  #    account that is a member of that drive only (Chris, 2026-11-22).
+  # ⛔ This repo never names the store (PLAN §9m, B). The ID goes here, in the
+  #    installed copy, which is gitignored and root-only. It is the last part
+  #    of the shared drive's URL: drive.google.com/drive/folders/<this>.
+  shared_drive_id: null
+  # A folder path inside the shared drive that stands for the store's root,
+  #    or "" for its top level, where the 🎒 portable's host folder already is.
+  root_folder: ""
+  # ⛔ The credential is NOT a key here. It is a file the step reads, put on the
+  #    rig by hand, root:root 0600: /etc/adsb-receiver/uploader-sa.json, the
+  #    service account's JSON key. BUILD.md §8 step 4b says how.

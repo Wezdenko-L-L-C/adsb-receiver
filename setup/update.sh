@@ -70,8 +70,9 @@
 # stop of this script itself (set -e) also records incomplete, so the timer retries it, and exits
 # with the failing command's code. A failed fetch is not fatal there: it builds from what it has.
 # The stationary gate (PLAN §9h) is not applied: there is no running rig to protect yet. Only
-# --bootstrap on a portable's first build runs setup/foundation/ (the RTC overlay, the archive
-# format); never the timer. So a drive plugged in after the bootstrap is not formatted by any
+# --bootstrap on a first build runs setup/foundation/ (on a portable the RTC overlay, then the
+# archive format; on a stationary, since 2026-11-22, the archive format alone: A3 of #33 rules no
+# RTC overlay there); never the timer. So a drive plugged in after the bootstrap is not formatted by any
 # timer run: format it by hand with the command step 30 prints, or run the bootstrap again while
 # the build is still incomplete. The foundation's record (status.json foundation{}, with the
 # notes its scripts printed) is carried into every later status.json.
@@ -1002,12 +1003,25 @@ run_steps() {
 # before each script, so nothing is started, and above all nothing formatted, after a Ctrl-C or a
 # SIGTERM; a script already running gets the signal itself.
 run_foundation() {
+  if [[ $ROLE == stationary ]]; then
+    # A3 of #33 (PLAN §9h): no RTC overlay on a stationary. The archive format runs as on a
+    # portable (2026-11-22: step 30 is shared, and the stand-in home stationary has a USB drive).
+    log "----- foundation: rtc-overlay: not run (stationary, A3 of #33) -----"
+    FOUND_RTC="not run (stationary)"
+  else
+    run_foundation_rtc || return 0
+  fi
+  run_foundation_format
+}
+
+# run_foundation_rtc: the RTC overlay. Returns 1 when a stop signal means nothing else may start.
+run_foundation_rtc() {
   local rc=0
   if ((TERMINATED)); then
     log "----- foundation: not run (SIG$TERM_SIG received) -----"
     FOUND_RTC="not run (SIG$TERM_SIG)"
     printf '{"result": "not_run", "reason": "SIG%s received before it started", "device": null, "manual": null}\n' "$TERM_SIG" >"$WORK/format.json"
-    return 0
+    return 1
   fi
   log "----- foundation: rtc-overlay -----"
   # ADSB_FOUNDATION=bootstrap: the marker format-archive.sh requires before it formats.
@@ -1020,6 +1034,11 @@ run_foundation() {
   while IFS= read -r n; do
     if [[ -n $n ]]; then NOTES+=("$n"); FOUND_NOTES+=("$n"); fi
   done < <(sed -n 's/^NOTE: //p' "$RUN_LOGS/foundation-rtc-overlay.log")
+}
+
+# run_foundation_format: the archive format, unless a stop signal came or --no-format was given.
+run_foundation_format() {
+  local rc=0
   if ((TERMINATED)); then
     log "----- foundation: format-archive: not run (SIG$TERM_SIG received) -----"
     printf '{"result": "not_run", "reason": "SIG%s received before it started", "device": null, "manual": null}\n' "$TERM_SIG" >"$WORK/format.json"
@@ -1047,8 +1066,9 @@ run_foundation() {
 readiness() {
   local p out rc line st
   : >"$WORK/readiness.tsv"
+  # Both preflights on both rigs since 2026-11-22, when the stationary began to archive (step 30
+  # shared). Until then the stationary skipped archive-preflight.
   for p in clock-preflight archive-preflight; do
-    if [[ $ROLE == stationary && $p == archive-preflight ]]; then continue; fi
     if [[ ! -x /usr/local/bin/$p ]]; then
       printf '%s\t\tnot installed\t\n' "$p" >>"$WORK/readiness.tsv"
       continue
@@ -1747,7 +1767,7 @@ main() {
   if ((FIRST_BUILD)); then
     local -a list
     mapfile -t list < <(step_list "$CAND_WT")
-    if [[ $MODE == bootstrap && $ROLE == portable ]] && ((TERMINATED == 0)); then
+    if [[ $MODE == bootstrap ]] && ((TERMINATED == 0)); then
       # 50-updater first, then the foundation tier, then the rest (run_steps runs 50 again; it
       # is idempotent and takes seconds). run_foundation checks TERMINATED again before each
       # script: 50-updater may be the step a Ctrl-C lands in.

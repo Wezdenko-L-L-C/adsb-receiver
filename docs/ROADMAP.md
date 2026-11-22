@@ -129,6 +129,12 @@ stationary first, then the 🏠 remote stationary.*
    **Hands:** not yet named. **Done when:** the uploader is proven on the 🎒 portable at home.
    [§9i](PLAN.md#9i-what-is-not-chosen-yet-the-uploader), "Update
    2026-10-10: both rigs get an automatic uploader". (#1)
+   *Update 2026-11-22: the rig-side client is written, for the 🏠 stationary first, to the Google
+   Drive shared drive the pull already fills, with a service account (Chris, 2026-11-22;
+   [§9i](PLAN.md#9i-what-is-not-chosen-yet-the-uploader), "Update 2026-11-22"). First on a stand-in
+   🏠 home stationary, a Pi 4, not the 🎒 portable. Done when, for this rig: its first files reach
+   the store and are deleted locally after the check. The 🎒 portable's (the at-home and metered-link
+   guards) stays open.*
 8. **The stationary design,** in one fable-architect session, before any 🏠 stationary build, the
    home one included (ruling A). Its carry list is the open notes PLAN.md leaves for the stationary
    design, compiled 2026-10-11 from fable-architect's reading; each entry is an open note at the

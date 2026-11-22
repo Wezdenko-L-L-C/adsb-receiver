@@ -1,0 +1,565 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+#
+# bin/adsb-uploader: copy the archive writer's closed files to the archive's
+# off-site store, check each one there, and delete the local copy only once it
+# checks. Issue #1; PLAN §9i ("Update 2026-11-22: the uploader, to a Google
+# Drive shared drive") and §9m (the mirror rule). Installed by
+# setup/steps/45-uploader.sh as /usr/local/bin/adsb-uploader, and run by its
+# timer, adsb-uploader.timer, every 10 minutes.
+#
+#   adsb-uploader [--conf FILE] [--archive DIR] [--credential FILE] [--state DIR]
+#   adsb-uploader --check [same options]
+#
+# THE STORE
+#   A Google Drive shared drive, reached through rclone's drive backend as a
+#   service account that is a member of that drive only (Chris, 2026-11-22).
+#   ⛔ This repo never names the store (PLAN §9m, B): its ID and the folder
+#   that stands for its root come from /etc/adsb-receiver/uploader.conf, which
+#   step 45 renders from the gitignored station.yml. No rclone.conf is used:
+#   rclone runs with --config /dev/null (an in-memory config, by rclone's
+#   docs) and the drive backend's options in its environment
+#   (RCLONE_DRIVE_*), so the credential's path is the only thing that points
+#   at a secret.
+#
+# THE LAYOUT, the mirror rule (PLAN §9m, B): <root>/<host>/<path as on the
+#   rig's drive>, so a closed file at <archive>/beast/2026-11-22/X.beast.pcap
+#   lands at <root>/<host>/beast/2026-11-22/X.beast.pcap. <host> is this rig's
+#   short hostname, its one and only name (A8 of #33, PLAN §9h).
+#
+# WHAT IT TAKES: only closed files, named as bin/adsb-writer names them
+#   (CLOSED_RE below, the writer's own; .torn files included, as the pull
+#   includes them), in a date directory (YYYY-MM-DD) directly under beast/, as
+#   regular files that are not symlinks, last modified at least MIN_AGE_S ago.
+#   Never a .part (the writer's open file), never spool/, never a dot file
+#   (archive-preflight's probe), never anything outside beast/. At most
+#   MAX_FILES per run, oldest name first; the next run takes the rest.
+#
+# A RUN
+#   1. The archive is a mount point, or there is nothing to do: exit 0, and
+#      say so. (A missing drive is archive-preflight's and the writer's to
+#      report.)
+#   2. rclone copy --files-from <the list> --no-traverse --checksum: a file
+#      already in the store with the same size and MD5 is not sent again.
+#      rclone's own exit is printed; the check below decides what is deleted,
+#      whatever it was.
+#   3. The check, done here, not by `rclone check`: for each date directory in
+#      the batch, `rclone lsjson --hash --files-only` of that directory in the
+#      store, and for each file the local size and MD5 (hashlib) against the
+#      store's. Drive keeps an MD5 for every uploaded file; a store entry with
+#      no MD5, a size or an MD5 that differs, a name found twice (Drive allows
+#      two files of one name in a folder), or a file not listed, is NOT a
+#      match.
+#   4. Each matched file is deleted locally, after one more look that it is
+#      the same file that was hashed (same inode, size and mtime). Then an
+#      empty date directory is removed (rmdir, never a recursive delete) when
+#      it is not the rig's UTC yesterday, today or tomorrow, the rule
+#      tools/pull-archive's prune keeps, so the writer never meets its own
+#      directory gone at midnight. The writer recreates one anyway
+#      (open_file(), bin/adsb-writer's header).
+#   5. state.json, tmp + rename, in --state: the run's counts and times. Counts
+#      only: no position, and no store ID.
+#
+# EXIT: 0 every file in the batch checked and was deleted, or there was
+#   nothing to do; 2 the store was not reached or some files did not check
+#   (they stay, and the next run tries them again): a reason outside the rig;
+#   1 the run could not run (a bad conf, no credential, no rclone), or a local
+#   error. systemd records any non-zero exit as a failed run; setup/steps/
+#   45-uploader.sh's verify prints the last run's result and never judges it,
+#   because a dropped network is not a broken install (PLAN §9c).
+#
+# --check: readiness, the preflights' interface (PLAN §9i): 0 ready (the conf
+#   is valid, the credential is a service account key, and rclone lists the
+#   store's root folder); 2 not ready, for a reason outside the rig (the store
+#   refused or was not reached), printed; 1 the check could not run. It
+#   uploads nothing and deletes nothing.
+#
+# The credential: under systemd it arrives by LoadCredential= as
+#   $CREDENTIALS_DIRECTORY/sa.json (systemd.exec(5)), so the unit's dynamic
+#   user reads a copy only it can read, and the root-only original is never
+#   opened by it. --credential FILE overrides, for a run by hand as root.
+#   ⛔ Its contents are never printed; only its client_email is, by step 45.
+#
+# Standard library only, like bin/adsb-writer (PLAN §9i, 2026-10-04 ruling).
+# What has run on hardware is recorded in PLAN §9i, not here (PLAN §9c).
+
+import argparse
+import datetime
+import hashlib
+import json
+import os
+import re
+import shutil
+import socket
+import stat as S
+import subprocess
+import sys
+import tempfile
+import time
+
+VERSION = "0.1.0"
+
+CONF = "/etc/adsb-receiver/uploader.conf"
+ARCHIVE = "/var/lib/adsb-receiver/archive"
+STATE = "/var/lib/adsb-uploader"
+CRED_NAME = "sa.json"
+RCLONE = "rclone"
+
+# The writer's names (bin/adsb-writer: DATE_DIR_RE, CLOSED_RE).
+DATE_DIR_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+CLOSED_RE = re.compile(r"^(\d{8}T\d{6}Z)(?:\.\d+)?\.beast\.pcap(?:(?:\.\d+)?\.torn)?$")
+# A host folder's name: a hostname label.
+HOST_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
+# A shared drive's ID, as Drive prints them (letters, digits, - and _).
+DRIVE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+# A folder path inside the drive: segments of plain characters, no "." or ".."
+# segment, no leading or trailing slash, and none of the characters rclone or
+# a shell would read specially.
+ROOT_SEG_RE = re.compile(r"^[A-Za-z0-9 _.()-]{1,100}$")
+
+MIN_AGE_S = 60
+MAX_FILES = 1000
+COPY_TIMEOUT_S = 3 * 3600
+LIST_TIMEOUT_S = 300
+HASH_CHUNK = 1 << 20
+
+EXIT_OK, EXIT_ERROR, EXIT_NOT_READY = 0, 1, 2
+
+
+def log(msg):
+    print(f"==> {msg}", flush=True)
+
+
+def warn(msg):
+    print(f"!!  {msg}", file=sys.stderr, flush=True)
+
+
+class ConfError(Exception):
+    pass
+
+
+def read_conf(path):
+    """uploader.conf: comment lines, then key=value lines. Returns
+    (drive_id, root). Raises ConfError naming what is wrong."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError as e:
+        raise ConfError(f"cannot read {path}: {e.strerror}") from None
+    vals = {}
+    for n, line in enumerate(text.split("\n"), 1):
+        if not line or line.startswith("#"):
+            continue
+        k, sep, v = line.partition("=")
+        if not sep:
+            raise ConfError(f"{path}:{n}: not key=value")
+        if k in vals:
+            raise ConfError(f"{path}:{n}: {k} given twice")
+        vals[k] = v
+    unknown = set(vals) - {"drive_id", "root"}
+    if unknown:
+        raise ConfError(f"{path}: unknown key(s): {', '.join(sorted(unknown))}")
+    drive_id = vals.get("drive_id", "")
+    if not DRIVE_ID_RE.fullmatch(drive_id):
+        raise ConfError(f"{path}: drive_id is missing or not a shared drive's ID")
+    root = check_root(vals.get("root", ""))
+    return drive_id, root
+
+
+def check_root(root):
+    """The root folder path, validated; "" is the drive's top level."""
+    if root == "":
+        return ""
+    segs = root.split("/")
+    for s in segs:
+        if not ROOT_SEG_RE.fullmatch(s) or s in (".", "..") or s != s.strip():
+            raise ConfError(f"root folder {root!r}: each part must be plain letters, digits, "
+                            "spaces, '_', '.', '(', ')' or '-', with no empty, '.' or '..' part")
+    return root
+
+
+def host_name(nodename=None):
+    name = (nodename if nodename is not None else socket.gethostname()).split(".")[0]
+    if not HOST_RE.fullmatch(name):
+        raise ConfError(f"the hostname {name!r} is not a plain hostname label, so it cannot name "
+                        "this rig's folder in the store")
+    return name
+
+
+def credential_path(arg):
+    if arg:
+        return arg
+    d = os.environ.get("CREDENTIALS_DIRECTORY")
+    if d:
+        return os.path.join(d, CRED_NAME)
+    raise ConfError("no credential: run under adsb-uploader.service (LoadCredential=), or pass "
+                    "--credential FILE")
+
+
+def check_credential(path):
+    """A service account key: JSON with type service_account, a client_email
+    and a private_key. Returns the client_email. ⛔ Never prints the file."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except OSError as e:
+        raise ConfError(f"cannot read the credential {path}: {e.strerror}") from None
+    except ValueError:
+        raise ConfError(f"the credential {path} is not JSON") from None
+    if not isinstance(doc, dict) or doc.get("type") != "service_account":
+        raise ConfError(f"the credential {path} is not a service account key (type is not "
+                        "service_account)")
+    email = doc.get("client_email")
+    if not isinstance(email, str) or not email or not isinstance(doc.get("private_key"), str):
+        raise ConfError(f"the credential {path} has no client_email or private_key")
+    return email
+
+
+def remote_base(root, host):
+    """The host folder in the store, as an rclone on-the-fly remote."""
+    return ":drive:" + (f"{root}/{host}" if root else host)
+
+
+def rclone_env(drive_id, cred, cache_dir):
+    env = {k: v for k, v in os.environ.items() if not k.startswith("RCLONE_")}
+    env.update({
+        "RCLONE_CONFIG": "/dev/null",
+        "RCLONE_DRIVE_SCOPE": "drive",
+        "RCLONE_DRIVE_TEAM_DRIVE": drive_id,
+        "RCLONE_DRIVE_SERVICE_ACCOUNT_FILE": cred,
+        # Uploaded files are never sent to the trash by a delete here (this
+        # program deletes nothing in the store), but an overwrite of a file of
+        # the same name trashes the old one rather than destroying it.
+        "RCLONE_DRIVE_USE_TRASH": "true",
+        "RCLONE_CACHE_DIR": cache_dir,
+    })
+    return env
+
+
+# --- The batch -------------------------------------------------------------------
+
+
+def closed_files(archive, now_s, min_age_s=MIN_AGE_S, limit=MAX_FILES):
+    """[(rel, abs, stat)], oldest name first: rel is 'beast/YYYY-MM-DD/NAME'."""
+    beast = os.path.join(archive, "beast")
+    out = []
+    try:
+        days = sorted(os.listdir(beast))
+    except FileNotFoundError:
+        return out
+    for day in days:
+        if not DATE_DIR_RE.fullmatch(day):
+            continue
+        ddir = os.path.join(beast, day)
+        try:
+            st = os.lstat(ddir)
+        except FileNotFoundError:
+            continue
+        if not stat_isdir(st):
+            continue
+        try:
+            names = sorted(os.listdir(ddir))
+        except FileNotFoundError:
+            continue
+        for name in names:
+            if not CLOSED_RE.fullmatch(name):
+                continue
+            p = os.path.join(ddir, name)
+            try:
+                fst = os.lstat(p)
+            except FileNotFoundError:
+                continue
+            if not stat_isreg(fst):
+                continue
+            if now_s - fst.st_mtime < min_age_s:
+                continue
+            out.append((f"beast/{day}/{name}", p, fst))
+            if len(out) >= limit:
+                return out
+    return out
+
+
+def stat_isdir(st):
+    return S.S_ISDIR(st.st_mode)
+
+
+def stat_isreg(st):
+    return S.S_ISREG(st.st_mode)
+
+
+def md5_of(path):
+    h = hashlib.md5()
+    with open(path, "rb") as fh:
+        while True:
+            b = fh.read(HASH_CHUNK)
+            if not b:
+                break
+            h.update(b)
+    return h.hexdigest()
+
+
+# --- rclone ----------------------------------------------------------------------
+
+
+def run_rclone(args, env, timeout, run=subprocess.run):
+    """(exit code, stdout, stderr). A missing rclone or a timeout is a code of
+    its own: 127 and 124, as a shell would give."""
+    try:
+        r = run([RCLONE, *args], env=env, capture_output=True, text=True, timeout=timeout)
+    except FileNotFoundError:
+        return 127, "", f"{RCLONE}: not found"
+    except subprocess.TimeoutExpired:
+        return 124, "", f"rclone {args[0]} timed out after {timeout} s"
+    return r.returncode, r.stdout, r.stderr
+
+
+def store_listing(day_remote, env, run=subprocess.run):
+    """{name: [(size, md5 or None), ...]} for one date folder in the store, or
+    None if it could not be listed. A folder that does not exist yet is {}."""
+    rc, out, err = run_rclone(["lsjson", "--hash", "--files-only", "--no-mimetype",
+                               "--no-modtime", day_remote], env, LIST_TIMEOUT_S, run)
+    if rc != 0:
+        # rclone exits 3 for "directory not found" (its documented exit codes).
+        if rc == 3:
+            return {}
+        warn(f"rclone lsjson of a date folder exited {rc}: {last_line(err)}")
+        return None
+    try:
+        items = json.loads(out or "[]")
+    except ValueError:
+        warn("rclone lsjson printed something that is not JSON")
+        return None
+    listing = {}
+    for it in items if isinstance(items, list) else []:
+        if not isinstance(it, dict) or it.get("IsDir"):
+            continue
+        name, size = it.get("Name"), it.get("Size")
+        hashes = it.get("Hashes") if isinstance(it.get("Hashes"), dict) else {}
+        md5 = hashes.get("md5") or hashes.get("MD5")
+        if isinstance(name, str) and isinstance(size, int):
+            listing.setdefault(name, []).append((size, md5.lower() if isinstance(md5, str) else None))
+    return listing
+
+
+def last_line(text):
+    lines = [l for l in (text or "").splitlines() if l.strip()]
+    return lines[-1] if lines else "(no output)"
+
+
+def matches(local_size, local_md5, entries):
+    """True only for exactly one store entry, of the same size and MD5."""
+    if not entries or len(entries) != 1:
+        return False
+    size, md5 = entries[0]
+    return size == local_size and md5 is not None and md5 == local_md5
+
+
+# --- Deleting --------------------------------------------------------------------
+
+
+def same_file(path, st):
+    try:
+        now = os.lstat(path)
+    except FileNotFoundError:
+        return False
+    return (now.st_ino, now.st_dev, now.st_size, now.st_mtime_ns) == \
+        (st.st_ino, st.st_dev, st.st_size, st.st_mtime_ns)
+
+
+def prune_days(archive, days, today):
+    """rmdir each empty date directory in days that is not the UTC yesterday,
+    today or tomorrow of `today` (a date). Returns how many were removed."""
+    keep = {(today + datetime.timedelta(days=d)).isoformat() for d in (-1, 0, 1)}
+    n = 0
+    for day in sorted(set(days)):
+        if day in keep or not DATE_DIR_RE.fullmatch(day):
+            continue
+        try:
+            os.rmdir(os.path.join(archive, "beast", day))
+            n += 1
+        except OSError:
+            pass  # not empty, gone, or not ours to remove: left alone
+    return n
+
+
+# --- State -----------------------------------------------------------------------
+
+
+def write_state(state_dir, doc):
+    if not state_dir:
+        return
+    try:
+        os.makedirs(state_dir, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=state_dir, prefix=".state.", suffix=".json~")
+        with os.fdopen(fd, "w") as fh:
+            json.dump(doc, fh, indent=1, sort_keys=True)
+            fh.write("\n")
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, os.path.join(state_dir, "state.json"))
+    except OSError as e:
+        warn(f"could not write state.json in {state_dir}: {e.strerror}")
+
+
+# --- The two modes ---------------------------------------------------------------
+
+
+def do_check(drive_id, root, cred, cache_dir, run=subprocess.run):
+    if shutil.which(RCLONE) is None and run is subprocess.run:
+        print(f"{RCLONE} is not installed", file=sys.stderr)
+        return EXIT_ERROR
+    email = check_credential(cred)
+    log(f"credential: a service account key for {email}")
+    env = rclone_env(drive_id, cred, cache_dir)
+    target = ":drive:" + root
+    rc, out, err = run_rclone(["lsjson", "--dirs-only", "--no-mimetype", "--no-modtime", target],
+                              env, LIST_TIMEOUT_S, run)
+    if rc == 127:
+        print(err, file=sys.stderr)
+        return EXIT_ERROR
+    if rc != 0:
+        print(f"NOT READY: rclone could not list the store's root folder (exit {rc}): "
+              f"{last_line(err)}", flush=True)
+        return EXIT_NOT_READY
+    try:
+        n = len(json.loads(out or "[]"))
+    except ValueError:
+        n = "?"
+    print(f"READY: the store's root folder lists {n} folder(s)", flush=True)
+    return EXIT_OK
+
+
+def do_upload(archive, drive_id, root, host, cred, cache_dir, state_dir,
+              now=time.time, run=subprocess.run, utc_today=None, ismount=os.path.ismount):
+    started = now()
+    state = {"version": VERSION, "host": host, "started": iso(started), "result": None,
+             "files_in_batch": 0, "bytes_in_batch": 0, "copy_exit": None,
+             "checked": 0, "deleted": 0, "not_checked": 0, "days_pruned": 0}
+
+    def finish(result, code):
+        state["result"] = result
+        state["finished"] = iso(now())
+        write_state(state_dir, state)
+        log(f"result: {result}")
+        return code
+
+    if not ismount(archive):
+        log(f"{archive} is not a mount point: no archive drive, nothing to upload")
+        return finish("no archive mounted", EXIT_OK)
+
+    batch = closed_files(archive, started)
+    state["files_in_batch"] = len(batch)
+    state["bytes_in_batch"] = sum(st.st_size for _, _, st in batch)
+    if not batch:
+        log("no closed file to upload")
+        return finish("nothing to upload", EXIT_OK)
+    log(f"{len(batch)} closed file(s), {state['bytes_in_batch']} bytes, to "
+        f"<store>/{host}/ (the first {batch[0][0]}, the last {batch[-1][0]})")
+
+    env = rclone_env(drive_id, cred, cache_dir)
+    dest = remote_base(root, host)
+    with tempfile.NamedTemporaryFile("w", prefix="adsb-uploader.", suffix=".list",
+                                     dir=cache_dir if cache_dir and os.path.isdir(cache_dir) else None,
+                                     delete=False) as lf:
+        lf.write("".join(rel + "\n" for rel, _, _ in batch))
+        list_path = lf.name
+    try:
+        rc, _, err = run_rclone(["copy", "--files-from", list_path, "--no-traverse", "--checksum",
+                                 "--retries", "3", "--low-level-retries", "10",
+                                 "--stats", "0", archive, dest], env, COPY_TIMEOUT_S, run)
+    finally:
+        try:
+            os.unlink(list_path)
+        except OSError:
+            pass
+    state["copy_exit"] = rc
+    if rc == 127:
+        warn(err)
+        return finish("rclone is not installed", EXIT_ERROR)
+    if rc != 0:
+        warn(f"rclone copy exited {rc}: {last_line(err)}; the check decides what is deleted")
+    else:
+        log("rclone copy exited 0")
+
+    by_day = {}
+    for rel, p, st in batch:
+        by_day.setdefault(rel.split("/")[1], []).append((rel, p, st))
+    deleted_days = []
+    listed_any = False
+    for day, items in sorted(by_day.items()):
+        listing = store_listing(f"{dest}/beast/{day}", env, run)
+        if listing is None:
+            state["not_checked"] += len(items)
+            continue
+        listed_any = True
+        for rel, p, st in items:
+            name = rel.rsplit("/", 1)[1]
+            try:
+                local_md5 = md5_of(p)
+            except FileNotFoundError:
+                continue  # gone meanwhile (the writer's expiry): nothing to delete
+            except OSError as e:
+                warn(f"{rel}: cannot read it to hash it ({e.strerror}); kept")
+                state["not_checked"] += 1
+                continue
+            if not matches(st.st_size, local_md5, listing.get(name)):
+                state["not_checked"] += 1
+                warn(f"{rel}: not in the store with the same size and MD5; kept for the next run")
+                continue
+            state["checked"] += 1
+            if not same_file(p, st):
+                warn(f"{rel}: changed after it was hashed; kept")
+                state["not_checked"] += 1
+                continue
+            try:
+                os.unlink(p)
+            except FileNotFoundError:
+                continue
+            except OSError as e:
+                warn(f"{rel}: checked in the store, but the local copy could not be deleted "
+                     f"({e.strerror})")
+                return finish("a local delete failed", EXIT_ERROR)
+            state["deleted"] += 1
+            deleted_days.append(day)
+    today = utc_today or datetime.datetime.fromtimestamp(now(), datetime.timezone.utc).date()
+    state["days_pruned"] = prune_days(archive, deleted_days, today)
+    log(f"checked in the store {state['checked']}, deleted locally {state['deleted']}, "
+        f"kept for the next run {state['not_checked']}, empty date directories removed "
+        f"{state['days_pruned']}")
+    if state["not_checked"] == 0:
+        return finish("ok", EXIT_OK)
+    if not listed_any:
+        return finish("the store was not reached", EXIT_NOT_READY)
+    return finish("some files did not check", EXIT_NOT_READY)
+
+
+def iso(t):
+    return datetime.datetime.fromtimestamp(t, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description="Upload the archive writer's closed files to the "
+                                 "archive's off-site store, check them, then delete them locally.")
+    ap.add_argument("--conf", default=CONF)
+    ap.add_argument("--archive", default=ARCHIVE)
+    ap.add_argument("--credential", default=None,
+                    help="the service account key; default $CREDENTIALS_DIRECTORY/sa.json")
+    ap.add_argument("--state", default=os.environ.get("STATE_DIRECTORY", STATE))
+    ap.add_argument("--check", action="store_true", help="readiness only; uploads nothing")
+    ap.add_argument("--version", action="version", version=VERSION)
+    a = ap.parse_args(argv)
+    cache_dir = os.environ.get("CACHE_DIRECTORY") or tempfile.gettempdir()
+    try:
+        drive_id, root = read_conf(a.conf)
+        cred = credential_path(a.credential)
+        if a.check:
+            return do_check(drive_id, root, cred, cache_dir)
+        check_credential(cred)
+        host = host_name()
+    except ConfError as e:
+        print(f"xx  {e}", file=sys.stderr, flush=True)
+        return EXIT_ERROR
+    return do_upload(a.archive, drive_id, root, host, cred, cache_dir, a.state)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

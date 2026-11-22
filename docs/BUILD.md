@@ -685,9 +685,14 @@ on the other rig `update.sh` skips it.*
   packaged `librtlsdr` 2.0.2, and never installed from apt; and `tar1090`, installed by its own
   installer from a pinned commit. ⚠️ Its aircraft database, `tar1090-db`, is not pinned. Step 1.
 - `20-portable-clock` 🎒: `gpsd`, `chrony`, the RTC and `bin/clock-preflight`. Step 2.
-- `30-archive-drive` 🎒: mounts the archive drive and installs `bin/archive-preflight`; after the
-  clock step and before the writer. It never formats.
-- `40-archive-writer` 🎒: `bin/adsb-writer` and its unit.
+- `20-stationary-clock` 🏠: `chrony` on NTP only, `bin/clock-preflight`, and on Wi-Fi the burst
+  timer. *Added 2026-11-22.*
+- `30-archive-drive`: mounts the archive drive and installs `bin/archive-preflight`; after the
+  clock step and before the writer. It never formats. *Both rigs since 2026-11-22 (was 🎒).*
+- `40-archive-writer`: `bin/adsb-writer` and its unit. *Both rigs since 2026-11-22 (was 🎒).*
+- `45-uploader` 🏠: `bin/adsb-uploader` and its 10-minute timer, which copy closed files to the
+  store, check each, and delete the local copy. Off until `uploader.enabled` is true. *Added
+  2026-11-22; step 4b below.*
 - `50-updater`: the updater, its timer and the login banner.
 - `60-portable-pull` 🎒: the pull window that ~~`tools/pull-archive`~~ *`tools/pull-archive
   --end-session` (corrected 2026-11-11: a default pull opens none)* opens, and the sudoers rule that
@@ -698,8 +703,8 @@ on the other rig `update.sh` skips it.*
   ([PLAN.md §5](PLAN.md#5-proposed-the-web-interface-is-three-existing-services-not-a-new-one),
   "the interface, ruled (#30)", ruling 1).
 
-*Steps 3 to 6 below have no script. The 🏠 stationary's clock step, `20-stationary-clock`, is not
-written.*
+*Steps 3 to 6 below have no script. ~~The 🏠 stationary's clock step, `20-stationary-clock`, is not
+written.~~* *Corrected 2026-11-22: it is, with `45-uploader`; step 4b below is the hand part.*
 
 ℹ️ ~~`10-decoder`, the step that installs `readsb` and `tar1090`, is not in the repo yet
 ([PLAN.md §9m](PLAN.md#9m--the-portable-rigs-archive-drive), R5), so until it is, the command does
@@ -776,6 +781,71 @@ and no script can pass them for you:
    stationary still has no `uploader:` block: its template leaves one out on purpose, and the
    planned `20-stationary-clock` is to refuse one
    ([PLAN.md §9b](PLAN.md#9b-one-bash-script-per-build-step)). Both stand until then.*
+   *Update 2026-11-22: the uploader landed for the 🏠 stationary first, not the 🎒 portable, to a
+   Google Drive shared drive, the store the pull already fills
+   ([PLAN.md §9i](PLAN.md#9i-what-is-not-chosen-yet-the-uploader), "Update 2026-11-22"). The
+   stationary now has an `uploader:` block, and `20-stationary-clock` refuses none.*
+
+   **4b. 🏠 The uploader's credential, and a stand-in stationary's first build.** *Added
+   2026-11-22.* ⏱️ **Your hands-on time: about 45–55 minutes once**, verification included; then
+   none per upload. Unattended waiting (the build) is not counted.
+
+   | Part | Your time |
+   | --- | --- |
+   | A. The service account and its key | 15–20 min |
+   | B. Pi OS on the card, Tailscale | 20–25 min |
+   | C. The key onto the rig, the one command | about 5 min |
+   | D. Checking the first upload | about 5 min |
+
+   *A. Once, in a browser (console.cloud.google.com, signed in to the Workspace account that owns
+   the store):*
+   1. Pick or create a project. APIs & Services → enable the **Google Drive API**.
+   2. IAM & Admin → Service accounts → create one (a name such as `adsb-uploader`; no roles).
+   3. Its Keys tab → Add key → JSON. The file downloads. ⚠️ If the console refuses with "Service
+      account key creation is disabled", the organization policy
+      `iam.disableServiceAccountKeyCreation` is on, which Google enforces by default on
+      organizations created since 2024 (belief, not checked for this one): an Organization Policy
+      Administrator turns it off for this project only, then step 3 again.
+   4. In Drive, the store's shared drive → Manage members → add the service account's email (its
+      `client_email`, ending `.iam.gserviceaccount.com`) as **Content manager**. Nothing else is
+      shared with it.
+
+   *B. The card and the network:* Raspberry Pi Imager, Pi OS Lite 64-bit, with the hostname set (it
+   becomes the store's folder for this rig, A8 of #33: choose it once, never rename it), the house
+   Wi-Fi, and your SSH key. Boot, then install Tailscale by hand and tag it `tag:rig`, as on the 🎒
+   portable (A12 of #33).
+
+   *C. The key, then the one command:* copy the key to the rig and install it root-only **before**
+   the build, so step 45 finds it:
+
+   ```
+   scp ~/Downloads/<key>.json pi@<host>:/tmp/sa.json
+   ssh pi@<host> 'sudo install -D -m 0600 -o root -g root /tmp/sa.json /etc/adsb-receiver/uploader-sa.json && shred -u /tmp/sa.json'
+   ```
+
+   Then the one command, with `--role stationary`, the surveyed position, a USB drive plugged in
+   (the bootstrap formats it when it is the only empty one, as on the portable), and the uploader:
+
+   ```
+   curl -fsSL https://raw.githubusercontent.com/Wezdenko-L-L-C/adsb-receiver/stable/setup/bootstrap.sh \
+     | sudo bash -s -- --role stationary \
+         --set position.latitude=<lat> --set position.longitude=<lon> --set position.altitude_m=<m> \
+         --set archive.min_free_gb=4 \
+         --set uploader.enabled=true --set uploader.shared_drive_id=<the shared drive's ID>
+   ```
+
+   `archive.min_free_gb=4` suits a small USB drive (the template's 20 is for the Pi 5's NVMe).
+
+   *D. The check:* about 20 minutes after the build, the store shows `<host>/beast/<today>/` with
+   files, and on the rig `sudo cat /var/lib/adsb-uploader/state.json` says `"result": "ok"`.
+   `journalctl -u adsb-uploader -n 50` has each run.
+
+   ⚠️ *Why not automated further:* A and B are one-time console and imaging steps; A could be four
+   `gcloud` commands (create the service account, enable the API, create the key), saving about 10
+   minutes, but it needs `gcloud` installed and signed in on your machine, and the shared drive's
+   membership is still a Drive setting. D can be done for you through the Drive connector, which
+   leaves you the `state.json` look. ⚠️ *Not automatic yet:* updates on a recording stationary
+   ([PLAN.md §9i](PLAN.md#9i-what-is-not-chosen-yet-the-uploader), "Update 2026-11-22").
 5. ⭐ **Add a second radio only after all of the above is boring.** Adding dongles is exactly what
    destabilizes a working rig — see [RADIOS.md](RADIOS.md). ➡️ Order its parts at this point, not
    with the first order: [§3d](#3d--the-second-radio--either-rig).

@@ -26,7 +26,7 @@
 set -uo pipefail
 # The number of check cases a full run makes. Bump it when cases are added or removed: a run that
 # makes fewer (a section skipped by an early return, a wait loop that timed out) fails.
-readonly EXPECTED_CHECKS=308
+readonly EXPECTED_CHECKS=311
 ((EUID != 0)) || { echo "refusing to run as root: the sandbox remaps real system paths by sed"; exit 1; }
 # The sandbox is not under systemd; update.sh adds a <N> journal prefix to its marker line when it is.
 unset INVOCATION_ID
@@ -602,6 +602,9 @@ echo "# r built" >>"$R/setup/steps/00-a.sh"; commit "r: built"
 R1=$(sha)
 run bash "$B" --role stationary --no-reboot --set position.latitude=1.5 --set position.longitude=2.5 --set position.altitude_m=3
 check "R first build at stable's tip, no gate" [ "$RC/$(S 's["applied_rev"]')" = "0/$R1" ]
+check "R stationary foundation: the archive format ran, with the bootstrap marker" grep -q "format foundation marker=bootstrap" "$SB/out.txt"
+check "R stationary foundation: no RTC overlay (A3 of #33)" lacks "rtc foundation marker" "$SB/out.txt"
+check "R stationary foundation: recorded as not run" [ "$(S 's["foundation"]["rtc_overlay"]')" = "not run (stationary)" ]
 # A tip whose commit date is 10 days old: by its commit date it would apply at once; by its first
 # sight here it waits the whole soak.
 old=$(date -u -d '-10 days' +%Y-%m-%dT%H:%M:%SZ)

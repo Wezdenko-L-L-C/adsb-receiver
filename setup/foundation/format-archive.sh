@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 #
-# setup/foundation/format-archive.sh: format the portable rig's archive drive, on a first build,
+# setup/foundation/format-archive.sh: format a rig's archive drive, on a first build,
 # only when exactly one drive qualifies. PLAN §9m (the archive drive) and §9e, §9h (the foundation
 # tier).
 #
 # ⛔ The one irreversible act in the build. It is foundation, not a step: no step runs mkfs (PLAN
 #    §9m), because the steps run on every update, on remote rigs too. It formats only when
 #    update.sh --bootstrap runs it (which sets ADSB_FOUNDATION=bootstrap in its environment) on a
-#    portable's first build (no /opt/adsb-receiver/applied yet), a build a human started. Run any
+#    first build (a portable's; since 2026-11-22 a stationary's too, PLAN §9i) (no /opt/adsb-receiver/applied yet), a build a human started. Run any
 #    other way it refuses, except --dry-run, which writes nothing and may be run by hand as root.
 #    `--no-format` on the bootstrap stops it being called.
 #
@@ -58,11 +58,11 @@ while (($#)); do
   shift
 done
 
-((EUID == 0)) || die "run as root (update.sh --bootstrap runs this on a portable's first build; by hand, only --dry-run)"
+((EUID == 0)) || die "run as root (update.sh --bootstrap runs this on a first build; by hand, only --dry-run)"
 # The guard, not only a comment: a real run needs the bootstrap's marker and a rig with no build.
 if ((DRY_RUN == 0)); then
   [[ ${ADSB_FOUNDATION:-} == bootstrap ]] \
-    || die "only update.sh --bootstrap formats, on a portable's first build. By hand, run --dry-run, or format with the command step 30 prints"
+    || die "only update.sh --bootstrap formats, on a first build. By hand, run --dry-run, or format with the command step 30 prints"
   if [[ -e /opt/adsb-receiver/applied || -L /opt/adsb-receiver/applied ]]; then
     die "this rig has a build (/opt/adsb-receiver/applied exists): the archive drive is formatted only on a first build. Format by hand with the command step 30 prints"
   fi
@@ -106,10 +106,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Portable only: the stationary rig's archive question is open (PLAN §9m).
-require_role portable
+# Both roles since 2026-11-22 (PLAN §9i): until then portable only, while the stationary's
+# archive question was open (PLAN §9m). A5 of #33 answered it with a labeled ext4 partition on the
+# Pi 5's NVMe, which the rule here never formats (no nvme* disk qualifies); the stand-in home
+# stationary has a USB drive, which qualifies as a portable's does.
 LABEL=$(station_get archive.label) \
-  || die "station.yml has no archive.label: add the archive: block from config/station.portable.example.yml"
+  || die "station.yml has no archive.label: add the archive: block from config/station.<role>.example.yml"
 [[ $LABEL =~ ^[A-Za-z0-9_-]{1,16}$ ]] \
   || die "archive.label '${LABEL}' must be 1-16 letters, digits, '-' or '_' (ext4's 16-byte limit)"
 MANUAL="sudo mkfs.ext4 -L $LABEL -m 0 /dev/sdX1 && sudo tune2fs -c 1 /dev/sdX1"

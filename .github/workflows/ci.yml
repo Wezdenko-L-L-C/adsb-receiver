@@ -77,6 +77,9 @@ jobs:
         #     option parsing, the clock check's banner, and --end-session's clock guard, which runs
         #     the rig's clock-preflight with no sudo before the window opens and declines on any
         #     failure (needs bash and rsync);
+        #   - test_adsb_uploader.py: bin/adsb-uploader against a fake rclone over a local directory
+        #     standing for the store: closed files only, the mirror layout, and a local copy deleted
+        #     only when the store holds it once with the same size and MD5;
         #   - test_clock_agreement.py: the clock's state word and error bound, as bin/adsb-slate,
         #     bin/adsb-writer and bin/clock-preflight each compute them, held to one answer on the
         #     same fixtures; clock-preflight run as the test's user against a stubbed chronyc

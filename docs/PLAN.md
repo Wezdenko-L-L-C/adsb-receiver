@@ -1288,6 +1288,10 @@ is one script in `setup/steps/NN-*.sh`, and shared helpers go in `setup/lib.sh`.
   Its rules here are planned behavior, not code. Its refusal of an `uploader:` block stays in force
   until the change that lands the uploader
   ([§9i](#9i-what-is-not-chosen-yet-the-uploader)'s 2026-10-10 update).*
+  *Corrected 2026-11-22: written, `setup/steps/20-stationary-clock.sh`. It refuses `clock.source`
+  other than `ntp`, and, with the uploader landed in the same change, no longer refuses an
+  `uploader:` block ([§9i](#9i-what-is-not-chosen-yet-the-uploader)'s 2026-11-22 update). It does
+  not refuse a `position:` block, which the stationary needs.*
 - ⭐ **That turns the templates' "do not merge" comments into exit codes.** Today the split between
   the two `config/station.*.example.yml` files is held up by comments alone. Once these steps exist,
   setting the wrong half makes a step fail.
@@ -1459,6 +1463,11 @@ from inside an update ([§9m](#9m--the-portable-rigs-archive-drive)).
     2026-11-12").*
 - `20-stationary-clock`: `chrony` has NTP sources with nonzero reach; `systemd-timesyncd` is masked;
   `clock-preflight` exits `0` or `2`.
+  *Corrected 2026-11-22, as written: `chrony` is enabled and running with no GPS refclock, and its
+  sources are printed, not judged: reach is the network's, as a fix is the sky's, and a verify that
+  failed on a dropped Wi-Fi link would hold every update. `clock-preflight`'s exit 2 is where an
+  unreached source shows. The rest as above, plus `clock.conf` (as step 20's) and B5's burst units
+  on Wi-Fi only.*
 - The writer's step and `30-archive-drive`: see §9m. **(Chris), 2026-10-04:** the archive drive is
   install tier. A dead drive fails step 30's verify, and updates stop applying until it is replaced,
   with `failed_step` naming it. Rejected: classing the drive as readiness, because a portable with no
@@ -5368,6 +5377,67 @@ multiple-choice question.**
   stores. The database's later move to the private service's hosting needs the same. See
   [§9m](#9m--the-portable-rigs-archive-drive), "Update 2026-10-10 (afternoon): where the collected
   data lives, ruled".*
+
+**Update 2026-11-22: the uploader, to a Google Drive shared drive. (Chris, 2026-11-22, Pacific
+times; typed in chat, then four rulings by question at about 11:38.)** It lands issue #1's rig side,
+and overtakes in part the 2026-10-10 ruling above that the receiving end is a route in the private
+service.
+
+- **The stand-in home stationary.** A Raspberry Pi 4 (1 GB) with a FlightAware blue stick, at a
+  house on Wi-Fi, needs its data uploaded to the store. Chris, typed: *"It is not going to move.
+  The mobile station has gps. I need the station to be able to upload data back to my stores."*
+  Ruled by question, as put: **"Stand-in home stationary"**: it runs as the 🏠 home stationary
+  until the Pi 5 build (#33) is ready. Rejected as put: **a new remote station**, under the
+  2026-10-04 gate; **replacing the Pi 5 plan**. ➡️ It takes `station.role: stationary`, so A3 (NTP
+  only, no GPS), A8 (the hostname is its one name) and B5 (on Wi-Fi, the burst timer) apply. No
+  GPS: at a house on a network a fixed rig needs none, its position surveyed once
+  (`position:`), and NTP for its clock.
+- **Where it uploads: "Let's start with the Google Drive"** (typed, after Claude offered the
+  company server, Google Drive, or both). The store the pull already fills is a Google Drive shared
+  drive (✅ seen 2026-11-22 through Chris's Drive connector: the 🎒 portable's host folder,
+  `mobile-adsb`, sits at a shared drive's top level). So the uploader writes into the same store
+  under the mirror rule (§9m, B): `<store>/<rig hostname>/beast/YYYY-MM-DD/<file>`, and there is
+  one store, as "Update 2026-10-10 (afternoon)" in §9m requires. ⛔ This repo still never names the
+  store: its shared drive ID lives in the gitignored `station.yml` (`uploader.shared_drive_id`).
+  The private service's route (2026-10-10) is not withdrawn; it is not what this rig uses.
+- **The credential, ruled by question: "Service account (Recommended)"**, a Google Cloud service
+  account made a member of that one shared drive (Content manager), its JSON key on the rig at
+  `/etc/adsb-receiver/uploader-sa.json`, root:root 0600. It is a third-party credential, as Chris
+  foresaw on 2026-10-04 (*"We may need to create 3rd party credientials for the stations"*), not
+  his own identity. Rejected as put: **his own Google login** (an rclone token for his account), with
+  which the rig could reach all of his Drive. ⚠️ Not the consultation's 2026-10-10 recommendation
+  (a key the rig generates, no secret delivered to a rig): this key is delivered by hand.
+- **The local copy, ruled by question: "Delete after verified upload (Recommended)"**: the same rule
+  as the pull by rclone (§9m, "Update 2026-11-08"): a file is removed from the rig only after the
+  store holds it with the same size and hash. Rejected as put: **keep 7 days, then delete.**
+- **Storage, ruled by question: "USB drive, like the mobile (Recommended)"**: a labeled ext4 drive
+  at `/var/lib/adsb-receiver/archive`, with the 🎒 portable's mount, label check and preflight.
+  Rejected as put: **SD card only.**
+- **What was built (Claude, the same day), on one branch:**
+  - `bin/adsb-uploader`, Python 3, standard library only, like the writer (the uploader's language,
+    open until now). rclone's drive backend does the transfer, run with no rclone.conf. The check is
+    the uploader's own: Drive's MD5 and size, per file, against the local file's, before any delete.
+    Its header is the design.
+  - `setup/steps/45-uploader.sh` 🏠, stationary-only for now: the 🎒 portable's at-home and
+    metered-link guards (above) are not built.
+  - `setup/steps/20-stationary-clock.sh` 🏠: A3's NTP-only clock step, with B5's burst timer on
+    Wi-Fi only. It refuses no `uploader:` block: the refusal §9b ruled for it held "until the change
+    that lands the uploader", which is this one.
+  - Steps 30 and 40 shared by both rigs, as step 30's 2026-10-04 note foresaw for a labeled
+    partition; `setup/foundation/format-archive.sh` runs on a stationary's first build too (no RTC
+    overlay there, A3); `update.sh`'s stationary readiness includes `archive-preflight`.
+  - The stationary template: `clock.max_offset_ms` 500 (A3, closing the 📋 in §9h), `archive.label`,
+    and an `uploader:` block in place of the refusal.
+- ⚠️ **A consequence, not ruled: a recording stationary does not update itself.** The writer holds
+  the recording lock from boot, and `update.sh`'s timer exits when it finds the lock held, as on
+  the 🎒 portable. The maintenance window that would open it nightly (A4 of #33, §9f) is not built.
+  Until it is, the stand-in updates when its writer is stopped by hand (`sudo systemctl stop
+  adsb-writer`, then `sudo systemctl start adsb-update.service`; update.sh starts the writer again
+  at its end). Its soak is the code's stationary default, 7 days (§9f's 2026-11-17 note), unless
+  `update.soak_days` is set in its `station.yml`.
+- 📋 **Ruled, not run:** nothing here has run on a Pi. The first upload's check is the store showing
+  `<hostname>/beast/<today>/` with files, and `/var/lib/adsb-uploader/state.json` on the rig
+  saying `"result": "ok"`.
 
 ### 9j. ✅ Verified on hardware, 2026-10-03
 

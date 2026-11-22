@@ -5,9 +5,13 @@
 # which records readsb's BEAST stream onto the archive drive. PLAN §9m ("The
 # archive writer", the writer's unit, the recording lock, the steps).
 #
-# Portable only, for now: asserts station.role and refuses a position: block
-# (PLAN §9b). The gate follows step 30's: the drive is portable-only until the
-# stationary rig's SSD question in PLAN §9m is decided.
+# Shared by both rigs since 2026-11-22, with step 30 (its header says why), so
+# it asserts no role. It reads archive.min_free_gb, which both templates carry.
+# On the stationary the writer finds no gpsd on 127.0.0.1:2947 (step 20 there
+# installs none, A3 of #33) and records `position unavailable reason=refused`
+# in each file, until A7's position responder lands (PLAN §9h); it records
+# either way. Its unit's After= names gpsd.socket, which orders nothing where
+# that unit does not exist.
 #
 #   setup/steps/40-archive-writer.sh            install, then verify
 #   setup/steps/40-archive-writer.sh --verify   verify only
@@ -63,10 +67,6 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 parse_args "$@"
 require_root "$@"
 
-# 2026-10-04: portable-only, with step 30 (PLAN §9m).
-require_role portable
-require_absent position
-
 for t in python3 systemctl systemd-analyze systemd-escape journalctl lslocks cmp; do
   command -v "$t" >/dev/null || die "$t is not installed"
 done
@@ -74,7 +74,7 @@ FLOCK=/usr/bin/flock
 [[ -x $FLOCK ]] || die "$FLOCK is missing (util-linux)"
 
 MIN_FREE_GB=$(station_get archive.min_free_gb) \
-  || die "station.yml has no archive.min_free_gb: add the archive: block from config/station.portable.example.yml"
+  || die "station.yml has no archive.min_free_gb: add the archive: block from config/station.<role>.example.yml"
 [[ $MIN_FREE_GB =~ ^[0-9]+([.][0-9]+)?$ ]] \
   || die "archive.min_free_gb '${MIN_FREE_GB}' must be a number of GiB (2^30 bytes, as the writer counts it)"
 
@@ -123,7 +123,7 @@ install_if_changed() {
 # need_preflights: the unit runs both before every start; without them it
 # could only fail and retry.
 need_preflights() {
-  [[ -x $CLOCK_PREFLIGHT ]] || die "$CLOCK_PREFLIGHT is not installed: run setup/steps/20-portable-clock.sh first"
+  [[ -x $CLOCK_PREFLIGHT ]] || die "$CLOCK_PREFLIGHT is not installed: run setup/steps/20-portable-clock.sh or 20-stationary-clock.sh (by role) first"
   [[ -x $ARCHIVE_PREFLIGHT ]] || die "$ARCHIVE_PREFLIGHT is not installed: run setup/steps/30-archive-drive.sh first"
 }
 
