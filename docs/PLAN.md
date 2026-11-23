@@ -475,7 +475,8 @@ options chosen:
   banner, the database ingest's output and this public repo all stay forbidden to the position.
 - The writer's rule stays the writer's own (✅ `bin/adsb-writer:48`: *"The position goes into the
   archive file and nowhere else: never to stderr (the journal), never to the status file."*).
-- 🏠 **Not ruled for the stationary.** The consultation kept a fixed `--lat/--lon` as the 🏠
+- 🏠 ~~**Not ruled for the stationary.**~~ **Ruled 2026-11-14 and built 2026-11-22 for the
+  stationary: a static responder** (the update at this bullet's end). The consultation kept a fixed `--lat/--lon` as the 🏠
   stationary's follow-up; it is open for #33. Step 10's comment (`render_readsb`, read on
   2026-11-05) names the 🏠 stationary's position source as open for #33,
   gives the `Using lat: … lon: …` journal hazard (`readsb.c:121`, read in readsb's source at the
@@ -486,6 +487,47 @@ options chosen:
   that stay forbidden to the position. Step 10 now renders the gpsd connector for the 🏠 stationary
   too, inert there because no gpsd runs.* Who owns that port there is open for #33, by the
   2026-11-05 21:10 ruling, the last bullet of "Update 2026-10-27".
+  *Update 2026-11-22, for #33 A7: built, and seen on the stand-in 🏠 home stationary. Ruled by Chris
+  2026-11-14 22:00, "Static responder" ([§9h](#9h--the-stationary-rigs-home-and-remote), A7). Built
+  as `setup/steps/15-stationary-position.sh` and `bin/adsb-position`, commits `2b60ca0` and
+  `fec4ddc`; the step's and the program's headers are the design. As read in the code:*
+  - *The step renders `station.yml`'s position alone to `/etc/adsb-receiver/position.json`,
+    root:root 0600. With latitude or longitude null the step fails: a rig with no position is not
+    ready (§9c, no pass with a warning).*
+  - *`adsb-position.socket` holds `ListenStream=127.0.0.1:2947` with `Accept=yes`, so systemd owns
+    the port from boot and each connection starts one `adsb-position@.service`. That unit runs
+    with `DynamicUser=yes` and gets the position alone by `LoadCredential=`; its user never opens
+    `station.yml`.*
+  - *The responder sends a VERSION line, then, after readsb's `?WATCH`, a TPV with lat, lon and
+    alt (alt only when `altitude_m` is set) and no `time` field, so nothing can take it for a time
+    source. It closes a connection that has not enabled a watch within 10 s and any connection after
+    an hour; the unit's `RuntimeMaxSec=65min` is the backstop for a client that stops reading. ⛔ It
+    prints no coordinate, and stderr goes to the journal.*
+  - *The verify compares readsb's `/run/readsb/receiver.json` with `station.yml`'s position, within
+    1 m, in-process, and prints a verdict word, never a value.*
+  - *Step 10 stays shared and role-blind: its connector finds this socket on the stationary.*
+  - *What readsb does with it, at the pin `094720939c`: it takes every TPV within its bounds, not
+    only the first (`net_io.c:3887-3898`, `handle_gpsd()`; an implementer's read of readsb's
+    source, recorded in `bin/adsb-position`'s header, not re-read by the main loop). It prints the
+    position to stderr, so to the journal, only under `--devel debugGPS` (`readsb.c:2307-2308` sets
+    `Modes.debug_gps`): the raw line received from gpsd (`net_io.c:3803-3808`, "received from
+    GPSD") and the parsed lat,lon (`net_io.c:3860-3866`, "parsed lat,lon"); the update line at
+    `net_io.c:3883-3884` carries no coordinate. Step 10 does not set `--devel debugGPS` (its own
+    comment, `setup/steps/10-decoder.sh:783`). Read by the main loop in readsb's source at the pin
+    on 2026-11-22. ⚠️ Neither is seen on a rig.*
+  - *Rejected, from `2b60ca0`'s message and the step's header: **`--lat/--lon`**, which readsb
+    prints to its journal at every start, a surface this section forbids to the position (above);
+    **real gpsd on the stationary**, which §5 rejects as a daemon with no device (the 2026-11-05
+    21:10 ruling, "Update 2026-10-27"); **`LoadCredential=` of the whole `station.yml`**, which
+    holds feeder keys the responder does not need.*
+  - *✅ Seen 2026-11-22 on the stand-in, after the update to `fec4ddc` ([§9i](#9i-what-is-not-chosen-yet-the-uploader),
+    "Update 2026-11-22: the uploader, to a Google Drive shared drive"): step 15's four verify checks
+    all PASS, `systemd-analyze` with no output among them; `receiver.json` carries lat and lon; and
+    Chris saw the receiver marker on the tar1090 map (typed in chat). The position was not written
+    down.*
+  - *⚠️ Not seen on a Pi: the responder against an adversarial local client, and step 15 failing on a
+    null position. On a first build that failure is recorded and the next step runs, and `applied`
+    does not flip (`setup/update.sh`'s header, "First-build mode").*
 
 **The work within #30, in order:**
 
@@ -1042,6 +1084,11 @@ Recorded 2026-11-05. It came after Chris asked, typed, why the design split home
       (`config/station.stationary.example.yml`'s `position:` and `clock:` comments, read), and its
       position source is already open for #33 ("The one position source, and the surface rule",
       above). ➡️ The port's owner there is open for #33 too.
+      *Update 2026-11-22: settled by #33 A7 and built. On the stationary `adsb-position.socket`
+      holds `127.0.0.1:2947`, bound by systemd from boot (`setup/steps/15-stationary-position.sh`,
+      read), and step 15's verify fails any other listener on port 2947. Seen on the stand-in 🏠
+      home stationary; see "The one position source, and the surface rule", above, its update of
+      the same date.*
   - Rejected, offered to Chris and not chosen: **an owner check in step 10's verify.** It detects a
     squatter and does not prevent one, and its failure would hold every update.
   - Rejected: **a root-owned placeholder socket on the 🏠 stationary now.** It settles part of #33's
@@ -5088,6 +5135,13 @@ not checked.
   **no position at first,** with the source decided later; **real gpsd with a puck,** refused in §5
   as a daemon with no device, which a puck answers at the cost of a part and a second position
   truth beside the survey.
+  *Update 2026-11-22: built as `setup/steps/15-stationary-position.sh` and `bin/adsb-position`
+  (commits `2b60ca0`, `fec4ddc`), and seen on the stand-in home stationary: `receiver.json` carries
+  the position and the map shows the marker. The port is owned. What `gpsd_in` needs from the far
+  end was read in readsb's source at the pin by an implementer; it is recorded in
+  `bin/adsb-position`'s header, not seen on a rig. The responder's TPV carries no `time` field: GPS
+  time on the stationary is not built. The as-built record is §5, "The one position source, and the
+  surface rule", its update of the same date.*
 - **A8, the rig's name (22:04, typed in chat):** the hostname is the rig's one and only name, and
   `station.id`, which no code reads, is dropped. This closes §9m's 2026-10-11 open note on the
   hostname. 📋 Not done: the stationary template still carries `station.id` (✅ `id: home-01` in
@@ -5458,9 +5512,20 @@ service.
   days, unless `update.soak_days` is set in its `station.yml`.
   *Corrected 2026-11-22 (Chris, #47): the stationary's wait is 0 days, in the code and in the
   template; see "Update 2026-11-22: four calls after review", below.*
+  *Added 2026-11-22: ✅ the hand route works as written. On 2026-11-22 the stand-in went from
+  `4dd556b` to `fec4ddc` by those two commands; run `20261123T033924Z` ended "result: applied;
+  exit 0", with 151 PASS, step 15's four verify checks among them. Recording stopped for about 15
+  minutes. The same run's security phase installed a first backlog of Debian security packages
+  (seen in its journal).*
+- *Added 2026-11-22: ✅ #33 A7, the stationary's position source, is built (`2b60ca0`, `fec4ddc`)
+  and seen on the stand-in by that run. The record is §5, "The one position source, and the
+  surface rule", its update of 2026-11-22.*
 - 📋 **Ruled, not run:** nothing here has run on a Pi. The first upload's check is the store showing
   `<hostname>/beast/<today>/` with files, and `/var/lib/adsb-uploader/state.json` on the rig
   saying `"result": "ok"`.
+  *Update 2026-11-22: the first uploads have run on the stand-in; see "The shared drive's role",
+  in "Update 2026-11-22: four calls after review", below. Of the check above, the store holding the
+  run's files is seen. `state.json` was not read (it needs sudo); the run's own log said `result ok`.*
 
 **Update 2026-11-22: four calls after review. (Chris, 2026-11-22, typed in chat after a review of
 the change above; the questions as put are in the private pick-up record, "Rulings as put",
@@ -5474,6 +5539,11 @@ this rig."*
   compromised rig cannot empty the shared drive. ⚠️ Unverified: that Contributor is enough for
   rclone with a service account. The first upload is the check; BUILD.md §8 step 4b says what to
   do if it fails on permissions.
+  *Update 2026-11-22: ✅ Contributor is enough. Seen 2026-11-22, as recorded in the private pick-up
+  record: the stand-in's uploader run at 19:47:50 logged `result ok`, 2 files checked and deleted
+  locally, and Chris's Drive connector showed both files in the shared drive, 866,750 + 53,548 =
+  920,298 bytes, matching the rig's count. `/var/lib/adsb-uploader/state.json` was not read (it
+  needs sudo).*
 - **The key: an exception for this one rig until the server path is built.** It does not replace
   §9a's founding decision, a public repo and no credential on the device, which stays reopened and
   undecided ([§9a](#9a-the-repo-ships-its-own-software-and-the-pi-pulls-it), "Update 2026-11-17:
