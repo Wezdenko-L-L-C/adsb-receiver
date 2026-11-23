@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 from _load import load
 
@@ -223,6 +224,65 @@ class UploadTest(unittest.TestCase):
         got = U.closed_files(self.archive, NOW, limit=3)
         self.assertEqual([r for r, _, _ in got], [f"beast/2026-11-10/20261110T10{i}000Z.beast.pcap"
                                                   for i in range(3)])
+
+    def test_stuck_files_go_last_in_the_batch(self):
+        for i in range(4):
+            self.put(f"beast/2026-11-10/20261110T10{i}000Z.beast.pcap")
+        stuck = {"beast/2026-11-10/20261110T100000Z.beast.pcap",
+                 "beast/2026-11-10/20261110T101000Z.beast.pcap"}
+        got = [r for r, _, _ in U.closed_files(self.archive, NOW, limit=3, last=stuck)]
+        self.assertEqual(got, ["beast/2026-11-10/20261110T102000Z.beast.pcap",
+                               "beast/2026-11-10/20261110T103000Z.beast.pcap",
+                               "beast/2026-11-10/20261110T100000Z.beast.pcap"])
+
+    def test_files_that_never_check_cannot_starve_newer_ones(self):
+        # Two duplicates fill a batch of two; after STUCK_AFTER_RUNS runs they
+        # move behind the newer file, which then goes, and they are counted.
+        a = self.put("beast/2026-11-10/20261110T100000Z.beast.pcap", b"a")
+        b = self.put("beast/2026-11-10/20261110T101000Z.beast.pcap", b"b")
+        c = self.put("beast/2026-11-10/20261110T102000Z.beast.pcap", b"c")
+        self.rc.duplicate.update({os.path.basename(a), os.path.basename(b)})
+        saved = U.MAX_FILES
+        U.MAX_FILES = 2
+        try:
+            for run in range(U.STUCK_AFTER_RUNS):
+                self.assertEqual(self.upload(), U.EXIT_NOT_READY)
+                self.assertTrue(os.path.exists(c), f"run {run + 1}")
+                self.assertEqual(self.state_doc()["stuck"], 0 if run + 1 < U.STUCK_AFTER_RUNS else 2)
+            self.upload()
+        finally:
+            U.MAX_FILES = saved
+        self.assertFalse(os.path.exists(c))
+        self.assertTrue(os.path.exists(a) and os.path.exists(b))
+        s = self.state_doc()
+        self.assertEqual((s["stuck"], s["deleted"], s["not_checked"]), (2, 1, 1))
+        self.assertIn("20261110T100000Z", s["stuck_warning"])
+        with open(os.path.join(self.state, U.FAILURES_NAME)) as fh:
+            f = json.load(fh)
+        self.assertEqual(f, {"beast/2026-11-10/20261110T100000Z.beast.pcap": U.STUCK_AFTER_RUNS + 1,
+                             "beast/2026-11-10/20261110T101000Z.beast.pcap": U.STUCK_AFTER_RUNS})
+
+    def test_a_failed_local_delete_is_counted_and_the_rest_go_on(self):
+        bad = self.put("beast/2026-11-10/20261110T100000Z.beast.pcap", b"bad")
+        rest = [self.put("beast/2026-11-09/20261109T100000Z.beast.pcap", b"one"),
+                self.put("beast/2026-11-11/20261111T100000Z.beast.pcap", b"two")]
+        real = os.unlink
+
+        def unlink(path, *a, **k):
+            if path == bad:
+                raise PermissionError(13, "Permission denied", path)
+            return real(path, *a, **k)
+
+        with mock.patch.object(U.os, "unlink", unlink):
+            self.assertEqual(self.upload(), U.EXIT_ERROR)
+        self.assertTrue(os.path.exists(bad))
+        for p in rest:
+            self.assertFalse(os.path.exists(p), p)
+        # The pruning still ran after the failure: 2026-11-09 is empty and old.
+        self.assertFalse(os.path.exists(os.path.join(self.archive, "beast/2026-11-09")))
+        s = self.state_doc()
+        self.assertEqual((s["result"], s["checked"], s["deleted"], s["delete_failed"]),
+                         ("1 local delete(s) failed", 3, 2, 1))
 
 
 class ConfTest(unittest.TestCase):

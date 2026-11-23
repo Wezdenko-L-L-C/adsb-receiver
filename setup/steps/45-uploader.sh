@@ -47,7 +47,9 @@
 #   - After= and Wants= network-online.target, and After= the archive's mount.
 #   - Nice=10 and IOSchedulingClass=idle: recording comes first.
 #   - TimeoutStartSec=3h: a backlog after an outage is sent across runs
-#     (MAX_FILES per run in the uploader), each bounded.
+#     (MAX_FILES per run in the uploader), each bounded. The uploader's own
+#     COPY_TIMEOUT_S (2 h) is kept shorter, so the check and the deletes
+#     still run inside this bound after a long copy.
 # The timer: 10 minutes after boot, then 10 minutes after each run started,
 # monotonic, as the burst timer is (20-portable-clock's header): the writer
 # closes a file every 10 minutes.

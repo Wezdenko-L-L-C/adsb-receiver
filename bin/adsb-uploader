@@ -33,7 +33,8 @@
 #   regular files that are not symlinks, last modified at least MIN_AGE_S ago.
 #   Never a .part (the writer's open file), never spool/, never a dot file
 #   (archive-preflight's probe), never anything outside beast/. At most
-#   MAX_FILES per run, oldest name first; the next run takes the rest.
+#   MAX_FILES per run, oldest name first, stuck files (5. below) last; the
+#   next run takes the rest.
 #
 # A RUN
 #   1. The archive is a mount point, or there is nothing to do: exit 0, and
@@ -57,8 +58,15 @@
 #      tools/pull-archive's prune keeps, so the writer never meets its own
 #      directory gone at midnight. The writer recreates one anyway
 #      (open_file(), bin/adsb-writer's header).
+#      A local delete that fails is counted and the rest go on; the run then
+#      exits 1 after the pruning.
 #   5. state.json, tmp + rename, in --state: the run's counts and times. Counts
-#      only: no position, and no store ID.
+#      only: no position, and no store ID. Beside it, failures.json: for each
+#      file that failed the check or its local delete, the runs failed in a
+#      row. At STUCK_AFTER_RUNS a file is stuck: the batch puts it behind every
+#      other closed file, so a file that never checks (a duplicate name in the
+#      store, say) cannot hold the newer ones back, and state.json's "stuck"
+#      and the journal's STUCK warning count it every run until it clears.
 #
 # EXIT: 0 every file in the batch checked and was deleted, or there was
 #   nothing to do; 2 the store was not reached or some files did not check
@@ -119,7 +127,15 @@ ROOT_SEG_RE = re.compile(r"^[A-Za-z0-9 _.()-]{1,100}$")
 
 MIN_AGE_S = 60
 MAX_FILES = 1000
-COPY_TIMEOUT_S = 3 * 3600
+# Shorter than the unit's TimeoutStartSec=3h (setup/steps/45-uploader.sh), so
+# a copy that runs long still leaves an hour for the listing, the hashing and
+# the deletes, and the run ends by its own timeout, not by systemd's kill.
+COPY_TIMEOUT_S = 2 * 3600
+# A file that fails the check (or its local delete) this many runs in a row is
+# stuck: it moves behind every other closed file in the batch, so it cannot
+# hold newer files back, and it is counted loudly in state.json and the journal.
+STUCK_AFTER_RUNS = 3
+FAILURES_NAME = "failures.json"
 LIST_TIMEOUT_S = 300
 HASH_CHUNK = 1 << 20
 
@@ -239,10 +255,21 @@ def rclone_env(drive_id, cred, cache_dir):
 # --- The batch -------------------------------------------------------------------
 
 
-def closed_files(archive, now_s, min_age_s=MIN_AGE_S, limit=MAX_FILES):
-    """[(rel, abs, stat)], oldest name first: rel is 'beast/YYYY-MM-DD/NAME'."""
-    beast = os.path.join(archive, "beast")
+def closed_files(archive, now_s, min_age_s=MIN_AGE_S, limit=MAX_FILES, last=frozenset()):
+    """[(rel, abs, stat)], oldest name first: rel is 'beast/YYYY-MM-DD/NAME'.
+    Names in `last` (the stuck files) go after every other closed file, so
+    they fill only the room the rest leave."""
+    out = _closed_files(os.path.join(archive, "beast"), now_s, min_age_s, limit, last)
+    head = [f for f in out if f[0] not in last][:limit]
+    tail = [f for f in out if f[0] in last]
+    return head + tail[:max(0, limit - len(head))]
+
+
+def _closed_files(beast, now_s, min_age_s, limit, last):
+    """Every closed file in name order, but stopping once `limit` files not in
+    `last` are found (and keeping at most `limit` of those in `last`)."""
     out = []
+    n_first = n_last = 0
     try:
         days = sorted(os.listdir(beast))
     except FileNotFoundError:
@@ -273,8 +300,15 @@ def closed_files(archive, now_s, min_age_s=MIN_AGE_S, limit=MAX_FILES):
                 continue
             if now_s - fst.st_mtime < min_age_s:
                 continue
-            out.append((f"beast/{day}/{name}", p, fst))
-            if len(out) >= limit:
+            rel = f"beast/{day}/{name}"
+            if rel in last:
+                if n_last < limit:
+                    out.append((rel, p, fst))
+                    n_last += 1
+                continue
+            out.append((rel, p, fst))
+            n_first += 1
+            if n_first >= limit:
                 return out
     return out
 
@@ -400,6 +434,46 @@ def write_state(state_dir, doc):
         warn(f"could not write state.json in {state_dir}: {e.strerror}")
 
 
+def load_failures(state_dir, archive):
+    """{rel: runs failed in a row}, from failures.json in state_dir, keeping
+    only files still in the archive. Unreadable or absent is {}."""
+    if not state_dir:
+        return {}
+    try:
+        with open(os.path.join(state_dir, FAILURES_NAME)) as fh:
+            doc = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(doc, dict):
+        return {}
+    out = {}
+    for rel, n in doc.items():
+        if not (isinstance(rel, str) and isinstance(n, int) and n > 0):
+            continue
+        parts = rel.split("/")
+        if len(parts) != 3 or parts[0] != "beast" or not DATE_DIR_RE.fullmatch(parts[1]) \
+                or not CLOSED_RE.fullmatch(parts[2]):
+            continue
+        if os.path.lexists(os.path.join(archive, rel)):
+            out[rel] = n
+    return out
+
+
+def save_failures(state_dir, failures):
+    if not state_dir:
+        return
+    try:
+        os.makedirs(state_dir, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=state_dir, prefix=".failures.", suffix=".json~")
+        with os.fdopen(fd, "w") as fh:
+            json.dump(failures, fh, indent=1, sort_keys=True)
+            fh.write("\n")
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, os.path.join(state_dir, FAILURES_NAME))
+    except OSError as e:
+        warn(f"could not write {FAILURES_NAME} in {state_dir}: {e.strerror}")
+
+
 # --- The two modes ---------------------------------------------------------------
 
 
@@ -433,9 +507,20 @@ def do_upload(archive, drive_id, root, host, cred, cache_dir, state_dir,
     started = now()
     state = {"version": VERSION, "host": host, "started": iso(started), "result": None,
              "files_in_batch": 0, "bytes_in_batch": 0, "copy_exit": None,
-             "checked": 0, "deleted": 0, "not_checked": 0, "days_pruned": 0}
+             "checked": 0, "deleted": 0, "not_checked": 0, "delete_failed": 0,
+             "days_pruned": 0, "stuck": 0, "stuck_after_runs": STUCK_AFTER_RUNS}
+    failures = {}
 
     def finish(result, code):
+        stuck = sorted(r for r, n in failures.items() if n >= STUCK_AFTER_RUNS)
+        state["stuck"] = len(stuck)
+        if stuck:
+            state["stuck_warning"] = (
+                f"{len(stuck)} file(s) failed the check or their local delete "
+                f"{STUCK_AFTER_RUNS} or more runs in a row; they are kept, and tried "
+                f"only after every other closed file. The first: {stuck[0]}")
+            warn(f"STUCK: {state['stuck_warning']}. Runs failed per file are in "
+                 f"{os.path.join(state_dir or '?', FAILURES_NAME)}")
         state["result"] = result
         state["finished"] = iso(now())
         write_state(state_dir, state)
@@ -446,7 +531,9 @@ def do_upload(archive, drive_id, root, host, cred, cache_dir, state_dir,
         log(f"{archive} is not a mount point: no archive drive, nothing to upload")
         return finish("no archive mounted", EXIT_OK)
 
-    batch = closed_files(archive, started)
+    failures.update(load_failures(state_dir, archive))
+    stuck_names = frozenset(r for r, n in failures.items() if n >= STUCK_AFTER_RUNS)
+    batch = closed_files(archive, started, limit=MAX_FILES, last=stuck_names)
     state["files_in_batch"] = len(batch)
     state["bytes_in_batch"] = sum(st.st_size for _, _, st in batch)
     if not batch:
@@ -496,13 +583,16 @@ def do_upload(archive, drive_id, root, host, cred, cache_dir, state_dir,
             try:
                 local_md5 = md5_of(p)
             except FileNotFoundError:
+                failures.pop(rel, None)
                 continue  # gone meanwhile (the writer's expiry): nothing to delete
             except OSError as e:
                 warn(f"{rel}: cannot read it to hash it ({e.strerror}); kept")
                 state["not_checked"] += 1
+                failures[rel] = failures.get(rel, 0) + 1
                 continue
             if not matches(st.st_size, local_md5, listing.get(name)):
                 state["not_checked"] += 1
+                failures[rel] = failures.get(rel, 0) + 1
                 warn(f"{rel}: not in the store with the same size and MD5; kept for the next run")
                 continue
             state["checked"] += 1
@@ -513,18 +603,27 @@ def do_upload(archive, drive_id, root, host, cred, cache_dir, state_dir,
             try:
                 os.unlink(p)
             except FileNotFoundError:
+                failures.pop(rel, None)
                 continue
             except OSError as e:
+                # Counted, and the rest of the batch goes on; the run fails at the end.
                 warn(f"{rel}: checked in the store, but the local copy could not be deleted "
-                     f"({e.strerror})")
-                return finish("a local delete failed", EXIT_ERROR)
+                     f"({e.strerror}); kept")
+                state["delete_failed"] += 1
+                failures[rel] = failures.get(rel, 0) + 1
+                continue
+            failures.pop(rel, None)
             state["deleted"] += 1
             deleted_days.append(day)
+    save_failures(state_dir, failures)
     today = utc_today or datetime.datetime.fromtimestamp(now(), datetime.timezone.utc).date()
     state["days_pruned"] = prune_days(archive, deleted_days, today)
     log(f"checked in the store {state['checked']}, deleted locally {state['deleted']}, "
+        f"local deletes failed {state['delete_failed']}, "
         f"kept for the next run {state['not_checked']}, empty date directories removed "
         f"{state['days_pruned']}")
+    if state["delete_failed"]:
+        return finish(f"{state['delete_failed']} local delete(s) failed", EXIT_ERROR)
     if state["not_checked"] == 0:
         return finish("ok", EXIT_OK)
     if not listed_any:
