@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 #
-# 60-portable-pull: the pull window, adsb-pull-window.service, and the narrow sudoers rule that
-# lets a login start and stop it. PLAN §9m ("The pull window", "The privilege"), §9h. The rule
+# 60-portable-pull: the maintenance window's old unit, adsb-pull-window.service (round 1 of the
+# rename, #33 A4), and the narrow sudoers rule that lets a login start and stop the window under
+# either name. PLAN §9m ("The pull window", "The privilege"), §9h. The rule
 # serves tools/pull-archive --end-session and hand use; the home opener (adsb-home-update) runs as
 # root and does not need it. A default, live pull opens no window and needs none of this step's
 # privilege: only ssh, this step's rsync, and the login's membership in adsb-operator, the drive's
@@ -249,7 +250,7 @@ verify() {
   for m in "${members[@]}"; do
     [[ -n $m && $m != "$SERVICE_USER" && " ${others[*]} " != *" $m "* ]] && others+=("$m")
   done
-  ((${#others[@]})) || die "$GROUP_NAME has no members besides $SERVICE_USER, so nobody can open the pull window (tools/pull-archive --end-session, or by hand), and no login can read or delete the archive for any pull, live or not. See setup/steps/05-config.sh"
+  ((${#others[@]})) || die "$GROUP_NAME has no members besides $SERVICE_USER, so nobody can open the maintenance window (tools/pull-archive --end-session, or by hand), and no login can read or delete the archive for any pull, live or not. See setup/steps/05-config.sh"
   for cmd in "$SYSTEMCTL start $NEW_WINDOW" "$SYSTEMCTL stop $NEW_WINDOW" "$SYSTEMCTL start $WINDOW" "$SYSTEMCTL stop $WINDOW"; do
     for m in "${others[@]}"; do
       log "sudo -l -U $m $cmd (raw output follows)"
@@ -282,12 +283,12 @@ verify() {
   if grep -vE '^[[:space:]]*#' "$SUDOERS" | grep -E "adsb-(pull|maintenance)-window" | grep -qE '\*'; then
     die "$SUDOERS names a window unit with a wildcard; PLAN §9m allows none"
   fi
-  pass "${others[*]} may start and stop $NEW_WINDOW and $WINDOW; $SERVICE_USER may not"
+  pass "${others[*]} may start and stop $NEW_WINDOW and $WINDOW; $SERVICE_USER may not. This reads the rule, not the units: $NEW_WINDOW is step 58's, and may be absent if step 58 failed"
 
   command -v rsync >/dev/null || die "rsync is not on PATH; run this step without --verify"
   pass "rsync is installed ($(command -v rsync))"
 
-  pass "the old pull window's unit, the sudoers rule for both window names and rsync are installed"
+  pass "the maintenance window's old unit ($WINDOW), the sudoers rule for both window names and rsync are installed"
 }
 
 if ((VERIFY_ONLY == 0)); then

@@ -594,7 +594,8 @@ order of the remaining work is kept in [ROADMAP.md](ROADMAP.md).*
 Raspberry Pi OS is installed, run this on the Pi. Missing hardware does not stop it: ~~the update
 timer it installs finishes the build once the hardware is there.~~ *corrected 2026-10-10: the update
 timer it installs finishes the build once the hardware is there only while no writer is recording;
-on a recording 🎒 portable a pull window finishes it (the reboot bullet below).*
+on a recording 🎒 portable a ~~pull window~~ *maintenance window (renamed 2026-11-22, #33 A4)* finishes
+it (the reboot bullet below).*
 
 ```
 curl -fsSL https://raw.githubusercontent.com/Wezdenko-L-L-C/adsb-receiver/stable/setup/bootstrap.sh \
@@ -641,10 +642,12 @@ below. Why it is shaped this way is in [PLAN.md §9e](PLAN.md#9e-the-first-build
   that was plugged in late.~~ *Corrected 2026-10-10: the update timer finishes an incomplete build
   only while nothing holds the recording lock. On a recording 🎒 portable the writer holds it from
   every boot, so every timer run skips and changes nothing. There the build is finished by the next
-  pull window, which runs the same update: ~~`tools/pull-archive` from your workstation~~
+  ~~pull window~~ *maintenance window (renamed 2026-11-22, #33 A4)*, which runs the same update: ~~`tools/pull-archive` from your workstation~~
   *`tools/pull-archive --end-session` from your workstation (corrected 2026-11-11: a pull without
   it is live, opens no window and runs no update)*; `sudo
-  systemctl start adsb-pull-window.service`, then `stop`, on the rig; or the home opener,
+  systemctl start adsb-pull-window.service`, then `stop`, on the rig *(from 2026-11-22
+  `adsb-maintenance-window.service`; the old name still works on the portable until round 2 of the
+  rename)*; or the home opener,
   `adsb-home-update`, which opens the window by itself at home once `update.home_ssid` is set in
   `station.yml` (the template leaves it empty, and empty means off)
   ([PLAN.md §9f](PLAN.md#9f-what-updatesh-does)).*
@@ -697,10 +700,17 @@ on the other rig `update.sh` skips it.*
   store, check each, and delete the local copy. Off until `uploader.enabled` is true. *Added
   2026-11-22; step 4b below.*
 - `50-updater`: the updater, its timer and the login banner.
-- `60-portable-pull` 🎒: the pull window that ~~`tools/pull-archive`~~ *`tools/pull-archive
+- `58-maintenance-window`: the maintenance window, `adsb-maintenance-window.service`, which stops
+  the writer while an update runs; its cap is 2 h on the 🎒 portable and 50 min on the 🏠
+  stationary. *Added 2026-11-22 (#33 A4).*
+- `60-portable-pull` 🎒: ~~the pull window~~ *the maintenance window's old unit,
+  `adsb-pull-window.service`, kept in round 1 of the rename (2026-11-22, #33 A4),* that ~~`tools/pull-archive`~~ *`tools/pull-archive
   --end-session` (corrected 2026-11-11: a default pull opens none)* opens, and the sudoers rule that
-  lets it.
-- `70-portable-home-update` 🎒: the home-gated opener, off until `update.home_ssid` is set.
+  lets it *(under both names since 2026-11-22)*.
+- `70-window-opener`: the window opener, `adsb-home-update`. On the 🎒 portable it is home-gated,
+  off until `update.home_ssid` is set; on the 🏠 stationary it runs nightly at 04:30 and opens a
+  window only when an update is pending and PLAN §9h's gate would let it run. *Was
+  `70-portable-home-update` 🎒 until 2026-11-22 (#33 A4).*
 - `80-portable-slate` 🎒: the field display, `bin/adsb-slate`, which draws the camera slate on
   tty1, the HDMI console, in place of tty1's login prompt
   ([PLAN.md §5](PLAN.md#5-proposed-the-web-interface-is-three-existing-services-not-a-new-one),

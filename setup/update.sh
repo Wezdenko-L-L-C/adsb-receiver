@@ -133,13 +133,15 @@
 # does, then the same 24 h backoff. So "pending" means a timer-mode run in a window would try a
 # candidate. ⚠️ The backoff is the implementer's reading of "pending", not ruled: without it, a
 # window opened inside the backoff would run nothing (rejected option C's gap "for nothing").
-# One line on stdout, "pending: ..." or "not pending: ..."; everything else on stderr.
+# One line on stdout, "pending: ...", "not pending: ..." or, on the 🏠 stationary, "gate holds: ..."
+# (its own prefix, so a journal grep for "not pending" does not catch a gate hold); everything
+# else on stderr.
 #   - An incomplete first build (status.json: result incomplete, candidate_rev) is always pending,
 #     with no fetch, since the pin does not move. Its line is §9e's (a) reason line, from
 #     status.json's result, candidate_rev, failed_steps and finished_at only.
 #   - On the 🏠 stationary, a candidate that would be pending meets PLAN §9h's gate first
 #     (check_gate, #33 A4): the same readiness and gate_holds a run calls before changing anything,
-#     so the two cannot drift. If it holds, the line is "not pending: PLAN §9h's gate would hold it
+#     so the two cannot drift. If it holds, the line is "gate holds: PLAN §9h's gate would hold it
 #     back (<the checks not ok>); ..." and the exit is 15: a window would stop the writer for a run
 #     that exits 4 and changes nothing. Not run on the 🎒 portable. Its worst case is about 573 s
 #     (the 5 min fetch, two preflights at 120 s, tailscale's 30 s, readsb's 3 s).
@@ -157,8 +159,8 @@
 # or not yet seen by a timer run, which starts its soak: --check records nothing); 11 not pending
 # (the candidate failed within 24 h: the backoff); 12 not pending (the fetch failed); 13 not
 # pending, a timer run would fail (above); 14 not pending, a timer run would refuse the candidate
-# as a rewind (it does not descend from the applied commit; only --rev applies it); 15 not
-# pending, the 🏠 stationary's PLAN §9h gate holds (a run would exit 4, changing nothing); 1 could not
+# as a rewind (it does not descend from the applied commit; only --rev applies it); 15 gate
+# holds, the 🏠 stationary's PLAN §9h gate (a run would exit 4, changing nothing); 1 could not
 # tell (not root, a tool missing), with an "xx  FAIL:" line on stderr; 64 bad usage; 128+N after
 # a signal.
 #
@@ -1488,7 +1490,7 @@ check_gate() {
   fi
   cat "$WORK/readiness.tsv" >&2
   bad=$(awk -F'\t' '$3 != "ok" { printf "%s%s %s", sep, $1, $3; sep = ", " }' "$WORK/readiness.tsv")
-  printf "not pending: PLAN §9h's gate would hold it back (%s); %s's tip %s is the candidate, applied is %s, and a window would change nothing\n" \
+  printf "gate holds: PLAN §9h's gate would hold it back (%s); %s's tip %s is the candidate, applied is %s, and a window would change nothing\n" \
     "${bad:-the checks did not all run}" "$CHANNEL" "$(sha12 "$CAND")" "$(sha12 "$OLD_SHA")"
   exit "$RC_CHECK_GATE"
 }

@@ -49,8 +49,8 @@
 #     update.sh holds the lock while it runs, and at its end starts the writer
 #     if it is enabled and inactive and the maintenance window is not active,
 #     activating or deactivating (setup/update.sh, PLAN §9f). The maintenance window
-#     starts it when the window ends (setup/steps/60-portable-pull.sh, PLAN
-#     §9m).
+#     starts it when the window ends (setup/steps/58-maintenance-window.sh, PLAN
+#     §9m; §9f, "A4 of #33").
 #   Both with --no-block: whether the preflights pass is readiness, not install.
 #
 # ⛔ Port 30005, readsb and a sky are readiness, never checked here: this step
@@ -292,7 +292,13 @@ install_step() {
       warn "$UNIT is in maintenance, which for a service means 'systemctl clean' is running on it: this step neither starts nor restarts it. Re-run this step once 'systemctl show -p ActiveState $UNIT' no longer says maintenance"
       ;;
     *)
-      # Either name (#33 A4, round 1). Still `active` only, as before (an adjacent gap, reported).
+      # Either name (#33 A4, round 1): the new name first, the old one only when the new one is
+      # not active. Still `active` only, as before: a gap reported, not fixed. It has two shapes:
+      #   - as before, a window activating or deactivating under either name reads as no window,
+      #     and this step may start the writer into it;
+      #   - new with the two names: the new window deactivating (or activating) beside an old one
+      #     inactive reads as the old one's `inactive`, so the state the decision rests on, and the
+      #     unit any message names, is the old unit's, not the one in transition.
       window_unit=$WINDOW_UNIT
       window=$(systemctl show -p ActiveState --value "$WINDOW_UNIT" 2>/dev/null) || true
       if [[ $window != active ]]; then

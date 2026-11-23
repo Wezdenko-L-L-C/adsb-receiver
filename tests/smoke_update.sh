@@ -1075,7 +1075,7 @@ sed -i 's/^  role: portable$/  role: stationary/' "$SB/etc/station.yml"
 s0=$(snap); ck
 sed -i 's/^  role: stationary$/  role: portable/' "$SB/etc/station.yml"
 check "CK2s exit 15, one line naming the held checks and the candidate" \
-  rc_has 15 "^not pending: PLAN §9h's gate would hold it back (.*readsb-30005 no answer.*); [a-z]*'s tip ${CK2:0:12} is the candidate, applied is ${CK:0:12}, and a window would change nothing$" "$SB/ck.out"
+  rc_has 15 "^gate holds: PLAN §9h's gate would hold it back (.*readsb-30005 no answer.*); [a-z]*'s tip ${CK2:0:12} is the candidate, applied is ${CK:0:12}, and a window would change nothing$" "$SB/ck.out"
 check "CK2s one line on stdout, the gate named on stderr, the rig's state untouched" \
   [ "$(wc -l <"$SB/ck.out")/$(grep -c "the stationary's gate" "$SB/ck.err")/$([ "$(snap)" = "$s0" ] && echo same)" = "1/1/same" ]
 
@@ -1356,7 +1356,7 @@ sed -i 's/^  role: portable$/  role: stationary/' "$SB/etc/station.yml"; : >"$SB
 op_run
 sed -i 's/^  role: stationary$/  role: portable/' "$SB/etc/station.yml"
 check "HU15 gate-held (1), carrying --check's line" \
-  rc_has 1 "^ADSB-HOME-UPDATE gate-held: not pending: PLAN §9h's gate would hold it back (.*); [a-z]*'s tip ${HU15:0:12} is the candidate" "$SB/out.txt"
+  rc_has 1 "^ADSB-HOME-UPDATE gate-held: gate holds: PLAN §9h's gate would hold it back (.*); [a-z]*'s tip ${HU15:0:12} is the candidate" "$SB/out.txt"
 check "HU15 no window was started, no marker" \
   [ "$(grep -c '^start adsb-maintenance-window.service$' "$SB/systemctl.log")/$([ -e "$SB/home/window-opened-by" ] && echo marker)" = "0/" ]
 

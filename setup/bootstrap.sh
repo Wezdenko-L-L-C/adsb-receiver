@@ -45,7 +45,8 @@
 # Done here before update.sh runs, on a recording rig (PLAN §9e's (b), ruled 2026-10-05, Chris):
 # on a first build (no /opt/adsb-receiver/applied) whose recording lock is held by
 # adsb-writer.service, this ends the recording session the one ruled way, the maintenance window, so the
-# bootstrap stays one command. It starts adsb-pull-window.service, which stops the writer
+# bootstrap stays one command. It starts adsb-maintenance-window.service, or in round 1 of the
+# rename (#33 A4) adsb-pull-window.service where only that one is loaded, which stops the writer
 # (Conflicts=) and starts adsb-update.service (Wants=), the pinned run the timer would make: it
 # builds the EARLIER pin, the commit of the first build that is incomplete, not this bootstrap's
 # commit, and it may fail again. It waits for that update to finish (polled every 5 s, a line
@@ -73,8 +74,8 @@
 # again after the window, so the window is not opened, the reason is printed, and the bootstrap
 # exits 1 before update.sh runs (it would only refuse the held lock); the fetch and the worktree
 # made before the check stay.
-#   Only where adsb-pull-window.service is loaded: a rig with a writer but no window unit (one
-# installed by hand before step 60 ran, the 2026-10-04 shape) gets update.sh's refusal, which says
+#   Only where a window unit is loaded (either name): a rig with a writer but no window unit (one
+# installed by hand before steps 58 and 60 ran, the 2026-10-04 shape) gets update.sh's refusal, which says
 # to stop the writer by hand; so does a rig already built, and so does a lock held by anything
 # else (a hand run of adsb-update, a login's session scope), which the refusal names. Each tells
 # update.sh, through ADSB_BOOTSTRAP_WINDOW, why the bootstrap did not end the session, so the
@@ -115,7 +116,7 @@
 # nightly run (or by hand: sudo systemctl start adsb-update.service). On a recording portable the
 # writer holds the lock from every boot, so the build completes in the next maintenance window instead
 # (tools/pull-archive --end-session from the workstation, or sudo systemctl start
-# adsb-pull-window.service, then stop, on the rig). If a failed step cannot pass at that commit,
+# adsb-maintenance-window.service, then stop, on the rig). If a failed step cannot pass at that commit,
 # run this bootstrap again (BUILD.md §8), which pins to stable's tip; on a recording portable it
 # ends the session itself, above.
 #

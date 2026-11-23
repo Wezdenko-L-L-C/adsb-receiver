@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # 70-window-opener: the window opener of both rigs (#33 A4), by which the 🎒 portable updates
-# itself at home and the 🏠 stationary updates itself nightly, unattended: bin/adsb-at-home, bin/adsb-home-update, adsb-home-update.service and its timer. PLAN
-# §9f's 2026-10-04 (night) update (ruled by Chris, option A), §9e's 2026-10-05 (a) (the reason
+# itself at home and the 🏠 stationary updates itself nightly, unattended: bin/adsb-home-update,
+# adsb-home-update.service and its timer on both rigs, and bin/adsb-at-home on the 🎒 portable
+# only. PLAN §9f's 2026-10-04 (night) update (ruled by Chris, option A), §9e's 2026-10-05 (a) (the reason
 # line), §9m (the maintenance window it opens).
 #
 # Shared by both rigs since #33 A4 (it was 70-portable-home-update), so it asserts no role. It
@@ -16,15 +17,23 @@
 # adsb-update.timer), and a first install fires nothing at once. The unit keeps the name
 # adsb-home-update on both rigs (Chris, 2026-11-22: it is status.json's opened_by). After
 # 50-updater, which installs adsb-update with its --check mode, and 58-maintenance-window, which
-# installs the window. ℹ️ After a rollback to a tree without this step,
-# what it installed stays (PLAN §9f: rollback does not undo creation); the opener then meets an
-# adsb-update with no --check, which exits 64, and it opens nothing (its "error" line).
+# installs the window. ℹ️ After a rollback to a tree without this step, what it installed stays
+# (PLAN §9f: rollback does not undo creation), its timer included:
+#   - 🎒 a portable rolled back to a tree from before --check meets an adsb-update with no --check,
+#     which exits 64, and the opener opens nothing (its "error" line);
+#   - 🏠 a stationary rolled back to a tree from before the gate went into --check (bed00b0, say)
+#     meets an adsb-update that knows --check but runs no gate in it. At 04:30 the opener finds an
+#     update pending and opens a window; if PLAN §9h's gate would hold, the old update's own run
+#     holds there, exits 4 and changes nothing (opened-not-ready): a recording gap for nothing, on
+#     every night the gate holds. The remedy is by hand, on the rig:
+#     sudo systemctl disable --now adsb-home-update.timer
 #
 #   setup/steps/70-window-opener.sh            install, then verify
 #   setup/steps/70-window-opener.sh --verify   verify only
 #
-# Opt-in: with update.home_ssid unset or empty in station.yml, adsb-at-home says "off", and the
-# opener never runs. ⛔ Nothing here prints that value; the verify says only whether it is set, and
+# 🎒 Opt-in, on the portable: with update.home_ssid unset or empty in station.yml, adsb-at-home
+# says "off", and the opener never runs. The 🏠 stationary's opener is not opt-in: once installed,
+# its timer runs it nightly. ⛔ Nothing here prints that value; the verify says only whether it is set, and
 # whether it is a string.
 #
 # What it installs:
@@ -39,38 +48,43 @@
 #     file, not 05-config's. ⚠️ Belief, from systemd's
 #     documentation, not seen: `d` also corrects the owner and mode of a directory already there.
 #     The verify checks the result.
-#   - bin/adsb-at-home and bin/adsb-home-update -> /usr/local/bin, root:root 0755, by
+#   - bin/adsb-home-update on both rigs, and bin/adsb-at-home on the 🎒 portable only, ->
+#     /usr/local/bin, root:root 0755, by
 #     write-then-rename (as 50-updater installs the updater): the opener may be the process that
 #     started the update running this step (its window's update), and bash reads a script as it
 #     runs, so an in-place write could corrupt it; a rename leaves it the old file.
 #   - /etc/systemd/system/adsb-home-update.service, a oneshot, as ruled: After=
 #     network-online.target and the writer (so at boot the writer starts first, PLAN §9e's ruling
-#     of about 20:45), ExecCondition=/usr/local/bin/adsb-at-home, TimeoutStartSec=55min, Nice=10,
-#     ExecStart= the opener. The build's additions:
+#     of about 20:45), TimeoutStartSec=55min, Nice=10, ExecStart= the opener, and on the 🎒
+#     portable only ExecCondition=/usr/local/bin/adsb-at-home. The build's additions:
 #       - Wants=network-online.target (as adsb-update.service has it: After= alone orders against a
 #         target nothing pulled in);
-#       - Environment= with three paths from lib.sh, where they are written down once:
-#         ADSB_WINDOW_MARK (the opener's marker), ADSB_RECORDING_LOCK (its lock-held guard) and
-#         ADSB_HOME_STATE (adsb-at-home's last verdict, which the login banner reads); and
+#       - Environment= with paths from lib.sh, where they are written down once: on both rigs
+#         ADSB_WINDOW_MARK (the opener's marker) and ADSB_RECORDING_LOCK (its lock-held guard), and
+#         on the 🎒 portable ADSB_HOME_STATE (adsb-at-home's last verdict, which the login banner
+#         reads); and
 #       - ExecStopPost= removing the marker. update.sh honors the marker only while this unit is
 #         activating, so a stale one is already harmless; the removal is kept so that /run does
 #         not show a marker for an opener that is gone, to anyone reading it.
 #     No [Install]: the timer starts it.
-#   - /etc/systemd/system/adsb-home-update.timer: OnBootSec=4min, as ruled (after adsb-update's
-#     3 min boot run, which a recording writer turns into a lock-held exit), and one daily
-#     OnCalendar=*-*-* 04:30:00, in the rig's local time. ⚠️ 04:30 is the implementer's pick, NOT
-#     RULED. Its reasons: it is apart from adsb-update.timer's own daily run at midnight; and, a
-#     belief, not measured, a rig left on at home overnight records the fewest aircraft then, so
-#     the window's gap would cost least. No Persistent=: on a rig that was off at 04:30 it would
-#     fire again at boot beside OnBootSec=, two triggers for one boot, and the boot trigger
-#     already covers a rig switched on at home. No RandomizedDelaySec=: one rig, nothing to
-#     spread.
+#   - /etc/systemd/system/adsb-home-update.timer: one daily OnCalendar=*-*-* 04:30:00, in the
+#     rig's local time, on both rigs; on the 🎒 portable also OnBootSec=4min, as ruled (after
+#     adsb-update's 3 min boot run, which a recording writer turns into a lock-held exit), and on
+#     the 🏠 stationary no OnBootSec= (above). 04:30 was the implementer's pick; it is ratified,
+#     provisionally, for both rigs (A4(e) of #33; PLAN §9f's update of 2026-11-14). Its reasons
+#     when picked: it is apart from adsb-update.timer's own daily run at midnight; and, a belief,
+#     not measured, a rig records the fewest aircraft then, so the window's gap would cost least.
+#     No Persistent=: on the 🎒 portable, a rig that was off at 04:30 would fire again at boot
+#     beside OnBootSec=, two triggers for one boot, and the boot trigger already covers a rig
+#     switched on at home; on the 🏠 stationary, a boot triggers no update at all (above). No
+#     RandomizedDelaySec=: one rig, nothing to spread.
 #
 # Starting, as 50-updater does for its own timer: the timer is enabled; under update.sh
 # (ADSB_UPDATE_RUN) it is started, or restarted when its file changed, so a rig that receives this
 # step by an ordinary update has its opener without a reboot; by hand the step prints the command
-# instead, and its verify warns rather than fails. A timer started after its OnBootSec= has
-# passed elapses at once: seen once on the portable Pi, 2026-10-09, on a first start (the record
+# instead, and its verify warns rather than fails. 🏠 The stationary's timer has no OnBootSec=,
+# so starting or restarting it fires nothing before 04:30 (⚠️ belief, not seen). 🎒 On the
+# portable, a timer started after its OnBootSec= has passed elapses at once: seen once on the portable Pi, 2026-10-09, on a first start (the record
 # is PLAN's, not this file's). So a first install under update.sh fires the opener once, at once.
 # ⚠️ That it always does, and that a restart does too, is belief: systemd may skip a monotonic
 # elapse older than the timer's last trigger. That fire is harmless by the opener's guards:
@@ -85,7 +99,7 @@
 # symlink, root:root 0755.
 #
 # ⛔ The verify never starts the window or the opener, and never opens the SDR stick (PLAN §9c). It
-#    runs adsb-at-home by hand, which only reads (station.yml and nmcli) and prints its verdict
+#    runs adsb-at-home by hand on the 🎒 portable, which only reads (station.yml and nmcli) and prints its verdict
 #    (not its state file: that is written only under the unit). It also runs `adsb-update --check
 #    --retry`, which the parser refuses before anything else runs, to show the installed updater
 #    knows --check.
@@ -262,7 +276,15 @@ install_units() {
   if ! systemctl is-enabled --quiet "$TIMER"; then
     unit enable "$TIMER"
   fi
-  # As 50-updater: start or restart only under update.sh (the header).
+  # As 50-updater: start or restart only under update.sh (the header). What a start does now, by
+  # role: the 🎒 portable's OnBootSec= has passed, so its timer may fire at once; the 🏠
+  # stationary's has only 04:30.
+  local at_once
+  if [[ $ROLE == portable ]]; then
+    at_once="it may open the maintenance window at once, if at home and an update is pending"
+  else
+    at_once="it fires next at 04:30, not at once"
+  fi
   if [[ -n ${ADSB_UPDATE_RUN:-} ]]; then
     if ! systemctl is-active --quiet "$TIMER"; then
       unit start "$TIMER"
@@ -270,9 +292,9 @@ install_units() {
       unit restart "$TIMER"
     fi
   elif ! systemctl is-active --quiet "$TIMER"; then
-    warn "$TIMER is enabled but not started: it starts at the next boot. To start it now (it may open the maintenance window at once, if at home and an update is pending): sudo systemctl start $TIMER"
+    warn "$TIMER is enabled but not started: it starts at the next boot. To start it now ($at_once): sudo systemctl start $TIMER"
   elif ((timer_changed)); then
-    warn "$TIMER changed; daemon-reload has run. To restart it now (it may open the maintenance window at once, if at home and an update is pending): sudo systemctl restart $TIMER"
+    warn "$TIMER changed; daemon-reload has run. To restart it now ($at_once): sudo systemctl restart $TIMER"
   fi
 }
 
@@ -463,6 +485,12 @@ verify() {
     die "$TIMER is '$ac', not active (waiting), under update.sh; run this step without --verify"
   fi
   calendar_check systemd-analyze
+  # 04:30 is rig-local. systemd-analyze calendar prints the next elapse with the zone's
+  # abbreviation and in UTC, not the zone's name (MST is Arizona's and, in winter, Denver's), so
+  # the zone itself is printed here. Shown, not judged: A4(e) assumed the rigs keep Arizona time.
+  log "timedatectl show -p Timezone: the zone 04:30 is local to (raw output follows)"
+  timedatectl show -p Timezone 2>&1 || true
+  echo "----"
   # Only an active timer's state is decided: an inactive one, warned about by hand above, is
   # believed to read SubState dead (⚠️ belief, not seen), which timer_check would fail.
   if [[ $ac == active ]]; then
@@ -470,8 +498,13 @@ verify() {
   fi
 
   # The rest is the portable's predicate (the header).
+  # ℹ️ A stationary station.yml carrying update.home_ssid is ignored: nothing on that rig reads it.
   if [[ $ROLE == stationary ]]; then
-    pass "the stationary's opener has no predicate: its timer's run is gated by --check alone, PLAN §9h's gate included"
+    # The gate is in --check only if the installed updater is this checkout's: one from before
+    # #33 A4 knows --check (the parser check above) but runs no gate in it (the header's rollback).
+    cmp -s "$ADSB_REPO/setup/update.sh" "$UPDATER" \
+      || die "$UPDATER differs from this checkout's setup/update.sh, so whether its --check runs PLAN §9h's gate is not shown; run setup/steps/50-updater.sh from this checkout"
+    pass "the stationary's opener has no predicate: its timer's run is gated by --check alone, and $UPDATER is this checkout's setup/update.sh, the --check that runs PLAN §9h's gate"
     return 0
   fi
 

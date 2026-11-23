@@ -22,10 +22,10 @@
 # and the move excludes *.part.
 #
 # THE DEFAULT, A LIVE PULL
-# 1. Does not open adsb-pull-window.service: the writer is not stopped, and the update oneshot is
+# 1. Does not open the maintenance window, under either name: the writer is not stopped, and the update oneshot is
 #    not started. It says so in a line of its own before the move, for a caller used to the old
 #    default. ➡️ A default pull updates nothing. On the portable, updates come from the home-gated
-#    opener (setup/steps/70-portable-home-update.sh) or from a pull with --end-session.
+#    opener (setup/steps/70-window-opener.sh) or from a pull with --end-session.
 # 2. Moves beast/ only (the move, below). spool/ is left on the rig, and its file count is printed,
 #    as a !! warning naming --end-session when it is not zero: nothing in this repo writes spool/
 #    yet (it is the uploader's, which is not written; BUILD.md §7), so there is no
