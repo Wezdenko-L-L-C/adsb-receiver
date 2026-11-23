@@ -3027,6 +3027,13 @@ the option rejected below as "`update.sh` stopping the writer".
     pending (portable home-only)", to be built in #33. 📋 Ruled, not built. The rest of the design
     is still #33's. [§9m](#9m--the-portable-rigs-archive-drive), "Update 2026-11-11: the pull no
     longer ends the recording session by default", has the ruling and what it set aside.*
+    *Update 2026-11-22: superseded by the build, ⚠️ not yet by a night on which it worked. A4 of
+    #33, round 1, is built and applied on the stand-in 🏠 home stationary: a nightly opener runs
+    `update.sh --check` without the lock and opens `adsb-maintenance-window.service` only when an
+    update is pending and §9h's gate passes. Its cap is 50 min (Chris, 2026-11-22), not short. The
+    nightly `adsb-update.service` still exits at the held lock, as written above; the window, not
+    that timer, is how the stationary updates. No window has run on it yet. The record is "Update
+    2026-11-22: A4 built, round 1", at the end of "A4 of #33", below.*
   - **A persistent journal is a separate, small step, ~~later~~; not step 2.** Step 2 writes its own logs
     (above), so it does not depend on one. The consultation's shape: `Storage=persistent` and
     `SystemMaxUse=200M` in a `journald.conf.d` drop-in, as a shared step. It matters most on the
@@ -3399,8 +3406,97 @@ is.
     half the traffic or less. ⚠️ Assumed when put, not read: that the rigs' time zone is Arizona's.
     Rejected with it: **measure first,** which delays the build for a small gain when the
     stationary's own archive gives the count free; **03:30,** ratified without a count.
+    *Update 2026-11-22: the assumption is superseded on the 🏠 stationary. ✅ Read by Claude with
+    `timedatectl`, 2026-11-22: the stand-in 🏠 home stationary kept `America/Phoenix` until that
+    night, from the image; no step sets the zone, and step 70's verify prints it without judging
+    it. Chris said the rig is in California, and on his choice by question (2026-11-22, 22:54
+    Arizona time: "Set it to California", over "Leave Phoenix") he ran `timedatectl set-timezone
+    America/Los_Angeles`; it now reads `America/Los_Angeles`. ➡️ On that rig, (e)'s 04:30
+    rig-local is 04:30 Pacific. The 🎒 portable's zone was not read that night; it read
+    `America/Phoenix` on 2026-10-09 ("Readings, 2026-10-09", below in this section).*
   - The rest of #33's rulings are in [§9h](#9h--the-stationary-rigs-home-and-remote), "Update
     2026-11-14: the stationary design, ruled (#33)".
+  - **Update 2026-11-22: A4 built, round 1.** *The design is fable-architect's call of 2026-11-22;
+    Chris ruled three questions on it, by question, 2026-11-22 at 21:50 Arizona time (the texts as
+    put are in the private pick-up record).* ✅ Built as `46b71cc`, with step-reviewer's fixes in
+    `8dab707` and `/code-review`'s in `1635509`; pushed to `main` at 22:45 Arizona time; CI green;
+    `advance-stable` moved `stable` to `1635509`. The steps' and the opener's headers are the
+    design. As read in the code at `1635509`:
+    - **(a) One window unit on both rigs.** The shared step `setup/steps/58-maintenance-window.sh`
+      installs `adsb-maintenance-window.service` with its cap by role, `RuntimeMaxSec=2h` on the 🎒
+      portable (the old unit's) and `50min` on the 🏠 stationary, and `TimeoutStopSec=45min` on
+      both. The step installs no sudoers rule on either role. On the stationary its verify asks sudo
+      itself (`sudo -n -l -U`), for every account but root, whether it may start or stop the window
+      under either name, and fails on any grant short of a general one; an account holding a
+      general grant is named as root by hand, not failed. ✅ Seen by Claude, 2026-11-22 at 22:20,
+      in a Debian trixie container with sudo 1.9.16p2: a refused account gets empty output and
+      exit 1. ⚠️ Not seen on the stationary itself.
+    - **(b) One opener on both rigs.** Step 70 is now `setup/steps/70-window-opener.sh`, shared.
+      The 🏠 stationary's timer has `OnCalendar=*-*-* 04:30:00` only, with no `OnBootSec=`, so a
+      watchdog or power-cut boot triggers no update; its service has no `ExecCondition=`, and it
+      gets no `adsb-at-home`. Its pre-check is `update.sh --check`, which on the stationary runs
+      §9h's gate (`check_gate`): when the gate would hold, the line begins "gate holds:" and the
+      exit is 15. The opener, `bin/adsb-home-update`, maps 15 to gate-held, and an update's exit 4
+      (the gate flipped between `--check` and the window) to opened-not-ready. After the close its
+      line reports the recording gap, "writer off N s, recording again", or "writer NOT recording
+      …" at warning priority, with the exit code still the update's own.
+    - **(d) Round 1 of the rename.** Every check for an open window reads both names; step 60's old
+      unit stays, rendered byte-identical; the 🎒 portable's sudoers rule grants start and stop of
+      both names; `tools/pull-archive` asks the rig for the new unit's `LoadState` and falls back
+      to the old name.
+    - **Chris's rulings, 21:50:**
+      1. The 🏠 stationary's cap is 50 min. Rejected: **15 min**, and **15 min, kill the update.**
+         Step 58's header gives the reason: 50 min is above the update's own
+         `TimeoutStartSec=40min` (step 50), so the cap never fires mid-update, and a lower cap
+         would not shorten the gap, since the writer started at the cap waits on the lock until the
+         update ends (⚠️ belief, not seen).
+      2. One attended opener run, right after the hand apply.
+      3. The opener keeps the name `adsb-home-update`. Rejected: **rename it too.** Step 70's
+         header gives the reason: the name is `status.json`'s `opened_by`.
+    - **Reviews:** step-reviewer three times (nothing blocking); `/code-review` at medium (three
+      important findings, fixed in `1635509`); `/security-review` (no findings).
+    - **Applied on the stand-in 🏠 home stationary, 2026-11-22.** ✅ Seen by Claude over ssh,
+      without sudo. Chris ran it by hand with his sudo, by §9i's route as one command,
+      `systemctl stop adsb-writer && systemctl start --no-block adsb-update.service`.
+      `status.json`: started 2026-11-23T05:55:40Z, finished 05:58:38Z, result `applied`,
+      `applied_rev` `1635509`. The security phase installed nothing. The writer was active
+      afterwards. `adsb-home-update.timer` is enabled, its next elapse 04:30 PST;
+      `adsb-update.timer`'s next run is 03:35 PST. ⚠️ `reboot_required` is still true, carried
+      from an earlier hand update that rebuilt the initramfs (the rig has been up since 18:37 PST),
+      not set by this run. The rig's time zone changed that night: (e)'s update, above.
+    - **⚠️ Not yet seen:** the attended opener run (ruling 2) and the first unattended 04:30
+      window; the writer's stop before the update, on the stationary; `--check`'s gate
+      (archive-preflight, clock-preflight, the readsb probe) answering beside a recording writer as
+      it would with the writer stopped; the writer retaking the lock after `ExecStopPost=`; a
+      `RuntimeMaxSec=` hit leaving the unit `failed`, which nothing in the repo treats as an alarm
+      (step 58's header).
+    - **➡️ Consequences, recorded and not ruled:**
+      - every push that reaches `stable`, docs-only included, is a recording gap of minutes on the
+        🏠 stationary the next night;
+      - a commit that rolls back is retried after the 24 h backoff: roughly every second night,
+        each gap up to about 40 min, until `stable` moves;
+      - on the stationary, the security phase now runs only on window nights;
+      - if a stationary's first apply rolls back to a commit from before the gate went into
+        `--check`, the 04:30 timer survives; disable it by hand, `systemctl disable --now
+        adsb-home-update.timer` (step 70's header has the case);
+      - step 40's window check still reads `active` only, now under both names: reported, not
+        fixed.
+    - **📋 Round 2, not built.** It removes the old unit while it is inactive, the old sudoers
+      lines, the both-name checks and `tools/pull-archive`'s fallback. Its precondition, the
+      architect's: the 🎒 portable's `status.json` shows the round-1 commit applied, and its
+      journal shows one window under the new name.
+    - **📋 Open, not ruled: why the writer must stop to update.** Chris asked on 2026-11-22.
+      fable-architect's call: keep the 2026-10-04 rule and the lock. The steps converge state
+      rather than apply a commit's delta (06 restarts journald, 10 restarts readsb, 20 restarts
+      gpsd or chrony, each from its own diff), so a test on the changed paths cannot license a live
+      run. Instead, `--check` would report "not pending" when every changed path is on a short,
+      deny-by-default inert list (`docs/`, `tests/`, `.github/`, top-level `*.md`, `LICENSE`,
+      `NOTICE`), with a security-age floor. The rejection-checker found no earlier refusal of path
+      filtering. Claude's count, approximate, from `git log` on `stable` by commit date: over the
+      last 30 days, 12 days with commits, 8 with a commit touching the rig, 4 inert only. Five
+      questions are open for Chris: skip inert nights; never update while recording; the security
+      floor (a weekly gap, adjacent to (C)'s "a daily recording gap for nothing", above); whether
+      `tools/` is inert; one retry, then hold.
 - ➡️ **What would change it:**
   - `nmcli` cannot give the SSID on this image (→ the gateway's MAC address, still local).
     *Answered 2026-10-05: it can; see below;*
@@ -5503,10 +5599,10 @@ service.
     the unit's `TimeoutStartSec=3h` (step 45), leaving an hour for the listing, the hashing and
     the deletes. BUILD.md §8 step 4b names a black USB 2 port on the Pi 4 for the archive drive.
     The wait and the role: "Update 2026-11-22: four calls after review", below.*
-- ⚠️ **A consequence, not ruled: a recording stationary does not update itself.** The writer holds
+- ⚠️ **A consequence, not ruled: ~~a recording stationary does not update itself~~.** The writer holds
   the recording lock from boot, and `update.sh`'s timer exits when it finds the lock held, as on
-  the 🎒 portable. The maintenance window that would open it nightly (A4 of #33, §9f) is not built.
-  Until it is, the stand-in updates when its writer is stopped by hand (`sudo systemctl stop
+  the 🎒 portable. The maintenance window that would open it nightly (A4 of #33, §9f) ~~is not built.
+  Until it is,~~ is built, round 1 (below); beside it, the stand-in updates when its writer is stopped by hand (`sudo systemctl stop
   adsb-writer`, then `sudo systemctl start adsb-update.service`; update.sh starts the writer again
   at its end). Its soak is the code's stationary default, ~~7 days (§9f's 2026-11-17 note)~~ 0
   days, unless `update.soak_days` is set in its `station.yml`.
@@ -5517,6 +5613,13 @@ service.
   exit 0", with 151 PASS, step 15's four verify checks among them. Recording stopped for about 15
   minutes. The same run's security phase installed a first backlog of Debian security packages
   (seen in its journal).*
+  *Corrected 2026-11-22: superseded in part. A4 of #33, round 1, is built (`46b71cc`, `8dab707`,
+  `1635509`) and was applied on the stand-in at `1635509` by the hand route above, so a recording
+  stationary now updates itself: at 04:30 rig-local, when an update is pending and §9h's gate
+  passes, its opener opens the maintenance window. ⚠️ Not yet seen: no window has run on the
+  stand-in. `update.sh`'s own timer still exits at the held lock, as written above. The hand route
+  stays the way to update the stationary by hand; `setup/update.sh`'s lock-held hint points here
+  for it. The record is §9f, "A4 of #33", "Update 2026-11-22: A4 built, round 1".*
 - *Added 2026-11-22: ✅ #33 A7, the stationary's position source, is built (`2b60ca0`, `fec4ddc`)
   and seen on the stand-in by that run. The record is §5, "The one position source, and the
   surface rule", its update of 2026-11-22.*
@@ -6867,8 +6970,12 @@ a rejection-checker's read came before the question.
     session's reading, not repeated for this record), `adsb-home-update` ran at its daily 04:30
     (step 70's `OnCalendar=`) on 2026-11-10 and 2026-11-11, found the rig "at home", and opened
     nothing: *"not pending: stable is still f5b885d80d08, which is applied"*.
-- **Stage 2, in #33.** 📋 Ruled, not built. It answers in part §9f's "The 🏠 stationary cannot update
+- **Stage 2, in #33.** 📋 Ruled, ~~not built~~. It answers in part §9f's "The 🏠 stationary cannot update
   as designed" ("Open, ruled to be decided later").
+  *Corrected 2026-11-22: built, round 1 of A4 of #33 (`46b71cc`, `8dab707`, `1635509`), and applied
+  on the stand-in 🏠 home stationary; ⚠️ on the 🎒 portable, a window under the new name is not yet
+  seen. The record is [§9f](#9f-what-updatesh-does), "A4 of #33", "Update 2026-11-22: A4 built,
+  round 1".*
 - **What a default pull does, as built** (✅ read in `tools/pull-archive`, its header and code):
   1. It opens no window. A line of its own says so before the move, for a caller used to the old
      default.
