@@ -197,11 +197,13 @@ readonly WRITER_UNIT=adsb-writer.service
 readonly WINDOW_UNIT=adsb-pull-window.service
 readonly HOME_UNIT=adsb-home-update.service
 readonly FIRST_STEP=50-updater
-# The soak's role default, the one difference between the roles' channel (PLAN §9g's 2026-10-05
-# update); update.soak_days in station.yml overrides it. The portable template never carries it.
-# The days count from this rig's first sight of stable's tip (TIP_SEEN), not from its commit date
+# The soak's role default (PLAN §9g's 2026-10-05 update); update.soak_days in station.yml overrides
+# it. The portable template never carries it; the stationary template carries 0. Both are 0: the
+# wait is 0 days for every rig, and the stationary's is set here in code too, not only in its
+# station.yml (#47, 2026-11-22; it was 7). A soak above 0 still works when station.yml sets one:
+# the days count from this rig's first sight of stable's tip (TIP_SEEN), not from its commit date
 # (Chris, 2026-10-15): a commit dated long ago, or by a skewed clock, still waits the whole soak.
-readonly SOAK_DAYS_PORTABLE=0 SOAK_DAYS_STATIONARY=7
+readonly SOAK_DAYS_PORTABLE=0 SOAK_DAYS_STATIONARY=0
 readonly FETCH_TIMEOUT=300
 readonly PREFLIGHT_TIMEOUT=120
 readonly BACKOFF_SECS=86400   # a failed candidate is skipped this long after its run

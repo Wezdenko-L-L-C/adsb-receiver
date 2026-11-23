@@ -96,6 +96,12 @@ install_if_changed() {
   log "$dst changed; installed by rename"
 }
 
+# pkg_installed <pkg>: no `grep -q` at the end of a pipe, which pipefail can trip.
+pkg_installed() {
+  local s
+  s=$(dpkg-query -W -f='${Status}' "$1" 2>/dev/null) || return 1
+  [[ $s == "install ok installed" ]]
+}
 
 # apt_ensure <pkg>...: install whichever are missing; apt-get update only then.
 apt_ensure() {
@@ -349,14 +355,23 @@ verify() {
   log "chrony: is-enabled $en, is-active $ac"
   [[ $en == enabled ]] || die "chrony is '$en', not enabled; run this step without --verify"
   [[ $ac == active ]] || die "chrony is '$ac', not active; run this step without --verify"
-  log "chronyc -n sources (raw output follows, not judged)"
-  out=$(chronyc -n sources 2>&1) || true
+  log "chronyc -n sources (raw output follows; judged only for a GPS refclock)"
+  local rc=0
+  out=$(chronyc -n sources 2>&1) || rc=$?
   printf '%s\n' "$out"
   echo "----"
+  # An absent GPS line proves nothing if chronyc could not answer: fail rather
+  # than pass "no GPS refclock" on an error.
+  ((rc == 0)) || die "chronyc -n sources exited $rc (above), so whether a GPS refclock is configured could not be read. Check: systemctl status chrony; ls -ld /run/chrony"
   if grep -qE '^#.[[:space:]]+GPS[[:space:]]' <<<"$out"; then
     die "chronyc sources lists a GPS refclock, which a stationary rig does not have (A3 of #33). Look for a stray conf in /etc/chrony/conf.d"
   fi
-  pass "chrony is enabled and running, with no GPS refclock"
+  # A configured refclock is listed whether or not the network is up, so no
+  # source lines still means no GPS refclock; but it also means no NTP source.
+  if ! grep -qE '^[#^=][*+?x~-][[:space:]]' <<<"$out"; then
+    warn "chronyc sources lists no source at all (above): no GPS refclock, but no NTP source either. The clock is not being disciplined; check the network and the pool lines in /etc/chrony/chrony.conf"
+  fi
+  pass "chrony is enabled and running; chronyc sources answered and lists no GPS refclock"
 
   # 4. systemd-timesyncd: masked, or not installed at all.
   local st ac

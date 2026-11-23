@@ -131,3 +131,11 @@ uploader:
   # ⛔ The credential is NOT a key here. It is a file the step reads, put on the
   #    rig by hand, root:root 0600: /etc/adsb-receiver/uploader-sa.json, the
   #    service account's JSON key. BUILD.md §8 step 4b says how.
+
+update:
+  # Added 2026-11-22 (#47; PLAN §9g): the update wait is 0 days, as already
+  #    ruled for every rig. setup/update.sh's own default for a stationary,
+  #    SOAK_DAYS_STATIONARY, is 0 as well, so this line and the code agree; it
+  #    is kept here so the installed station.yml says so too. A whole number of
+  #    days; a stable tip is applied once this rig has seen it that long.
+  soak_days: 0

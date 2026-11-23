@@ -807,8 +807,13 @@ and no script can pass them for you:
       organizations created since 2024 (belief, not checked for this one): an Organization Policy
       Administrator turns it off for this project only, then step 3 again.
    4. In Drive, the store's shared drive → Manage members → add the service account's email (its
-      `client_email`, ending `.iam.gserviceaccount.com`) as **Content manager**. Nothing else is
-      shared with it.
+      `client_email`, ending `.iam.gserviceaccount.com`) as ~~**Content manager**~~
+      **Contributor**. Nothing else is shared with it.
+      *Corrected 2026-11-22 (Chris, #47): Contributor, not Content manager. The uploader never
+      deletes or moves anything in the store, and a Contributor cannot trash, so a compromised rig
+      cannot empty the shared drive.* ⚠️ Not yet verified that Contributor is enough for rclone
+      with a service account: if the first upload (D below) fails on permissions, raise the
+      member to Content manager and tell Chris.
 
    *B. The card and the network:* Raspberry Pi Imager, Pi OS Lite 64-bit, with the hostname set (it
    becomes the store's folder for this rig, A8 of #33: choose it once, never rename it), the house
@@ -825,6 +830,10 @@ and no script can pass them for you:
 
    Then the one command, with `--role stationary`, the surveyed position, a USB drive plugged in
    (the bootstrap formats it when it is the only empty one, as on the portable), and the uploader:
+
+   ⚠️ **Plug the archive drive into a black USB 2 port on the Pi 4**, not a blue USB 3 one. Step 30's
+   verify demands a 480 Mb/s USB 2 link on both rigs and fails on a USB 3 port. The radio stick can
+   go in the other black USB 2 port or a blue one.
 
    ```
    curl -fsSL https://raw.githubusercontent.com/Wezdenko-L-L-C/adsb-receiver/stable/setup/bootstrap.sh \

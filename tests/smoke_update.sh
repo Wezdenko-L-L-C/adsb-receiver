@@ -26,7 +26,7 @@
 set -uo pipefail
 # The number of check cases a full run makes. Bump it when cases are added or removed: a run that
 # makes fewer (a section skipped by an early return, a wait loop that timed out) fails.
-readonly EXPECTED_CHECKS=311
+readonly EXPECTED_CHECKS=312
 ((EUID != 0)) || { echo "refusing to run as root: the sandbox remaps real system paths by sed"; exit 1; }
 # The sandbox is not under systemd; update.sh adds a <N> journal prefix to its marker line when it is.
 unset INVOCATION_ID
@@ -605,6 +605,9 @@ check "R first build at stable's tip, no gate" [ "$RC/$(S 's["applied_rev"]')" =
 check "R stationary foundation: the archive format ran, with the bootstrap marker" grep -q "format foundation marker=bootstrap" "$SB/out.txt"
 check "R stationary foundation: no RTC overlay (A3 of #33)" lacks "rtc foundation marker" "$SB/out.txt"
 check "R stationary foundation: recorded as not run" [ "$(S 's["foundation"]["rtc_overlay"]')" = "not run (stationary)" ]
+check "R the stationary template's soak is 0 (#47)" grep -qx '  soak_days: 0' "$SB/etc/station.yml"
+# The soak itself, tested at 7 days set in the file: both roles default to 0 since #47.
+sed -i '/^update:/,$d' "$SB/etc/station.yml"; printf 'update:\n  soak_days: 7\n' >>"$SB/etc/station.yml"
 # A tip whose commit date is 10 days old: by its commit date it would apply at once; by its first
 # sight here it waits the whole soak.
 old=$(date -u -d '-10 days' +%Y-%m-%dT%H:%M:%SZ)
@@ -620,7 +623,7 @@ check "R says under soak" grep -q "under update.soak_days" "$SB/out.txt"
 check "R the timer recorded its first sight of the tip, now" \
   python3 -c 'import sys,time; s,e=open(sys.argv[1]).read().split(); sys.exit(not (s==sys.argv[2] and abs(int(e)-time.time())<300))' "$SEEN" "$(sha)"
 check "R old non-tip commit not applied" [ "$(cat "$SB/var/applied-rev")" = "$R1" ]
-# Seen 8 days ago: past the stationary's 7.
+# Seen 8 days ago: past the file's 7.
 printf '%s %s\n' "$(sha)" "$(( $(date +%s) - 8 * 86400 ))" >"$SEEN"
 run bash "$U"
 check "R a tip seen 8 days ago is the candidate; the gate holds (no clock-preflight): exit 4" [ "$RC" = 4 ]
@@ -835,13 +838,13 @@ set_soak 0; dated 0 "y1: young"
 run bash "$U"
 check "Y1 soak 0 from the file: the young tip is the candidate (the gate then holds: 4)" \
   rc_has 4 "soak 0: the channel's tip is the candidate (update.soak_days in $SB/etc/station.yml)" "$SB/out.txt"
-echo "-- Y2. an invalid update.soak_days (7d) is rejected; the stationary's default, so labeled"
+echo "-- Y2. an invalid update.soak_days (7d) is rejected; the stationary's default (0 since #47), so labeled"
 set_soak 7d; dated 0 "y2: young"
 run bash "$U"
-check "Y2 warned: rejected, using 7, the stationary's default" \
-  grep -q "update.soak_days '7d' in $SB/etc/station.yml is not a whole number of days; rejected, using 7, the stationary's default" "$SB/out.txt"
-check "Y2 the young tip waits under the default, labeled as the fallback (exit 0)" \
-  rc_has 0 "under update.soak_days (7, the stationary's default; update.soak_days in $SB/etc/station.yml was rejected" "$SB/out.txt"
+check "Y2 warned: rejected, using 0, the stationary's default" \
+  grep -q "update.soak_days '7d' in $SB/etc/station.yml is not a whole number of days; rejected, using 0, the stationary's default" "$SB/out.txt"
+check "Y2 the young tip is the candidate under the default, labeled as the fallback (the gate then holds: 4)" \
+  rc_has 4 "soak 0: the channel's tip is the candidate (the stationary's default; update.soak_days in $SB/etc/station.yml was rejected)" "$SB/out.txt"
 echo "-- Y3. update.soak_days: 08 is 8 days (base 10, not a bad octal)"
 set_soak 08; dated 7 "y3: 7 days old"
 run bash "$U"
