@@ -1265,6 +1265,9 @@ undecided"). No ruling has replaced it, so the text above stands until one does.
 hands-off updating design puts no new secret on a rig, so the question can be decided apart from
 it; see "Update 2026-11-17 20:48: hands-off updating", in
 [§9h](#9h--the-stationary-rigs-home-and-remote).
+*Added 2026-11-22: one rig, the stand-in 🏠 home stationary, holds a Google service account key, as
+an exception until the server path is built (Chris, #47); this section's question stays open. See
+[§9i](#9i-what-is-not-chosen-yet-the-uploader), "Update 2026-11-22: four calls after review".*
 
 ### 9b. One bash script per build step
 
@@ -3332,6 +3335,11 @@ is.
     this hole, unless that default or its `station.yml` is changed first. The record is "Update
     2026-11-17 21:49: three follow-ups to hands-off updating", in
     [§9h](#9h--the-stationary-rigs-home-and-remote).
+    *Corrected 2026-11-22 (Chris, #47): the default is changed. ✅ Read as of #47:
+    `setup/update.sh` sets `SOAK_DAYS_STATIONARY=0`, and `config/station.stationary.example.yml`
+    sets `update.soak_days: 0`, so a stationary built on that code waits 0 days and does not meet
+    this hole unless its `station.yml` sets a wait above 0. See
+    [§9i](#9i-what-is-not-chosen-yet-the-uploader), "Update 2026-11-22: four calls after review".*
   - **(d) Rename `adsb-pull-window` to `adsb-maintenance-window` now,** before the stationary
     exists, in two rounds on the 🎒 portable: an update installs the new name beside the old, and a
     later one drops the old. The stationary only ever has the new name. The name is in the
@@ -5401,12 +5409,15 @@ service.
   store: its shared drive ID lives in the gitignored `station.yml` (`uploader.shared_drive_id`).
   The private service's route (2026-10-10) is not withdrawn; it is not what this rig uses.
 - **The credential, ruled by question: "Service account (Recommended)"**, a Google Cloud service
-  account made a member of that one shared drive (Content manager), its JSON key on the rig at
-  `/etc/adsb-receiver/uploader-sa.json`, root:root 0600. It is a third-party credential, as Chris
+  account made a member of that one shared drive (~~Content manager~~ Contributor), its JSON key
+  on the rig at `/etc/adsb-receiver/uploader-sa.json`, root:root 0600. It is a third-party credential, as Chris
   foresaw on 2026-10-04 (*"We may need to create 3rd party credientials for the stations"*), not
   his own identity. Rejected as put: **his own Google login** (an rclone token for his account), with
   which the rig could reach all of his Drive. ⚠️ Not the consultation's 2026-10-10 recommendation
   (a key the rig generates, no secret delivered to a rig): this key is delivered by hand.
+  *Corrected 2026-11-22 (Chris, #47): the role is Contributor, not Content manager, and the key is
+  an exception for this one rig until the server path is built; see "Update 2026-11-22: four calls
+  after review", below.*
 - **The local copy, ruled by question: "Delete after verified upload (Recommended)"**: the same rule
   as the pull by rclone (§9m, "Update 2026-11-08"): a file is removed from the rig only after the
   store holds it with the same size and hash. Rejected as put: **keep 7 days, then delete.**
@@ -5428,16 +5439,52 @@ service.
     overlay there, A3); `update.sh`'s stationary readiness includes `archive-preflight`.
   - The stationary template: `clock.max_offset_ms` 500 (A3, closing the 📋 in §9h), `archive.label`,
     and an `uploader:` block in place of the refusal.
+  - *Added 2026-11-22: #46's change was rebuilt on devbox as the branch
+    `standin-stationary-uploader`, for #47, with fixes, each read in the code as of #47.
+    `setup/steps/20-stationary-clock.sh` defines `pkg_installed`, and fails when `chronyc -n
+    sources` exits non-zero. `bin/adsb-uploader`: a file that fails the check or its local delete
+    3 runs in a row (`STUCK_AFTER_RUNS`) moves behind every other closed file in the batch, so it
+    cannot hold newer files back; a local delete that fails is counted and the rest of the batch
+    goes on, the run exiting 1 at the end; the copy's timeout is 2 h (`COPY_TIMEOUT_S`), inside
+    the unit's `TimeoutStartSec=3h` (step 45), leaving an hour for the listing, the hashing and
+    the deletes. BUILD.md §8 step 4b names a black USB 2 port on the Pi 4 for the archive drive.
+    The wait and the role: "Update 2026-11-22: four calls after review", below.*
 - ⚠️ **A consequence, not ruled: a recording stationary does not update itself.** The writer holds
   the recording lock from boot, and `update.sh`'s timer exits when it finds the lock held, as on
   the 🎒 portable. The maintenance window that would open it nightly (A4 of #33, §9f) is not built.
   Until it is, the stand-in updates when its writer is stopped by hand (`sudo systemctl stop
   adsb-writer`, then `sudo systemctl start adsb-update.service`; update.sh starts the writer again
-  at its end). Its soak is the code's stationary default, 7 days (§9f's 2026-11-17 note), unless
-  `update.soak_days` is set in its `station.yml`.
+  at its end). Its soak is the code's stationary default, ~~7 days (§9f's 2026-11-17 note)~~ 0
+  days, unless `update.soak_days` is set in its `station.yml`.
+  *Corrected 2026-11-22 (Chris, #47): the stationary's wait is 0 days, in the code and in the
+  template; see "Update 2026-11-22: four calls after review", below.*
 - 📋 **Ruled, not run:** nothing here has run on a Pi. The first upload's check is the store showing
   `<hostname>/beast/<today>/` with files, and `/var/lib/adsb-uploader/state.json` on the rig
   saying `"result": "ok"`.
+
+**Update 2026-11-22: four calls after review. (Chris, 2026-11-22, typed in chat after a review of
+the change above; the questions as put are in the private pick-up record, "Rulings as put",
+2026-11-22.)** (#47) Chris typed: *"Update wait - 0 days, The google key - exception for one rig
+until the server path is built. Drive access level - contributor. The uploader hold is cleared on
+this rig."*
+
+- **The shared drive's role: Contributor, not Content manager.** The uploader only copies into the
+  store and lists it: ✅ read in `bin/adsb-uploader` as of #47, its only rclone calls are `copy`
+  and `lsjson`; it never deletes or moves anything in the store. A Contributor cannot trash, so a
+  compromised rig cannot empty the shared drive. ⚠️ Unverified: that Contributor is enough for
+  rclone with a service account. The first upload is the check; BUILD.md §8 step 4b says what to
+  do if it fails on permissions.
+- **The key: an exception for this one rig until the server path is built.** It does not replace
+  §9a's founding decision, a public repo and no credential on the device, which stays reopened and
+  undecided ([§9a](#9a-the-repo-ships-its-own-software-and-the-pi-pulls-it), "Update 2026-11-17:
+  reopened, and undecided").
+- **The update wait: 0 days.** ✅ Read as of #47: `setup/update.sh` sets
+  `SOAK_DAYS_STATIONARY=0`, and `config/station.stationary.example.yml` sets
+  `update.soak_days: 0`, so the code and the template agree. It corrects the block above, which
+  gave the code's stationary default as 7 days, and the 2026-11-17 note in
+  [§9f](#9f-what-updatesh-does) that warned of that default.
+- **The uploader's hold is cleared on this rig.** The hold is recorded in the private pick-up
+  record, not in this file.
 
 ### 9j. ✅ Verified on hardware, 2026-10-03
 
