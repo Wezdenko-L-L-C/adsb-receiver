@@ -718,7 +718,7 @@ resolve_candidate() {
     CAND=$tip
     return 0
   fi
-  NOTE="stable's tip $(sha12 "$tip") was first seen here $((age / 86400)) days ago, under update.soak_days ($days, $src; the role default is 0 on the portable, 7 on the stationary, unless station.yml sets it); it applies once this rig has seen it that long"
+  NOTE="stable's tip $(sha12 "$tip") was first seen here $((age / 86400)) days ago, under update.soak_days ($days, $src; the role default is 0 on both roles, unless station.yml sets it); it applies once this rig has seen it that long"
   return 1
 }
 

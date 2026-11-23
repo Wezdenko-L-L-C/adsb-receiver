@@ -207,7 +207,7 @@ except U.ConfError as e:
     sys.exit(str(e))
 PY
   ) || die "$CRED is not a usable service account key (above)"
-  log "$CRED: a service account key for $email (add that address to the store's shared drive as a Content manager)"
+  log "$CRED: a service account key for $email (add that address to the store's shared drive as a Contributor)"
 }
 
 render_service() {
