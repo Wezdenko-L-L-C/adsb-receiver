@@ -361,11 +361,10 @@ EOF
   #    repo (PLAN §9f): change it here.
   # 📋 Not yet from station.yml: `--device 0` is what ran. Selecting the stick
   #    by its EEPROM serial (dongles.adsb, RADIOS.md §5 rule 2) is a follow-up.
-  #    The stationary rig's position source is open (#33). Corrected
-  #    2026-11-22: no longer open. #33 A7 (Chris, 2026-11-14 22:00) chose a
-  #    static responder, and 15-stationary-position serves station.yml's
-  #    position on 127.0.0.1:2947 in gpsd's protocol; this line is unchanged
-  #    and role-blind. ⚠️ A fixed
+  #    The stationary rig's position comes from 15-stationary-position, which
+  #    serves station.yml's position on 127.0.0.1:2947 in gpsd's protocol
+  #    (#33 A7, "Static responder", Chris, 2026-11-14 22:00), so this line is
+  #    role-blind. ⚠️ A fixed
   #    --lat/--lon is not the easy answer it looks: readsb then prints
   #    `Using lat: … lon: …` to its journal at every start, and --quiet does not
   #    suppress it (readsb.c:121; read in readsb's source at the pin, not seen
@@ -418,14 +417,12 @@ EOF
   #      a fraction of a second to one try every --net-connector-delay (default
   #      15 s), with no limit (net_io.c). So a rig whose gpsd comes up later
   #      (step 20 runs after this one) is followed without a readsb restart.
-  #    - The stationary rig runs no gpsd (20-portable-clock is portable-only,
-  #      and no stationary clock step exists), so there the connector dials a
-  #      closed loopback port and is inert; the stationary's position source
-  #      stays open (#33). Corrected 2026-11-22: #33 A7 ruled it a static
-  #      responder (Chris, 2026-11-14 22:00), and 15-stationary-position,
-  #      which runs after this step, now listens there with station.yml's
-  #      position (bin/adsb-position); until that step has run, the connector
-  #      is inert as above. Without silent_fail readsb logs the first 9 failed
+  #    - The stationary rig runs no gpsd (only 20-portable-clock installs it;
+  #      20-stationary-clock is NTP only). There 15-stationary-position, which
+  #      runs after this step, listens on 127.0.0.1:2947 with station.yml's
+  #      position (bin/adsb-position; #33 A7, Chris, 2026-11-14 22:00). Until
+  #      that step has run, the connector dials a closed loopback port and is
+  #      inert. Without silent_fail readsb logs the first 9 failed
   #      dials, then the 10th and every 200th (net_io.c,
   #      suppressConnectError()). No silent_fail token: it would also hide a
   #      gpsd failure on the portable.

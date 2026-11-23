@@ -42,8 +42,20 @@
 #     own, and uses only the connection systemd hands it. ⚠️ Belief, from
 #     systemd.exec(5) and how file descriptors work, not seen on the Pi: an
 #     inherited AF_INET connection works under both settings.
+#     RuntimeMaxSec=65min ends an instance whose client stopped reading; the
+#     program itself closes a connection that has not enabled a watch within
+#     10 s, and any connection after an hour, so MaxConnections=8 cannot be
+#     held by idle connections (bin/adsb-position's header).
 # A changed program, credential or unit stops the running instances, so readsb
-# redials (at most --net-connector-delay, 15 s) and gets the new position.
+# redials (at most --net-connector-delay, 15 s) and gets the new position:
+# readsb takes every TPV in bounds, not only the first (net_io.c, handle_gpsd(),
+# lines 3887-3898 at step 10's pin).
+#
+# ⚠️ No uninstall, as with every role step: a rig moved from stationary to
+#    portable keeps adsb-position.socket on 127.0.0.1:2947, where the
+#    portable's gpsd must listen. Remove it by hand first: systemctl disable
+#    --now adsb-position.socket, then delete the two units,
+#    /etc/adsb-receiver/position.json and /usr/local/bin/adsb-position.
 #
 # ⛔ The position is never printed: not here, not by the verify, not by the
 #    responder. The verify compares in-process and prints a verdict only.
@@ -63,6 +75,7 @@ require_role stationary
 for t in python3 systemctl systemd-analyze ss cmp; do
   command -v "$t" >/dev/null || die "$t is not installed"
 done
+python3 -c 'import yaml' 2>/dev/null || die "python3-yaml is missing: apt install python3-yaml"
 
 SRC=$ADSB_REPO/bin/adsb-position
 PROG=/usr/local/bin/adsb-position
@@ -111,7 +124,7 @@ read_position() {
   f=$(station_file) || die "no station.yml: run setup/steps/05-config.sh"
   [[ -f $SRC ]] || die "$SRC is missing from this checkout"
   python3 - "$f" "$SRC" "$WORK/position.json" <<'PY' \
-    || die "station.yml's position: block is not usable (above): survey the antenna's position (BUILD.md §8 step 4b), set position.latitude and position.longitude, then run this step again. Until then this rig has no receiver position and is not ready"
+    || die "could not take a position from station.yml (the reason is above). If the file does not parse, fix it at that line. If the position: block is missing or unset, survey the antenna's position (BUILD.md §8 step 4b), set position.latitude and position.longitude, then run this step again. Until then this rig has no receiver position and is not ready"
 import importlib.machinery, importlib.util, sys, yaml
 yml, src, out = sys.argv[1:4]
 loader = importlib.machinery.SourceFileLoader("adsb_position", src)
@@ -119,8 +132,14 @@ spec = importlib.util.spec_from_loader("adsb_position", loader)
 P = importlib.util.module_from_spec(spec)
 sys.dont_write_bytecode = True
 loader.exec_module(P)
-with open(yml) as fh:
-    doc = yaml.safe_load(fh)
+try:
+    with open(yml) as fh:
+        doc = yaml.safe_load(fh)
+except yaml.YAMLError as e:
+    # Line number only: YAML's own message quotes the line, which may hold a position or a key.
+    mark = getattr(e, "problem_mark", None)
+    sys.exit("station.yml does not parse as YAML"
+             + (f" (line {mark.line + 1})" if mark is not None else ""))
 b = doc.get("position") if isinstance(doc, dict) else None
 if not isinstance(b, dict):
     sys.exit("station.yml has no position: block: add it from config/station.stationary.example.yml")
@@ -190,6 +209,7 @@ LockPersonality=yes
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
 TasksMax=4
+RuntimeMaxSec=65min
 EOF
 }
 
@@ -253,21 +273,31 @@ try:
         want = json.load(fh)
 except (OSError, ValueError):
     print("unreadable"); sys.exit(0)
-lat, lon = got.get("lat"), got.get("lon")
-if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (lat, lon)):
-    print("absent"); sys.exit(0)
-p1, p2 = math.radians(lat), math.radians(want["lat"])
-dp, dl = p2 - p1, math.radians(want["lon"] - lon)
-a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
-if 2 * 6371008.8 * math.asin(min(1.0, math.sqrt(a))) > tol:
-    print("far"); sys.exit(0)
-if want.get("alt_m") is not None:
-    alt = got.get("alt_m_amsl")
-    if not isinstance(alt, (int, float)) or isinstance(alt, bool):
-        print("alt-absent"); sys.exit(0)
-    if abs(alt - want["alt_m"]) > tol:
-        print("alt-far"); sys.exit(0)
-print("ok")
+def num(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+def verdict():
+    if not isinstance(got, dict) or not isinstance(want, dict):
+        return "unreadable"
+    lat, lon = got.get("lat"), got.get("lon")
+    if not (num(lat) and num(lon)):
+        return "absent"
+    p1, p2 = math.radians(lat), math.radians(want["lat"])
+    dp, dl = p2 - p1, math.radians(want["lon"] - lon)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    if 2 * 6371008.8 * math.asin(min(1.0, math.sqrt(a))) > tol:
+        return "far"
+    if want.get("alt_m") is not None:
+        alt = got.get("alt_m_amsl")
+        if not num(alt):
+            return "alt-absent"
+        if abs(alt - want["alt_m"]) > tol:
+            return "alt-far"
+    return "ok"
+# Any surprise in either file is a verdict, never a traceback (which could quote a value).
+try:
+    print(verdict())
+except Exception:
+    print("unreadable")
 PY
 }
 
@@ -299,6 +329,9 @@ verify() {
   printf '%s\n' "${out:-(no output)}"
   echo "----"
   ((rc == 0)) || die "systemd-analyze verify rejected the responder's units (exit $rc); see above"
+  # A warning can come with exit 0, and PLAN §9c allows no pass with a warning:
+  # any output at all fails.
+  [[ -z $out ]] || die "systemd-analyze verify printed the lines above (exit 0): a warning is not a pass; fix the units in this step"
   ! need_reload || die "systemd has not read the current $SOCKET or $SERVICE; run this step without --verify"
   pass "$SOCKET and $SERVICE match their render, load, and pass systemd-analyze"
 
@@ -339,7 +372,7 @@ verify() {
   case $verdict in
     ok) ;;
     absent) die "readsb's $RECEIVER_JSON carries no lat and lon after ${WAIT_S} s: readsb has not taken the position. Check: journalctl -u readsb for its gpsd connector, and journalctl -u 'adsb-position@*' for the responder" ;;
-    far) die "readsb's $RECEIVER_JSON position is more than ${TOL_M} m from station.yml's after ${WAIT_S} s (an old position held, or another source); run this step without --verify, which ends the old connection" ;;
+    far) die "readsb's $RECEIVER_JSON position is more than ${TOL_M} m from station.yml's after ${WAIT_S} s. The responder serves station.yml's position (checked above), and readsb takes every TPV it is sent, so either an instance still serves an older credential or something else feeds readsb a position. Check: journalctl -u 'adsb-position@*' and ss -tnp 'dport = :${ADDR##*:}'; systemctl stop 'adsb-position@*.service' ends every connection, and readsb redials within 15 s" ;;
     alt-absent) die "readsb's $RECEIVER_JSON has lat and lon but no alt_m_amsl, though station.yml sets altitude_m; run this step without --verify" ;;
     alt-far) die "readsb's $RECEIVER_JSON alt_m_amsl is more than ${TOL_M} m from station.yml's altitude_m; run this step without --verify" ;;
     *) die "could not read $RECEIVER_JSON as JSON (readsb not writing it?); check: systemctl status readsb" ;;

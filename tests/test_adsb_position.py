@@ -51,7 +51,7 @@ def readsb_parse(line):
 class Conn:
     """The responder's serve() on one end of a socket pair, in a thread; the test is readsb."""
 
-    def __init__(self, pos=(LAT, LON, ALT), repeat_s=60.0):
+    def __init__(self, pos=(LAT, LON, ALT), repeat_s=60.0, idle_s=10.0, max_s=3600.0):
         self.client, server = socket.socketpair()
         self.client.settimeout(5)
         self.rx = self.client.makefile("r", encoding="utf-8", newline="\n")
@@ -59,7 +59,9 @@ class Conn:
         self.rc = None
 
         def run():
-            self.rc = P.serve(server.fileno(), server.fileno(), pos, repeat_s=repeat_s)
+            self.rc = P.serve(server.fileno(), server.fileno(), pos, repeat_s=repeat_s,
+                              idle_s=idle_s, max_s=max_s)
+            server.shutdown(socket.SHUT_RDWR)  # as systemd's instance exit closes the connection
 
         self.thread = threading.Thread(target=run, daemon=True)
         self.thread.start()
@@ -138,6 +140,33 @@ class Protocol(unittest.TestCase):
             c.client.settimeout(0.3)
             with self.assertRaises(socket.timeout):
                 c.client.recv(1)
+        finally:
+            c.close()
+
+    def test_a_client_that_never_watches_is_closed(self):
+        # MaxConnections=8 in all: an idle connection must not hold its slot.
+        c = Conn(idle_s=0.1)
+        try:
+            self.assertEqual(c.line()["class"], "VERSION")
+            self.assertEqual(c.client.recv(1), b"")
+            c.thread.join(5)
+            self.assertEqual(c.rc, 0)
+        finally:
+            c.close()
+
+    def test_a_watch_keeps_the_connection_until_max_s(self):
+        c = Conn(repeat_s=0.05, idle_s=0.05, max_s=0.5)
+        try:
+            c.line()
+            c.send('?WATCH={"enable":true,"json":true};\n')
+            c.line()
+            seen = 0
+            while (raw := c.rx.readline()):
+                self.assertEqual(readsb_parse(raw), (LAT, LON, ALT))
+                seen += 1
+            self.assertGreater(seen, 2)  # watching outlived idle_s; max_s ended it
+            c.thread.join(5)
+            self.assertEqual(c.rc, 0)
         finally:
             c.close()
 

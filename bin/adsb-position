@@ -30,16 +30,23 @@
 #     without "class":"TPV", and takes "lat": and "lon": (both required) and "alt": (optional,
 #     metres AMSL: receiver.json shows it as alt_m_amsl), each value ended by a comma or the
 #     line's end. It ignores a lat outside ±89.9, a lon outside ±180, and |lat| and |lon| both
-#     under 0.1. It reads no "mode" and no "time". One TPV sets the position until readsb
-#     restarts; each TPV rewrites receiver.json and gpsd.json.
+#     under 0.1. It reads no "mode" and no "time". Every TPV within those bounds overwrites the
+#     position and rewrites receiver.json and gpsd.json (net_io.c:3887-3898 at the pin), and
+#     nothing in net_io.c clears the position when the connection closes, so a later TPV, on this
+#     connection or a new one, moves it.
 #   - gpsd_in has no input heartbeat (net_io.c, serviceInit: no_heartbeat), so an idle connection
-#     is never dropped; a closed one is redialled every --net-connector-delay (15 s).
+#     is never dropped by readsb; a closed one is redialled every --net-connector-delay (15 s).
 # So this sends a VERSION line at once (step 10's verify reads one before it sends anything), and
 # after a ?WATCH that enables, a WATCH line and a TPV, then the TPV again every REPEAT_S, until
 # the client closes.
 #
-# Exit codes: 0 the client closed; 1 no usable position credential (the reason, never a value, on
-# stderr; the connection closes with nothing sent).
+# The socket takes MaxConnections=8 in all, so a connection cannot hold its slot for nothing: one
+# that has not enabled a watch within IDLE_S is closed, and every connection is closed after
+# MAX_S. readsb sends its ?WATCH as soon as it connects, and after MAX_S it redials and keeps the
+# position it has meanwhile (above). The unit's RuntimeMaxSec= ends a client that stops reading.
+#
+# Exit codes: 0 the client closed, or this closed it (IDLE_S, MAX_S); 1 no usable position
+# credential (the reason, never a value, on stderr; the connection closes with nothing sent).
 
 import json
 import math
@@ -50,6 +57,8 @@ import time
 
 RELEASE = "adsb-position"
 REPEAT_S = 60.0
+IDLE_S = 10.0
+MAX_S = 3600.0
 CRED_NAME = "position"
 MAX_LINE = 4096
 
@@ -149,15 +158,24 @@ def _send(fd, data):
         data = data[os.write(fd, data):]
 
 
-def serve(rfd, wfd, pos, repeat_s=REPEAT_S, now=time.monotonic):
-    """Serve one connection until the client closes. Returns 0."""
+def serve(rfd, wfd, pos, repeat_s=REPEAT_S, idle_s=IDLE_S, max_s=MAX_S, now=time.monotonic):
+    """Serve one connection until the client closes, it has not enabled a watch for idle_s, or
+    max_s has passed. Returns 0."""
     try:
         _send(wfd, version_line())
         buf = b""
+        start = now()
+        # Exactly one of these is set: the next TPV while watching, the idle close otherwise.
         next_tpv = None
+        idle_end = start + idle_s
         while True:
-            timeout = None if next_tpv is None else max(0.0, next_tpv - now())
-            ready, _, _ = select.select([rfd], [], [], timeout)
+            t = now()
+            if t >= start + max_s:
+                return 0
+            if next_tpv is None and t >= idle_end:
+                return 0
+            due = min(start + max_s, idle_end if next_tpv is None else next_tpv)
+            ready, _, _ = select.select([rfd], [], [], max(0.0, due - t))
             if ready:
                 chunk = os.read(rfd, 4096)
                 if not chunk:
@@ -169,6 +187,7 @@ def serve(rfd, wfd, pos, repeat_s=REPEAT_S, now=time.monotonic):
                     if req[0] == "watch":
                         _send(wfd, watch_line(req[1]))
                         next_tpv = now() if req[1] else None
+                        idle_end = None if req[1] else now() + idle_s
                     elif req[0] == "version":
                         _send(wfd, version_line())
                     elif raw.strip():
