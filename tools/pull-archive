@@ -79,7 +79,9 @@
 # 3. Prunes the emptied directories under beast/ and spool/ on the drive, only while the writer is
 #    stopped (find -empty -delete, at any depth).
 # 4. Closes the window, in a trap, so it closes even when rsync fails; the trap is set before the
-#    window is opened. Closing waits on the rig while the update is activating (the unit's
+#    window is opened, and dropped again if the rig refused the start (sudo's refusal on a
+#    stationary, or a start that failed), so it closes only a window this run may have opened; an
+#    ssh failure during the start keeps it, since the start may have run. Closing waits on the rig while the update is activating (the unit's
 #    ExecStop=), printing the update's state meanwhile; the window's end starts the writer. Then
 #    it waits up to 60 s for the writer to be active and a .part written since the close began
 #    (the preflight's own probe files do not count), and warns loudly if not: the pull is the one
@@ -372,7 +374,15 @@ if ((end_session)); then
   wload=$(ssh_pi systemctl show -p LoadState --value adsb-maintenance-window.service 2>/dev/null) || wload=''
   [[ $wload == loaded ]] && window=adsb-maintenance-window.service
   echo "==> opening the maintenance window ($window) on $host"
-  if ! ssh_pi sudo -n systemctl start "$window"; then
+  start_rc=0
+  ssh_pi sudo -n systemctl start "$window" || start_rc=$?
+  if ((start_rc != 0)); then
+    # Close only a window this run may have opened. An ssh failure (255) leaves that unknown (the
+    # start may have run on the rig before the link dropped), so the trap stays and closes it. Any
+    # other exit is the rig's answer, sudo's refusal (a stationary) or a start that failed: this run
+    # opened nothing, and a close would only send a stop sudo refuses too and then wait 60 s for a
+    # writer it never stopped.
+    ((start_rc == 255)) || trap 'rm -f -- "$rsync_err"' EXIT
     echo "xx  could not open $window on $host (above): sudo refused it, or ssh failed. A stationary rig" >&2
     echo "    allows no login to open its window, by design (its window opens only from its own nightly" >&2
     echo "    timer); pull it live, without --end-session. On a portable, check setup/steps/60-portable-pull.sh." >&2

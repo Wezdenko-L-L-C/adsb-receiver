@@ -26,7 +26,7 @@
 set -uo pipefail
 # The number of check cases a full run makes. Bump it when cases are added or removed: a run that
 # makes fewer (a section skipped by an early return, a wait loop that timed out) fails.
-readonly EXPECTED_CHECKS=328
+readonly EXPECTED_CHECKS=334
 ((EUID != 0)) || { echo "refusing to run as root: the sandbox remaps real system paths by sed"; exit 1; }
 # The sandbox is not under systemd; update.sh adds a <N> journal prefix to its marker line when it is.
 unset INVOCATION_ID
@@ -963,8 +963,8 @@ hold_lock system.slice/adsb-writer.service; : >"$SB/systemctl.log"
 run bash "$B" --role portable
 drop_lock
 check "W2 refused (1), naming the writer" rc_has 1 "the recording lock is held by adsb-writer.service" "$SB/out.txt"
-check "W2 says to stop the writer by hand where no window unit exists" \
-  grep -qF "where no window unit exists, stop the writer by hand (sudo systemctl stop adsb-writer.service) and run the bootstrap again" "$SB/out.txt"
+check "W2 says to stop the writer by hand where no window unit is loaded, and names no window to start" \
+  lacks_has "sudo systemctl start adsb-" "no window unit is loaded on this rig, so stop the writer (sudo systemctl stop adsb-writer.service) and run the bootstrap again" "$SB/out.txt"
 check "W2 says why the bootstrap did not end it, and never that it would" \
   lacks_has "which ends it itself" "the bootstrap did not end it: neither adsb-maintenance-window.service nor adsb-pull-window.service is loaded" "$SB/out.txt"
 check "W2 no window was started" lacks "^start adsb-pull-window.service$" "$SB/systemctl.log"
@@ -992,6 +992,21 @@ check "W4 refused (1), naming the writer" rc_has 1 "the recording lock is held b
 check "W4 says the bootstrap ends a session only on a first build" \
   grep -q "the bootstrap did not end it: this rig already has a build" "$SB/out.txt"
 check "W4 no window was started" lacks "^start adsb-pull-window.service$" "$SB/systemctl.log"
+check "W4 the hand route names the window unit that is loaded (the old name here)" \
+  lacks_has "systemctl start adsb-maintenance-window.service" "start the maintenance window (sudo systemctl start adsb-pull-window.service), run the bootstrap again" "$SB/out.txt"
+
+echo "-- W4s. a built stationary, the writer holds the lock, a run by hand (--rev): PLAN §9i's hand route, no window"
+fresh_rig; echo "# w4s" >>"$R/setup/steps/00-a.sh"; commit "w4s"
+run bash "$B" --role stationary --no-reboot --set position.latitude=1.5 --set position.longitude=2.5 --set position.altitude_m=3
+check "W4s the first build applied (0)" [ "$RC" = 0 ]
+echo loaded >"$SB/window-load"
+hold_lock system.slice/adsb-writer.service; : >"$SB/systemctl.log"
+run bash "$U" --rev "$(sha)"
+drop_lock
+check "W4s refused (1), naming the writer" rc_has 1 "the recording lock is held by adsb-writer.service" "$SB/out.txt"
+check "W4s the hand route is PLAN §9i's: stop the writer, then start the update" \
+  grep -qF "writer (sudo systemctl stop adsb-writer.service), then run the update (sudo systemctl start adsb-update.service)." "$SB/out.txt"
+check "W4s it never tells a stationary's login to start a window" lacks "sudo systemctl start adsb-[a-z-]*window" "$SB/out.txt"
 
 echo "-- W5. the window cannot be started: the writer is started again, exit 1, update.sh never runs"
 fresh_rig; echo "# w5" >>"$R/setup/steps/00-a.sh"; commit "w5"
@@ -1367,13 +1382,15 @@ rm -f "$SB/upd-force" "$SB/window-runs-update"
 check "HU16 opened-not-ready (1), exit 4 read, the gap reported" \
   rc_has 1 "^ADSB-HOME-UPDATE opened-not-ready: pending: .*adsb-update.service ran ([0-9]* s), exit 4.*; the window is closed, and its end starts the writer; writer off [0-9]* s, recording again$" "$SB/out.txt"
 
-echo "-- HU17. the writer does not take the lock again after the close: NOT recording, exit 1"
+echo "-- HU17. the writer does not take the lock again after the close: NOT recording, at warning priority, exit the update's (0)"
 echo "# hu17" >>"$R/setup/steps/00-a.sh"; commit "hu17"
 touch "$SB/window-runs-update"; : >"$SB/systemctl.log"
-op_run no-writer
+INVOCATION_ID=smoke op_run no-writer
 rm -f "$SB/window-runs-update"
-check "HU17 exit 1: opened-applied, but the writer NOT recording after the close" \
-  rc_has 1 "^ADSB-HOME-UPDATE opened-applied: .*; the window is closed, and its end starts the writer; writer NOT recording [0-9]* s after the close (the recording lock is free)$" "$SB/out.txt"
+check "HU17 exit 0 (the update applied): opened-applied at <4>, the writer NOT recording after the close" \
+  rc_has 0 "^<4>ADSB-HOME-UPDATE opened-applied: .*; the window is closed, and its end starts the writer; writer NOT recording [0-9]* s after the close (the recording lock is free)$" "$SB/out.txt"
+check "HU17 the writer's wait ran its whole bound (3 s here), not one look" \
+  grep -q "writer NOT recording [3-9] s after the close" "$SB/out.txt"
 
 echo "== SEC. root writes only into the opener's own directory, never through a planted link"
 # A victim file stands for /etc/passwd. On a rig the directory is root:root 0755; here it is the

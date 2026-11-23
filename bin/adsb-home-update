@@ -62,7 +62,8 @@
 #      WRITER_BOUND, for the writer to hold the recording lock again (the lock, not is-active, is
 #      the recording signal: the writer takes it in ExecStart=, after its preflights), and its line
 #      reports the gap: "writer off N s, recording again", timed from just before the window's
-#      start, or "writer NOT recording N s after the close", at warning priority with exit 1.
+#      start, or "writer NOT recording N s after the close", at warning priority; the exit code
+#      stays the update's own (below).
 # The outcome: adsb-update.service's ExecMainStatus (update.sh's exit code, PLAN §9f: 0 applied,
 # unchanged, skipped or lock held; 1 failed; 2 rolled back; 3 incomplete; 4 not ready, the
 # stationary's gate flipped between --check and the window: opened-not-ready), and status.json's result
@@ -75,7 +76,12 @@
 # not with systemd's SIGTERM: --check 12 min (its fetch is bounded at 5; the stationary's gate
 # adds about 5 more at worst, about 573 s in all, so 12 min, not 10, leaves margin); the clock check 1 min; the dispatch 10 min; the
 # update 45 min (the window's TimeoutStopSec=, above the update's own 40 min); the close 2 min;
-# the writer's return 2 min. Each later bound is cut to what the budget has left. ⚠️ That TimeoutStartSec= also counts the
+# the writer's return 2 min. Each bound before the close is cut to what the budget has left once
+# the close's and the writer's return's are kept back (bounded()), so the writer's return always
+# gets its whole 2 min, never what an overrun left it: the writer is started --no-block and runs
+# clock-preflight before it takes the lock, so a wait cut to 0 would look once and call it lost.
+# Those two are 4 min of the 55, inside the TimeoutStartSec= as ruled; MARGIN's 2 min absorbs the
+# polls' overshoot (a few POLLs) as well as ExecCondition=. ⚠️ That TimeoutStartSec= also counts the
 # ExecCondition= run: belief, not seen; the margin covers adsb-at-home's 20 s at most.
 #
 # Every exit closes what it opened: a window this run started is stopped (with --no-block while
@@ -93,8 +99,9 @@
 # update.sh's ADSB-UPDATE-SKIPPED does. When adsb-at-home says anything but "at home", this does
 # not run, and adsb-at-home's own tagged line is the record. Exit 0 for the guards, not-pending,
 # opened-applied and opened-unchanged; 1 otherwise, so a run that ended without the update done
-# shows as failed, as adsb-update.service itself does; and 1, at warning priority, whatever the
-# decision, when the writer is not recording again after the close. The build's mapping, not ruled.
+# shows as failed, as adsb-update.service itself does. A writer not recording again after the
+# close puts the line at warning priority, whatever the decision, and leaves the exit code as the
+# update's (writer_back's call, below). The build's mapping, not ruled.
 # ⛔ No SSID, and no config value, anywhere: it never reads station.yml, and --check's line names
 #    commits, steps and times only.
 # ⛔ It never stops the writer itself: the window does, the ruled way to end a session (PLAN §9f).
@@ -237,14 +244,11 @@ lock_holder_unit() {
   echo "${unit:-PID $pid}"
 }
 
-# writer_back <epoch the window was asked for>: after the close, waits up to WRITER_BOUND (or what
-# the budget has left) for the writer to hold the recording lock again. Sets GAP_MSG; returns 1 if
-# it did not.
+# writer_back <epoch the window was asked for>: after the close, waits WRITER_BOUND for the writer
+# to hold the recording lock again: its own bound, not cut by the budget, which keeps it back
+# (bounded(), the header's "Time"). Sets GAP_MSG; returns 1 if it did not.
 writer_back() {
-  local b t h
-  b=$(left)
-  ((b > WRITER_BOUND)) && b=$WRITER_BOUND
-  ((b < 0)) && b=0
+  local b=$WRITER_BOUND t h
   t=$SECONDS
   while :; do
     h=$(lock_holder_unit) || h=''
@@ -416,8 +420,12 @@ main() {
   fi
   rm -f -- "$MARK"
   MARKED=0
+  # A writer that did not come back is loud in the line: warning priority, and its decision word
+  # still says what the update did. The exit code stays the update's own: a 1 here would make
+  # an applied update read as failed, and the unit's failed state means "the update did not
+  # happen" (the header); the line, not the exit code, is where a lost writer is said.
   if ! writer_back "$t0e"; then
-    WARN=1 rc=1
+    WARN=1
   fi
   say "$word" "$line; $how; $CLOSE_MSG; $GAP_MSG"
   exit "$rc"

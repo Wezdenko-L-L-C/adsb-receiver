@@ -324,6 +324,15 @@ class PullArchive(unittest.TestCase):
         moves = [l for l in r.log.splitlines() if l.startswith("rsync ") and l != "rsync --help"]
         self.assertEqual(moves, [], "nothing may be moved")
 
+    def test_end_session_refused_by_sudo_closes_no_window(self):
+        # The run opened nothing, so its exit sends no stop and does not wait for the writer.
+        r = self.run_tool("--end-session", FAKE_NEW_UNIT=1, FAKE_SUDO_REFUSES=1)
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("systemctl stop", r.log)
+        self.assertNotIn("could not stop", r.stderr)
+        self.assertNotIn("closing the maintenance window", r.stdout)
+        self.assertNotIn("waiting up to 60 s", r.stdout)
+
     def test_end_session_exit_24_stays_a_failure(self):
         self.file(f"{utc_day(0)}/20260101T000000Z.beast.pcap")
         r = self.run_tool("--end-session", FAKE_RSYNC_RC=24)

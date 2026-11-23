@@ -168,18 +168,26 @@ install_step() {
 # "Stopping" line: before the "Stopped" line, the order is broken; after it, it holds. Counted in
 # lines, not by a fixed lookback, so an earlier update run (the timer's at boot) is not taken for
 # this window's.
+# Only systemd's own unit-lifecycle lines are markers: the identifier field is systemd[<pid>]:, the
+# next word is Starting, Started, Stopping or Stopped, and the word after it is the unit itself
+# (systemd writes "Started <unit> - <description>.", or "Started <unit>." for a unit with no
+# description, so trailing dots are dropped). A process's own line that names a unit in its text
+# (the writer's, update.sh's, a window's ExecStopPost=) is never one, so it cannot stand for a
+# writer start and cut the walk back short with a false "no writer stop", as free-text matching did
+# when two windows ran in one boot.
 window_order() {
   local j pos a s k u
   j=$(journalctl -b -q --no-pager -o short-iso-precise -u "$WINDOW" -u "$OLD_WINDOW" -u "$WRITER" -u "$UPDATE" 2>/dev/null) || j=''
   # One awk, one line out: the anchor, the writer's Stopped and Stopping lines, the update's start
   # (line numbers in $j, 0 for none).
   pos=$(awk -v W="Starting $WINDOW" -v O="Starting $OLD_WINDOW" -v R="$WRITER" -v U="Starting $UPDATE" '
-    { t[NR] = "" }
-    index($0, W) || index($0, O) { t[NR] = "win" }
-    index($0, "Stopping " R)     { t[NR] = "stopping" }
-    index($0, "Stopped " R)      { t[NR] = "stopped" }
-    index($0, "Starting " R) || index($0, "Started " R) { t[NR] = "wstart" }
-    index($0, U)                 { t[NR] = "upd" }
+    { t[NR] = ""; v = $4; n = $5; sub(/\.+$/, "", n); ev = v " " n }
+    $3 !~ /^systemd\[[0-9]+\]:$/ { next }
+    ev == W || ev == O           { t[NR] = "win" }
+    ev == "Stopping " R          { t[NR] = "stopping" }
+    ev == "Stopped " R           { t[NR] = "stopped" }
+    ev == "Starting " R || ev == "Started " R { t[NR] = "wstart" }
+    ev == U                      { t[NR] = "upd" }
     END {
       a = 0; s = 0; k = 0; u = 0
       for (i = NR; i >= 1; i--) if (t[i] == "win") { a = i; break }
@@ -221,8 +229,11 @@ window_order() {
 # output printed). Anything else is not an answer and fails the verify: sudo's manual says `-l
 # <command>` exits 1 when the command is not allowed, printing nothing or "... is not allowed to
 # run sudo ...", and an error (an unknown user, a sudoers parse error) carries a "sudo:" prefix
-# (step 60's reading; ⚠️ the exact refusal text is from sudo's documentation, not seen on the
-# stationary).
+# (step 60's reading). Seen (Claude, 2026-11-22, in a Debian trixie container, sudo 1.9.16p2):
+# `sudo -n -l -U nobody /usr/bin/systemctl start adsb-maintenance-window.service` printed nothing
+# and exited 1, while a `%sudo ALL` member got the command echoed and exit 0. So on that sudo a
+# refusal is the empty-output branch; the "is not allowed to run" match is a fallback for a sudo
+# that words it, from sudo's documentation, not seen. ⚠️ Not yet seen on the stationary itself.
 sudo_refuses() {
   local u=$1 out rc=0
   shift

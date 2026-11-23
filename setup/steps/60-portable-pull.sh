@@ -55,8 +55,8 @@
 #    before. An update still only queued (not yet running) when the window stops is not waited for.
 # ⛔ The verify never starts the window (PLAN §9c: a verify may never end a recording session).
 # ⚠️ Unverified on the Pi: PLAN §9m's claim that Conflicts= plus After= order the writer's stop
-#    before the update starts (the verify reads that order from the journal once a window has run
-#    this boot).
+#    before the update starts. This step's verify no longer reads that order: step 58's
+#    window_order does, from the journal once a window under either name has run this boot.
 
 set -euo pipefail
 # shellcheck source=setup/lib.sh

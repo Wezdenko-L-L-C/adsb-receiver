@@ -152,6 +152,32 @@ class Step58(unittest.TestCase):
         r = self.run_fn("window_order")
         self.assertIn("stopped the writer before the update started", r.stdout, r.stderr)
 
+    def test_two_windows_in_one_boot_ignore_lines_that_only_name_the_writer(self):
+        # Lines from the writer's process, update.sh and the window's ExecStopPost= name the writer
+        # in their text; only systemd[1]'s lifecycle lines are markers, so the second window still
+        # finds its writer stop and passes.
+        own = "2026-11-22T04:31:{:02d}.000000-0700 stub {}: {}\n"
+        lines = [
+            jline(0, f"Started {WR} - w."),
+            jline(1, f"Stopping {WR} - w..."), jline(2, f"Stopped {WR} - w."),
+            jline(3, f"Starting {W} - m..."), jline(4, f"Starting {UP} - u..."),
+            own.format(5, "adsb-update[900]", f"==> Starting {WR} again at the end"),
+            jline(6, f"Stopped {W} - m."),
+            own.format(7, "adsb-maintenance-window[901]", f"Starting {WR} (ExecStopPost=)"),
+            jline(8, f"Starting {WR} - w..."), jline(9, f"Started {WR} - w."),
+            own.format(10, "adsb-writer[902]", f"Started {WR}: recording"),
+            jline(11, f"Stopping {WR} - w..."),
+            own.format(12, "adsb-writer[902]", f"Stopping {WR}: closing the file"),
+            jline(13, f"Stopped {WR} - w."),
+            own.format(14, "adsb-writer[902]", f"Started {WR} at 04:31:09, closed at 04:31:13"),
+            jline(15, f"Starting {W} - m..."), jline(16, f"Starting {UP} - u..."),
+        ]
+        (self.fix / "journal").write_text("".join(lines))
+        r = self.run_fn("window_order")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("no writer stop", r.stderr)
+        self.assertIn("stopped the writer before the update started", r.stdout, r.stderr)
+
     def test_update_during_the_writer_stop_warns(self):
         self.journal(f"Started {WR} - w.", f"Stopping {WR} - w...", f"Starting {UP} - u...",
                      f"Stopped {WR} - w.", f"Starting {W} - m...")

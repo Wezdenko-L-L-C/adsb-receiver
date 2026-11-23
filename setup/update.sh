@@ -583,14 +583,54 @@ lock_held_by_hand() {
       printf '    A recording session is on: run the bootstrap (setup/bootstrap.sh), which ends it itself on\n' >&2
       printf '    a first build; or end it by hand.\n' >&2
     fi
-    printf '    By hand: start the maintenance window (sudo systemctl start %s), %s once the\n' "$WINDOW_UNIT" "$again" >&2
-    printf '    adsb-update.service it starts has finished, then stop the window (sudo systemctl stop %s);\n' "$WINDOW_UNIT" >&2
-    printf '    or, where no window unit exists, stop the writer by hand (sudo systemctl stop %s) and %s.\n' "$WRITER_UNIT" "$again" >&2
+    lock_hint_role
+    if [[ $HINT_ROLE == stationary ]]; then
+      # 🏠 No login may open the stationary's window: it opens only from its nightly timer, as
+      # root (#33 A4). The hand route is PLAN §9i's, and update.sh starts the writer at its end.
+      printf "    By hand (PLAN §9i): no login may open this stationary rig's window (only its nightly timer does), so stop the\n" >&2
+      printf '    writer (sudo systemctl stop %s), then run the update (sudo systemctl start adsb-update.service).\n' "$WRITER_UNIT" >&2
+    elif window_loaded; then
+      printf '    By hand: start the maintenance window (sudo systemctl start %s), %s once the\n' "$LOADED_WINDOW" "$again" >&2
+      printf '    adsb-update.service it starts has finished, then stop the window (sudo systemctl stop %s).\n' "$LOADED_WINDOW" >&2
+    else
+      printf '    By hand: no window unit is loaded on this rig, so stop the writer (sudo systemctl stop %s) and %s.\n' "$WRITER_UNIT" "$again" >&2
+    fi
   elif [[ $win == active || $win == activating || $win == deactivating ]]; then
     printf '    A maintenance window is open and its update is running; wait for it to finish, then %s.\n' "$again" >&2
   else
     printf '    %s holds the lock; wait for it to finish, then %s.\n' "$holder" "$again" >&2
   fi
+}
+
+# lock_hint_role: the role lock_held_by_hand's advice is for, read before ROLE is set (the lock is
+# taken first): --bootstrap's --role, else station.role, best effort. Sets HINT_ROLE, empty when it
+# cannot tell; an empty role gets the portable's advice.
+HINT_ROLE=''
+lock_hint_role() {
+  local f
+  HINT_ROLE=''
+  if [[ $MODE == bootstrap ]]; then
+    HINT_ROLE=${ROLE_ARG:-}
+  elif f=$(station_file 2>/dev/null); then
+    HINT_ROLE=$(yml_get "$f" station.role 2>/dev/null) || HINT_ROLE=''
+  fi
+}
+
+# window_loaded: the window unit loaded on this rig, under either name (round 1 of the rename,
+# #33 A4), as setup/bootstrap.sh's resolve_window picks it: the new name if its LoadState is
+# loaded, else the old one's. Sets LOADED_WINDOW and returns 0; returns 1 when neither is (a
+# portable that has not run step 58 or step 60 yet).
+LOADED_WINDOW=''
+window_loaded() {
+  local u
+  LOADED_WINDOW=''
+  for u in "$WINDOW_UNIT" "$OLD_WINDOW_UNIT"; do
+    if [[ $(systemctl show -p LoadState --value "$u" 2>/dev/null) == loaded ]]; then
+      LOADED_WINDOW=$u
+      return 0
+    fi
+  done
+  return 1
 }
 
 # lock_held_timer: the timer's lock-held exit is 0 (ruled), so it is told apart by its line: it
@@ -1475,6 +1515,10 @@ kill_tree() {
 # the background and is waited for, as the fetch is, so a signal ends the wait at once and
 # check_signal kills its children. Returns when the gate passes; prints the one line and exits 15
 # when it holds.
+# ⚠️ Not seen: --check runs before any window, so this gate runs while the writer is recording,
+# where a run's gate runs inside a window with the writer stopped. Whether archive-preflight,
+# clock-preflight and the readsb probe each answer as they would with the writer stopped has not
+# been seen; it is the first thing to check in the attended run on the stationary.
 check_gate() {
   local bad
   WORK=$(mktemp -d) || fail "mktemp failed, so the stationary's gate could not run"
