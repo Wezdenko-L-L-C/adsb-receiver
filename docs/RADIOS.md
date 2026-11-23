@@ -4,8 +4,7 @@ Two more receivers doing jobs the 1090 MHz chain cannot. **ATC audio** gives you
 **ACARS/VDL2** gives you a second, independent witness to what an airframe *is*.
 
 ⭐ **~~They do not both go on the same rig:~~** *Corrected 2026-10-10: the table below is where each
-earns its keep most, not where it must go. Each radio is a slot, populated per site rather than per rig type
-([PLAN.md §1](PLAN.md#1-one-base-several-radio-slots)): a stationary site may want a scanner for its
+earns its keep most, not where it must go. Each radio is a slot, populated per site rather than per rig type: a stationary site may want a scanner for its
 own sake.*
 
 | Radio | Rig | Why there |
@@ -17,8 +16,8 @@ own sake.*
 [§5](#5-what-a-second-dongle-does-to-the-pi) applies to both at two dongles, and bites hardest if
 you ever stack a third.
 *Corrected 2026-10-10: a stationary site may run several; the real limit is CPU, about three radios
-on a Pi 4 ([PLAN.md §3](PLAN.md#3--cpu-is-the-binding-constraint-not-power)). Slots go on one at a
-time, each allowed to be boring before the next ([PLAN.md §8](PLAN.md#8-sequencing)).*
+on a Pi 4. Slots go on one at a
+time, each allowed to be boring before the next.*
 
 ➡️ **What to order is [BUILD.md §3d](BUILD.md#3d--the-second-radio--either-rig)** — the dongle, a
 VHF antenna, the FM notch filter and (on the portable rig) a powered hub. ⛔ Not with the first
@@ -105,7 +104,7 @@ needing new machinery.
 |---|---|---|---|
 | **VDL Mode 2** | 136.650–136.975 | **`dumpvdl2`** | ⭐ **Start here.** Most US airline traffic has migrated to it, and all four channels fit inside one dongle at once |
 | VHF ACARS (POA) | 131.550 + others | `acarsdec` | Legacy traffic. 5.4 MHz away from VDL2, so it needs its own dongle. Add later, if ever |
-| HFDL | 2–22 MHz | `dumphfdl` | Oceanic. The V4's upconverter does this properly; low yield inland. *Added 2026-10-10: that inverts at a coastal site facing an oceanic route structure, where HFDL becomes one of the better slots. It needs its own HF antenna: a discone is deaf below 25 MHz ([PLAN.md §2](PLAN.md#2-the-slots))* |
+| HFDL | 2–22 MHz | `dumphfdl` | Oceanic. The V4's upconverter does this properly; low yield inland. *Added 2026-10-10: that inverts at a coastal site facing an oceanic route structure, where HFDL becomes one of the better slots. It needs its own HF antenna: a discone is deaf below 25 MHz* |
 | SATCOM Aero | ~1.5 GHz L-band | `JAERO` | Needs a patch antenna aimed at a satellite. A project in itself |
 
 ⭐ **Why this is more than a novelty.** ACARS and VDL2 carry the **registration explicitly**, plus

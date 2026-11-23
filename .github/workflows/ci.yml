@@ -6,7 +6,9 @@
 #   against sample-filled templates, including the role-refusal paths. Not built. Since both rigs
 #   follow `stable` (PLAN §9g's 2026-10-05 update), it is what both rigs' channel lacks, not the
 #   stationary's alone, which makes it more load-bearing.
-# The job that fast-forwards `stable` when CI is green is `advance-stable`, below.
+# The job that fast-forwards `stable` when CI is green is `advance-stable`, below. Since the
+# 2026-11-23 split it runs only in the public Wezdenko-L-L-C/adsb-receiver, the repo rigs fetch:
+# the private build repo has no `stable` a rig reads, so the job is skipped there.
 
 name: ci
 
@@ -257,6 +259,18 @@ jobs:
       - name: update.sh and bootstrap.sh, sandbox smoke test
         run: bash tests/smoke_update.sh
 
+  # release/test.mjs: the release script's tests. Private build repo only: the public repo has no
+  # release/. advance-stable does not need this job (it runs only on the public repo).
+  release-tests:
+    if: github.repository == 'Wezdenko-L-L-C/adsb-receiver-build'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: node --test release/test.mjs
+        run: node --test release/test.mjs
+
   # PLAN §9g: both rigs track `stable`, which only this job advances, and only to a
   # commit on main that passed every check above. GITHUB_TOKEN is the only write credential, and
   # it lives in GitHub, not on a rig. A push made with it starts no new workflow run. A plain push
@@ -273,7 +287,7 @@ jobs:
   # The fallback once named here, a fine-grained personal access token, is not needed.
   advance-stable:
     needs: [scripts, smoke]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.repository == 'Wezdenko-L-L-C/adsb-receiver' && github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
