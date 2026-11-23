@@ -270,3 +270,25 @@ unit() {
   guard_unit "$2"
   run systemctl "$1" "$2"
 }
+
+# verify_units <what> [option]... <unit file>...: a verify's `systemd-analyze
+# verify --recursive-errors=no` (systemd 250 and later; the Pi runs 257), run
+# with the arguments as given after that flag and its raw output printed, so the
+# run log holds the lines it fails on. The flag makes each step judge only the
+# units it names: with it, systemd 257 and 259 print nothing, and exit 0, about a
+# unit those units reference (Wants=, After=, a unit= setting), whose own step's
+# verify judges it; a fault in a named unit still prints and exits nonzero (seen
+# 2026-11-22). Without it, 257 printed a referenced unit's warning at exit 0. It
+# dies on a nonzero exit, and on any output at all, stdout or stderr: a warning
+# can come with exit 0, and PLAN §9c allows no pass with a warning. <what> names
+# the units in the failure message.
+verify_units() {
+  local what=$1 out rc=0
+  shift
+  log "systemd-analyze verify --recursive-errors=no $* (raw output follows)"
+  out=$(systemd-analyze verify --recursive-errors=no "$@" 2>&1) || rc=$?
+  printf '%s\n' "${out:-(no output)}"
+  echo "----"
+  ((rc == 0)) || die "systemd-analyze verify rejected $what (exit $rc); see above"
+  [[ -z $out ]] || die "systemd-analyze verify printed the lines above about $what (exit 0): a warning is not a pass (PLAN §9c); fix them in the step that writes them"
+}

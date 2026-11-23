@@ -628,11 +628,11 @@ below. Why it is shaped this way is in [PLAN.md §9e](PLAN.md#9e-the-first-build
 
 ⚠️ **Starting it is your agreement. It does these without asking:**
 
-- **It formats the archive drive,** on the portable only, and only under a strict rule: if a drive
-  is already labeled for the archive, nothing is formatted; otherwise exactly one unmounted,
-  removable USB disk of at least 8 GB, with no filesystem on it, or one that a read-only mount
-  proves empty. Anything else, it refuses, carries on without the drive, and shows the command to
-  run by hand in the login banner. Only this first run formats: a drive plugged in later is
+- **It formats the archive drive,** on either role (on the portable only until 2026-11-22), and only
+  under a strict rule: if a drive is already labeled for the archive, nothing is formatted;
+  otherwise exactly one unmounted, removable USB disk of at least 8 GB, with no filesystem on it,
+  or one that a read-only mount proves empty. Anything else, it refuses, carries on without the
+  drive, and shows the command to run by hand in the login banner. Only this first run formats: a drive plugged in later is
   formatted by hand.
 - **It writes the RTC overlay** into `config.txt`, on the portable only, unless the RTC is already
   wired into boot.

@@ -239,14 +239,11 @@ window_order() {
 verify() {
   render_unit
   cmp -s "$WORK/unit" "$UNIT_FILE" || die "$UNIT_FILE is missing or differs from the rendered unit; run this step without --verify"
-  local out rc=0 load
-  log "systemd-analyze verify $UNIT_FILE (raw output follows)"
-  out=$(systemd-analyze verify "$UNIT_FILE" 2>&1) || rc=$?
-  # 📋 open: as in step 50, --recursive-errors=no would keep a fault in the writer or update unit
-  #    from failing this step; not changed here.
-  printf '%s\n' "${out:-(no output)}"
-  echo "----"
-  ((rc == 0)) || die "systemd-analyze verify rejected $UNIT_FILE (exit $rc); see above"
+  local rc=0 load
+  # verify_units passes --recursive-errors=no, so this judges $UNIT_FILE only: a fault in a unit
+  # it names ($WRITER, $UPDATE) is neither printed nor in the exit status here. The verify of the
+  # step that installs that unit (40 or 50) judges it.
+  verify_units "$UNIT_FILE" "$UNIT_FILE"
   load=$(systemctl show -p LoadState --value "$WINDOW" 2>/dev/null) || load=''
   [[ $load == loaded ]] || die "$WINDOW is '$load', not loaded; run this step without --verify"
   pass "$WINDOW matches its render, passes systemd-analyze verify, and is loaded (not started: a verify never starts it)"

@@ -111,6 +111,12 @@ TAR1090_URL=http://127.0.0.1/tar1090/
 OTHERPORT_LINK=/etc/lighttpd/conf-enabled/95-tar1090-otherport.conf
 # Where readsb's gpsd connector dials (render_readsb).
 GPSD_ADDR=127.0.0.1:2947
+# What listens there, by role: the portable's gpsd (gpsd.socket, step 20), or
+# the stationary's responder (adsb-position.socket, step 15). This step reads
+# no role, so its failure hints name both.
+POS_SRC_LISTEN="on a portable, gpsd.socket's ListenStream= or gpsd's -G or its listen address (systemctl cat gpsd.socket); on a stationary, run setup/steps/15-stationary-position.sh, which binds adsb-position.socket to $GPSD_ADDR (systemctl cat adsb-position.socket)"
+POS_SRC_CAT="systemctl cat gpsd.socket (portable) or systemctl cat adsb-position.socket (stationary)"
+POS_SRC_STATUS="check, on a portable: systemctl status gpsd gpsd.socket, and journalctl -u gpsd; on a stationary: systemctl status adsb-position.socket, and journalctl -u 'adsb-position@*'"
 READSB_USER=readsb
 
 # readsb's own list for this commit is `required_packages` in its source, plus
@@ -1147,7 +1153,7 @@ verify() {
   done <<<"$ss_out"
   log "ss -ltnH, listeners on port ${GPSD_ADDR##*:} (gpsd's) (raw): ${gpsd_listen:-(none)}"
   if [[ -n $gpsd_listen && -z $gpsd_reach ]]; then
-    die "gpsd listens on port ${GPSD_ADDR##*:} only at ${gpsd_listen% }, which readsb's connector cannot reach: it dials $GPSD_ADDR (IPv4 loopback) only. Have gpsd listen on 127.0.0.1 too (gpsd.socket's ListenStream=, or gpsd's -G or its listen address); check: systemctl cat gpsd.socket"
+    die "the position source listens on port ${GPSD_ADDR##*:} only at ${gpsd_listen% }, which readsb's connector cannot reach: it dials $GPSD_ADDR (IPv4 loopback) only. Have it listen on 127.0.0.1 too: $POS_SRC_LISTEN"
   fi
   if [[ -n $gpsd_listen ]]; then
     gbrc=0
@@ -1156,10 +1162,10 @@ verify() {
     if [[ -n $gbanner ]]; then gbshow="release $gbanner"; fi
     log "connect to $GPSD_ADDR and read gpsd's first line for up to 10 s, sending nothing: $( ((gbrc)) && echo 'no connect' || echo connected); VERSION banner: $gbshow"
     ((gbrc == 0)) \
-      || die "a connect to $GPSD_ADDR, the address readsb's connector dials, failed although port ${GPSD_ADDR##*:} listens at ${gpsd_reach% }; check: ss -ltnp, and systemctl cat gpsd.socket"
+      || die "a connect to $GPSD_ADDR, the address readsb's connector dials, failed although port ${GPSD_ADDR##*:} listens at ${gpsd_reach% }; check: ss -ltnp, and $POS_SRC_CAT"
     [[ -n $gbanner ]] \
-      || die "$GPSD_ADDR accepted a connect but gpsd sent no VERSION banner within 10 s, so gpsd itself is not serving (gpsd.socket holding the port for a gpsd that is down or failing?); check: systemctl status gpsd gpsd.socket, and journalctl -u gpsd"
-    pass "gpsd is serving on $GPSD_ADDR: it sent its VERSION banner (release $gbanner)"
+      || die "$GPSD_ADDR accepted a connect but sent no gpsd VERSION banner within 10 s, so the position source itself is not serving (a socket unit holding the port for a server that is down or failing?); $POS_SRC_STATUS"
+    pass "the position source is serving on $GPSD_ADDR: it sent a gpsd VERSION banner (release $gbanner)"
     for ((i = 0; i <= 20; i++)); do
       rpid=$(systemctl show -p MainPID --value readsb 2>/dev/null) || rpid=0
       est=''
@@ -1198,11 +1204,11 @@ verify() {
         || die "ss -ltnpH does not name readsb (PID $rpid) as the owner of its own 127.0.0.1:30005 listener, so ss cannot show readsb's sockets and its connection to $GPSD_ADDR cannot be checked; this is ss's view of readsb, not a gpsd fault. Check that /proc is not mounted with hidepid (findmnt /proc)"
     fi
     [[ -n $est ]] \
-      || die "something listens on port ${GPSD_ADDR##*:} (gpsd), but readsb (PID $rpid) has no established connection to $GPSD_ADDR after 20 s; check: journalctl -u readsb for connector errors, and systemctl status gpsd gpsd.socket"
-    pass "readsb holds an established connection to gpsd on $GPSD_ADDR"
+      || die "something listens on port ${GPSD_ADDR##*:} (the position source), but readsb (PID $rpid) has no established connection to $GPSD_ADDR after 20 s; check: journalctl -u readsb for connector errors; $POS_SRC_STATUS"
+    pass "readsb holds an established connection to the position source on $GPSD_ADDR"
   else
-    log "nothing listens on port ${GPSD_ADDR##*:} on this rig (no gpsd here, or not yet set up), so readsb's gpsd connector is idle and readsb has no position source here; on the stationary rig, setup/steps/15-stationary-position.sh provides it"
-    pass "no gpsd listens on port ${GPSD_ADDR##*:}: readsb's gpsd connector has nothing to follow here (idle, not a fault)"
+    log "nothing listens on port ${GPSD_ADDR##*:} on this rig (no position source here, or not yet set up), so readsb's gpsd connector is idle and readsb has no position source here; on the stationary rig, setup/steps/15-stationary-position.sh provides it"
+    pass "nothing listens on port ${GPSD_ADDR##*:}: readsb's gpsd connector has nothing to follow here (idle, not a fault)"
   fi
 
   # tar1090: the pinned version is installed, its page is served, and its data

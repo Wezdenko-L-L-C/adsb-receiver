@@ -36,8 +36,8 @@
 #   setup/steps/20-stationary-clock.sh            install, then verify
 #   setup/steps/20-stationary-clock.sh --verify   verify only
 #
-# Nothing in this step has run on hardware; what has is recorded in PLAN §9h
-# and §9i, not here (PLAN §9c).
+# What has run on hardware is recorded in PLAN §9h and §9i, not here (PLAN §9c:
+# no script carries a "tested on" header).
 # ⛔ The verify never judges the sky or the network (offset, reach): that is
 #    clock-preflight's job, whose exit 2 passes the install tier (PLAN §9c).
 
@@ -436,12 +436,7 @@ verify() {
     || die "$UNIT_DIR/$BURST_SERVICE is missing or differs from its render; run this step without --verify"
   cmp -s "$WORK/burst.timer" "$UNIT_DIR/$BURST_TIMER" \
     || die "$UNIT_DIR/$BURST_TIMER is missing or differs from its render; run this step without --verify"
-  rc=0
-  log "systemd-analyze verify $BURST_SERVICE $BURST_TIMER (raw output follows)"
-  out=$(systemd-analyze verify "$UNIT_DIR/$BURST_SERVICE" "$UNIT_DIR/$BURST_TIMER" 2>&1) || rc=$?
-  printf '%s\n' "${out:-(no output)}"
-  echo "----"
-  ((rc == 0)) || die "systemd-analyze verify rejected the burst units (exit $rc); see above"
+  verify_units "the burst units" "$UNIT_DIR/$BURST_SERVICE" "$UNIT_DIR/$BURST_TIMER"
   [[ $(systemctl show -p LoadState --value "$BURST_SERVICE" 2>/dev/null) == loaded ]] \
     || die "$BURST_SERVICE is not loaded; run this step without --verify"
   ! burst_need_reload \

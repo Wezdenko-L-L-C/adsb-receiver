@@ -372,7 +372,7 @@ PY
 # failed verify under update.sh rolls the whole update back (setup/update.sh,
 # rollback).
 verify() {
-  local out ver rc
+  local ver
   log "stat $SLATE; $SLATE --version (raw output follows)"
   stat -c '%U:%G %a %n' "$SLATE" 2>&1 || true
   ver=$("$SLATE" --version 2>&1) || true
@@ -386,12 +386,7 @@ verify() {
 
   render_unit
   cmp -s "$WORK/unit" "$UNIT_FILE" || die "$UNIT_FILE is missing or differs from the rendered unit; run this step without --verify"
-  log "systemd-analyze verify $UNIT_FILE (raw output follows)"
-  rc=0
-  out=$(systemd-analyze verify "$UNIT_FILE" 2>&1) || rc=$?
-  printf '%s\n' "${out:-(no output)}"
-  echo "----"
-  ((rc == 0)) || die "systemd-analyze verify rejected $UNIT_FILE (exit $rc); see above"
+  verify_units "$UNIT_FILE" "$UNIT_FILE"
   pass "$UNIT_FILE matches the rendered unit and loads"
 
   local en

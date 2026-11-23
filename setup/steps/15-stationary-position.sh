@@ -60,8 +60,8 @@
 # ⛔ The position is never printed: not here, not by the verify, not by the
 #    responder. The verify compares in-process and prints a verdict only.
 #
-# Nothing in this step has run on hardware; what has is recorded in PLAN, not
-# here (PLAN §9c).
+# What has run on hardware is recorded in PLAN, not here (PLAN §9c: no script
+# carries a "tested on" header).
 
 set -euo pipefail
 
@@ -213,11 +213,37 @@ RuntimeMaxSec=65min
 EOF
 }
 
+# position_instances [--all]: the loaded adsb-position@ instances, one name a
+# line, from systemctl list-units (with --all, inactive ones too). Each line's
+# name is its first word that is an adsb-position@….service, not its first
+# column: a failed or not-found unit may carry a leading "●" even with --plain,
+# depending on the systemd version. A line with no such word prints nothing.
+position_instances() {
+  local -a words
+  local w
+  while read -r -a words; do
+    for w in "${words[@]}"; do
+      if [[ $w == adsb-position@*.service ]]; then
+        printf '%s\n' "$w"
+        break
+      fi
+    done
+  done < <(systemctl list-units "$@" --plain --no-legend 'adsb-position@*.service' 2>/dev/null || true)
+}
+
+# need_reload: systemd holds an older read of the socket, or of the template
+# through an instance it has loaded. NeedDaemonReload is read on the socket and
+# on each loaded adsb-position@ instance, never on the template name itself:
+# systemctl show refuses a template ("neither a valid invocation ID nor unit
+# name", systemd 259), so a read there never says yes. With no instance
+# loaded there is nothing more to read; install_step reloads whenever it
+# writes either unit.
 need_reload() {
   local u
-  for u in "$SOCKET" "$SERVICE"; do
+  [[ $(systemctl show -p NeedDaemonReload --value "$SOCKET" 2>/dev/null) == yes ]] && return 0
+  while read -r u; do
     [[ $(systemctl show -p NeedDaemonReload --value "$u" 2>/dev/null) == yes ]] && return 0
-  done
+  done < <(position_instances --all)
   return 1
 }
 
@@ -225,9 +251,9 @@ need_reload() {
 # served by the current program and credential.
 stop_instances() {
   local u
-  while read -r u _; do
-    [[ -n $u ]] && unit stop "$u"
-  done < <(systemctl list-units --plain --no-legend 'adsb-position@*.service' 2>/dev/null || true)
+  while read -r u; do
+    unit stop "$u"
+  done < <(position_instances)
 }
 
 install_step() {
@@ -302,7 +328,7 @@ PY
 }
 
 verify() {
-  local rc out en ac ss_out line laddr proc listen='' ours=0 others=0 verdict i
+  local en ac ss_out line laddr proc listen='' ours=0 others=0 verdict i
   read_position
 
   # 1. The program is this checkout's; the credential is station.yml's position.
@@ -323,15 +349,7 @@ verify() {
     || die "$UNIT_DIR/$SOCKET is missing or differs from its render; run this step without --verify"
   cmp -s "$WORK/service" "$UNIT_DIR/$SERVICE" \
     || die "$UNIT_DIR/$SERVICE is missing or differs from its render; run this step without --verify"
-  rc=0
-  log "systemd-analyze verify $SOCKET $SERVICE (raw output follows)"
-  out=$(systemd-analyze verify "$UNIT_DIR/$SOCKET" "$UNIT_DIR/$SERVICE" 2>&1) || rc=$?
-  printf '%s\n' "${out:-(no output)}"
-  echo "----"
-  ((rc == 0)) || die "systemd-analyze verify rejected the responder's units (exit $rc); see above"
-  # A warning can come with exit 0, and PLAN §9c allows no pass with a warning:
-  # any output at all fails.
-  [[ -z $out ]] || die "systemd-analyze verify printed the lines above (exit 0): a warning is not a pass; fix the units in this step"
+  verify_units "the responder's units" "$UNIT_DIR/$SOCKET" "$UNIT_DIR/$SERVICE"
   ! need_reload || die "systemd has not read the current $SOCKET or $SERVICE; run this step without --verify"
   pass "$SOCKET and $SERVICE match their render, load, and pass systemd-analyze"
 

@@ -219,14 +219,11 @@ verify() {
   cmp -s "$WORK/service" "$UNIT_DIR/$SERVICE" || die "$UNIT_DIR/$SERVICE is missing or differs from the rendered unit; run this step without --verify"
   cmp -s "$WORK/timer" "$UNIT_DIR/$TIMER" || die "$UNIT_DIR/$TIMER is missing or differs from the rendered unit ($ROLE); run this step without --verify"
   local out rc=0
-  # --recursive-errors=no (systemd 250 and later; the Pi runs 257): the exit status covers these
-  # two units only. A fault in a unit they name (adsb-writer.service) is printed above, but does
-  # not fail this step, nor roll back an update over another step's unit.
-  log "systemd-analyze verify --recursive-errors=no $SERVICE $TIMER (raw output follows)"
-  out=$(systemd-analyze verify --recursive-errors=no "$UNIT_DIR/$SERVICE" "$UNIT_DIR/$TIMER" 2>&1) || rc=$?
-  printf '%s\n' "${out:-(no output)}"
-  echo "----"
-  ((rc == 0)) || die "systemd-analyze verify rejected the units (exit $rc); see above"
+  # verify_units passes --recursive-errors=no (systemd 250 and later; the Pi runs 257), so this
+  # judges these two units only: a fault in a unit they name (adsb-writer.service) is neither
+  # printed nor in the exit status here. Step 40's own verify judges that unit, so the update
+  # still fails on it.
+  verify_units "the units" "$UNIT_DIR/$SERVICE" "$UNIT_DIR/$TIMER"
   pass "$SERVICE and $TIMER match their render ($ROLE) and load"
 
   local en ac

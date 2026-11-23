@@ -59,8 +59,8 @@
 #    the last run's result is printed, not judged, since a dropped Wi-Fi link is
 #    not a broken install.
 #
-# Nothing in this step has run on hardware; what has is recorded in PLAN §9i,
-# not here (PLAN §9c).
+# What has run on hardware is recorded in PLAN §9i, not here (PLAN §9c: no
+# script carries a "tested on" header).
 
 set -euo pipefail
 # shellcheck source=setup/lib.sh
@@ -327,12 +327,7 @@ verify() {
     || die "$UNIT_DIR/$SERVICE is missing or differs from its render; run this step without --verify"
   cmp -s "$WORK/timer" "$UNIT_DIR/$TIMER" \
     || die "$UNIT_DIR/$TIMER is missing or differs from its render; run this step without --verify"
-  rc=0
-  log "systemd-analyze verify $SERVICE $TIMER (raw output follows)"
-  out=$(systemd-analyze verify "$UNIT_DIR/$SERVICE" "$UNIT_DIR/$TIMER" 2>&1) || rc=$?
-  printf '%s\n' "${out:-(no output)}"
-  echo "----"
-  ((rc == 0)) || die "systemd-analyze verify rejected the uploader's units (exit $rc); see above"
+  verify_units "the uploader's units" "$UNIT_DIR/$SERVICE" "$UNIT_DIR/$TIMER"
   ! need_reload || die "systemd has not read the current $SERVICE or $TIMER; run this step without --verify"
   pass "$SERVICE and $TIMER match their render, load, and pass systemd-analyze"
 

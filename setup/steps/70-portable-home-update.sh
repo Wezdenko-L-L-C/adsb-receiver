@@ -405,14 +405,9 @@ verify() {
   render_timer
   cmp -s "$WORK/service" "$UNIT_DIR/$SERVICE" || die "$UNIT_DIR/$SERVICE is missing or differs from the rendered unit; run this step without --verify"
   cmp -s "$WORK/timer" "$UNIT_DIR/$TIMER" || die "$UNIT_DIR/$TIMER is missing or differs from the rendered unit; run this step without --verify"
-  rc=0
-  # --recursive-errors=no, as in 50-updater: a fault in a unit these name (the writer) is printed,
-  # but does not fail this step.
-  log "systemd-analyze verify --recursive-errors=no $SERVICE $TIMER (raw output follows)"
-  out=$(systemd-analyze verify --recursive-errors=no "$UNIT_DIR/$SERVICE" "$UNIT_DIR/$TIMER" 2>&1) || rc=$?
-  printf '%s\n' "${out:-(no output)}"
-  echo "----"
-  ((rc == 0)) || die "systemd-analyze verify rejected the units (exit $rc); see above"
+  # verify_units passes --recursive-errors=no, as 50-updater notes: this judges these two units
+  # only, and a fault in a unit they name (the writer) is judged by step 40's verify, not here.
+  verify_units "the units" "$UNIT_DIR/$SERVICE" "$UNIT_DIR/$TIMER"
   local load
   load=$(systemctl show -p LoadState --value "$SERVICE" 2>/dev/null) || load=''
   [[ $load == loaded ]] || die "$SERVICE is '$load', not loaded; run this step without --verify"

@@ -26,7 +26,7 @@
 set -uo pipefail
 # The number of check cases a full run makes. Bump it when cases are added or removed: a run that
 # makes fewer (a section skipped by an early return, a wait loop that timed out) fails.
-readonly EXPECTED_CHECKS=312
+readonly EXPECTED_CHECKS=317
 ((EUID != 0)) || { echo "refusing to run as root: the sandbox remaps real system paths by sed"; exit 1; }
 # The sandbox is not under systemd; update.sh adds a <N> journal prefix to its marker line when it is.
 unset INVOCATION_ID
@@ -1475,6 +1475,37 @@ ts calendar_check "$SB/no-such-systemd-analyze"
 check "TS7 systemd-analyze absent: a warning, unverified, not a failure" \
   rc_has 0 "WARNING: .*no-such-systemd-analyze is not installed, so whether OnCalendar=\*-\*-\* 04:30:00 gives a next elapse is UNVERIFIED" "$SB/out.txt"
 rm -f "$SB/ts-snaps" "$SB/ts-snap-default"
+echo
+echo "== VU. lib.sh's verify_units: --recursive-errors=no always, raw output printed, any output fails"
+# lib.sh's verify_units and its output helpers, extracted and checked as in TS, against a fake
+# systemd-analyze first on PATH that logs its arguments and prints and exits on cue.
+VUH=$SB/verify-units.sh
+{
+  echo 'set -euo pipefail'
+  grep -E '^(log|warn|die|pass)\(\) ' "$REAL/setup/lib.sh"
+  sed -n '/^verify_units() {/,/^}/p' "$REAL/setup/lib.sh"
+  echo '"$@"'
+} >"$VUH"
+grep -q '^verify_units() {' "$VUH" || { echo "lib.sh's verify_units was not extracted"; exit 1; }
+mkdir -p "$SB/vu-bin"
+# shellcheck disable=SC2016  # expanded when the fake runs
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >"%s"\n[[ -e %s ]] && echo "u.service:3: Unknown key (stub)"\nexit "$(cat %s 2>/dev/null || echo 0)"\n' \
+  "$SB/vu-args" "$SB/vu-warn" "$SB/vu-rc" >"$SB/vu-bin/systemd-analyze"
+chmod +x "$SB/vu-bin/systemd-analyze"
+vu() { RC=0; rm -f "$SB/vu-args"; PATH="$SB/vu-bin:$PATH" bash "$VUH" verify_units "the units" "$@" >"$SB/out.txt" 2>&1 || RC=$?; }
+vu /x/u.service /x/u.timer
+check "VU clean: passes (0)" [ "$RC" = 0 ]
+check "VU --recursive-errors=no comes first, then the arguments as given" \
+  grep -qx -- "verify --recursive-errors=no /x/u.service /x/u.timer" "$SB/vu-args"
+touch "$SB/vu-warn"
+vu /x/u.service
+check "VU a warning at exit 0: fails (1)" rc_has 1 "FAIL: systemd-analyze verify printed the lines above about the units (exit 0)" "$SB/out.txt"
+check "VU the warning line is printed in the run log" grep -q "^u.service:3: Unknown key (stub)$" "$SB/out.txt"
+echo 1 >"$SB/vu-rc"
+vu /x/u.service
+check "VU a nonzero exit: fails (1), its output printed" \
+  [ "$RC/$(grep -c 'FAIL: systemd-analyze verify rejected the units (exit 1)' "$SB/out.txt")/$(grep -c '^u.service:3: Unknown key (stub)$' "$SB/out.txt")" = 1/1/1 ]
+rm -f "$SB/vu-warn" "$SB/vu-rc" "$SB/vu-args"
 
 echo "smoke: $NPASS passed, $NFAIL failed"
 if ((NPASS + NFAIL != EXPECTED_CHECKS)); then
