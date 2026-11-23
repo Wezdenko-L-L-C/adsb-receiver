@@ -8,6 +8,12 @@
 # privilege: only ssh, this step's rsync, and the login's membership in adsb-operator, the drive's
 # group.
 #
+# ⭐ Round 1 of the rename to adsb-maintenance-window.service (#33 A4; that unit is step 58's):
+#    the old unit below stays installed here, rendered byte-identical to before, so a window open
+#    under the old name during the update that brings this change is left untouched; and the
+#    sudoers rule names both units. Round 2, a later commit, removes the old unit and its two
+#    commands. window_order moved to step 58.
+#
 # Portable only: asserts station.role and refuses a position: block (PLAN §9b).
 #
 #   setup/steps/60-portable-pull.sh            install, then verify
@@ -29,8 +35,8 @@
 #     (RuntimeMaxSec=). When it stops it starts the writer again. ⚠️ Belief, not seen: at shutdown
 #     that start is refused, and the writer's WantedBy= brings it back after the boot.
 #   - /etc/sudoers.d/adsb-receiver: the logins in group adsb-operator, except the writer's own
-#     user adsb-receiver, may run exactly two commands as root with no password, systemctl start
-#     and systemctl stop of that one unit. adsb-receiver is in the group by its primary GID (step
+#     user adsb-receiver, may run exactly four commands as root with no password, systemctl start
+#     and systemctl stop of the maintenance window (step 58's unit) and of this old one. adsb-receiver is in the group by its primary GID (step
 #     05), and it is the user that parses data from the sky, so the rule excludes it by name; the
 #     writer's unit also runs with NoNewPrivileges=yes (step 40), so sudo cannot work from it
 #     whatever any rule says. Checked with visudo -cf before it is installed: a sudoers.d file that
@@ -67,6 +73,7 @@ done
 GROUP_NAME=adsb-operator
 SERVICE_USER=adsb-receiver
 WINDOW=adsb-pull-window.service
+NEW_WINDOW=adsb-maintenance-window.service   # step 58's (the header)
 WRITER=adsb-writer.service
 UPDATE=adsb-update.service
 UNIT_FILE=/etc/systemd/system/$WINDOW
@@ -158,9 +165,10 @@ EOF
 render_sudoers() {
   cat >"$WORK/sudoers" <<EOF
 # Rendered by setup/steps/60-portable-pull.sh. Do not edit; re-run the step. PLAN §9m.
-# Exactly two commands, no wildcards: start and stop the pull window. Not for $SERVICE_USER, a
-# member by its primary group, which runs the writer.
-%$GROUP_NAME,!$SERVICE_USER ALL=(root) NOPASSWD: $SYSTEMCTL start $WINDOW, $SYSTEMCTL stop $WINDOW
+# Exactly four commands, no wildcards: start and stop the maintenance window, under its name and,
+# until round 2 of the rename (#33 A4), its old one. Not for $SERVICE_USER, a member by its
+# primary group, which runs the writer.
+%$GROUP_NAME,!$SERVICE_USER ALL=(root) NOPASSWD: $SYSTEMCTL start $NEW_WINDOW, $SYSTEMCTL stop $NEW_WINDOW, $SYSTEMCTL start $WINDOW, $SYSTEMCTL stop $WINDOW
 EOF
 }
 
@@ -204,38 +212,6 @@ install_step() {
 
 # --- verify --------------------------------------------------------------------
 
-# window_order: if a window ran this boot, the journal shows the writer's stop before the update
-# oneshot started (PLAN §9m). Printed and warned on, never a failure: a wrong order is a design
-# defect that the lock still backstops, not a broken install.
-window_order() {
-  local j
-  j=$(journalctl -b -q --no-pager -o short-iso-precise -u "$WINDOW" -u "$WRITER" -u "$UPDATE" 2>/dev/null) || j=''
-  local last
-  last=$(grep -nE "Start(ing|ed) $WINDOW" <<<"$j" | tail -n1 | cut -d: -f1) || last=''
-  if [[ -z $last ]]; then
-    warn "no pull window has run this boot, so the writer-stop-before-update order is not shown yet. It is in the pre-field checklist (PLAN §9m)"
-    return 0
-  fi
-  local tail_j stop upd from
-  from=$((last > 5 ? last - 5 : 1))
-  # One process, no pipeline: under pipefail, head closing early gave tail EPIPE and ended the step (seen on the Pi 2026-10-05).
-  tail_j=$(sed -n "${from},$((from + 59))p" <<<"$j")
-  log "journal around the last pull window this boot (raw output follows)"
-  grep -E "(Stopp(ing|ed)|Start(ing|ed)) ($WINDOW|$WRITER|$UPDATE)" <<<"$tail_j" || true
-  echo "----"
-  stop=$(grep -m1 -nE "Stopped $WRITER" <<<"$tail_j" | cut -d: -f1) || stop=''
-  upd=$(grep -m1 -nE "Starting $UPDATE" <<<"$tail_j" | cut -d: -f1) || upd=''
-  if [[ -n $stop && -n $upd ]] && ((stop < upd)); then
-    pass "the last window stopped the writer before the update started"
-  elif [[ -z $stop ]]; then
-    warn "the last window shows no writer stop: the writer was not running when it started, so the order is not shown"
-  elif [[ -z $upd ]]; then
-    warn "the last window shows no update start in the lines read"
-  else
-    warn "THE UPDATE STARTED BEFORE THE WRITER STOPPED in the last window. PLAN §9m's ordering claim does not hold here; the recording lock is the only guard. Read the lines above"
-  fi
-}
-
 verify() {
   render_unit
   cmp -s "$WORK/unit" "$UNIT_FILE" || die "$UNIT_FILE is missing or differs from the rendered unit; run this step without --verify"
@@ -274,7 +250,7 @@ verify() {
     [[ -n $m && $m != "$SERVICE_USER" && " ${others[*]} " != *" $m "* ]] && others+=("$m")
   done
   ((${#others[@]})) || die "$GROUP_NAME has no members besides $SERVICE_USER, so nobody can open the pull window (tools/pull-archive --end-session, or by hand), and no login can read or delete the archive for any pull, live or not. See setup/steps/05-config.sh"
-  for cmd in "$SYSTEMCTL start $WINDOW" "$SYSTEMCTL stop $WINDOW"; do
+  for cmd in "$SYSTEMCTL start $NEW_WINDOW" "$SYSTEMCTL stop $NEW_WINDOW" "$SYSTEMCTL start $WINDOW" "$SYSTEMCTL stop $WINDOW"; do
     for m in "${others[@]}"; do
       log "sudo -l -U $m $cmd (raw output follows)"
       # shellcheck disable=SC2086  # the command's words, on purpose
@@ -303,16 +279,15 @@ verify() {
       die "sudo's answer for $SERVICE_USER and '$cmd' (exit $rc, above) is not a plain refusal, so whether the rule excludes it is not shown"
     fi
   done
-  if grep -vE '^[[:space:]]*#' "$SUDOERS" | grep -F "$WINDOW" | grep -qE '\*'; then
-    die "$SUDOERS names $WINDOW with a wildcard; PLAN §9m allows none"
+  if grep -vE '^[[:space:]]*#' "$SUDOERS" | grep -E "adsb-(pull|maintenance)-window" | grep -qE '\*'; then
+    die "$SUDOERS names a window unit with a wildcard; PLAN §9m allows none"
   fi
-  pass "${others[*]} may start and stop $WINDOW; $SERVICE_USER may not"
+  pass "${others[*]} may start and stop $NEW_WINDOW and $WINDOW; $SERVICE_USER may not"
 
   command -v rsync >/dev/null || die "rsync is not on PATH; run this step without --verify"
   pass "rsync is installed ($(command -v rsync))"
 
-  window_order
-  pass "the pull window's unit, its sudoers rule and rsync are installed"
+  pass "the old pull window's unit, the sudoers rule for both window names and rsync are installed"
 }
 
 if ((VERIFY_ONLY == 0)); then

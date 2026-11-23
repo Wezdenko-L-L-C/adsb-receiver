@@ -67,7 +67,11 @@
 #    root); the default live pull still works there. There is no option to skip it. Only the
 #    preflight's last line is printed, never its evidence (its sources table names the clock's
 #    servers).
-# 1. Opens the pull window over ssh (sudo systemctl start adsb-pull-window.service, allowed with
+# 0. Asks the rig, read-only, for adsb-maintenance-window.service's LoadState; if loaded, that is
+#    the window, else adsb-pull-window.service (round 1 of the rename, #33 A4). A stationary rig
+#    has the first but no sudoers rule for it, by design, so the start below is refused before
+#    anything stops, and the run says so.
+# 1. Opens the window over ssh (sudo systemctl start <the window>, allowed with
 #    no password by setup/steps/60-portable-pull.sh). That ends the recording session: the writer
 #    stops and closes its file. Starting the window also starts the update oneshot (Wants=); it is
 #    not guaranteed to finish before the pull does.
@@ -217,9 +221,9 @@ close_window() {
   else
     # The window had already ended (its 2 h cap, or a stop on the rig): the writer may have been
     # recording since before t0, and a quiet sky writes nothing, so its .part need not be newer.
-    echo "==> the pull window was already '${win_before:-unknown}' before the close (its 2 h cap, PLAN §9m?); the writer may have been recording since"
+    echo "==> the maintenance window was already '${win_before:-unknown}' before the close (its 2 h cap, PLAN §9m?); the writer may have been recording since"
   fi
-  echo "==> closing the pull window; it waits on the rig while the update is running"
+  echo "==> closing the maintenance window; it waits on the rig while the update is running"
   # The stop is the exact command sudoers allows; it blocks until the window has stopped.
   ssh_pi sudo -n systemctl stop "$window" &
   stop_pid=$!
@@ -353,7 +357,7 @@ guard_clock() {
   esac
   echo "xx  NOT ENDING THE SESSION: the rig's clock-preflight did not pass: $why." >&2
   [[ -z $last ]] || echo "xx  its last line: $last" >&2
-  echo "xx  The pull window was not opened, nothing was moved, and the writer keeps recording: a window now" >&2
+  echo "xx  The maintenance window was not opened, nothing was moved, and the writer keeps recording: a window now" >&2
   echo "xx  would stop a writer that could not start again." >&2
   echo "    A rig that has not yet applied the change that lets clock-preflight run without root declines here" >&2
   echo "    too: its older preflight exits 1 for any user but root. The default live pull (without" >&2
@@ -364,8 +368,16 @@ guard_clock() {
 if ((end_session)); then
   guard_clock || exit 1
   trap 'rm -f -- "$rsync_err"; close_window' EXIT
-  echo "==> opening the pull window on $host"
-  ssh_pi sudo -n systemctl start "$window"
+  # The window's name (step 0 of the header).
+  wload=$(ssh_pi systemctl show -p LoadState --value adsb-maintenance-window.service 2>/dev/null) || wload=''
+  [[ $wload == loaded ]] && window=adsb-maintenance-window.service
+  echo "==> opening the maintenance window ($window) on $host"
+  if ! ssh_pi sudo -n systemctl start "$window"; then
+    echo "xx  could not open $window on $host (above): sudo refused it, or ssh failed. A stationary rig" >&2
+    echo "    allows no login to open its window, by design (its window opens only from its own nightly" >&2
+    echo "    timer); pull it live, without --end-session. On a portable, check setup/steps/60-portable-pull.sh." >&2
+    exit 1
+  fi
 
   # The writer closes its file on SIGTERM; wait until it is no longer active before reading.
   state=''

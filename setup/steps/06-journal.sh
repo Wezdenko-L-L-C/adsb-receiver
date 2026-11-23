@@ -79,7 +79,7 @@
 #     copy could lose lines, but run.log stays complete. systemd-journal-flush.service does not Require, BindsTo or
 #     PartOf journald (read on the portable, 2026-10-10), so the restart does not reach it.
 #   The restart happens only under update.sh (ADSB_UPDATE_RUN is set; ruled by Chris, 2026-10-10),
-#   as 50-updater and 70-portable-home-update start their timers only there: update.sh holds the
+#   as 50-updater and 70-window-opener start their timers only there: update.sh holds the
 #   recording lock, so no session is recording. Run by hand, no lock is held, and a
 #   restart on a recording rig could drop the writer's stdout stream, which nobody has seen
 #   survive: the step installs the drop-in and runs tmpfiles, warns that journald has not loaded it

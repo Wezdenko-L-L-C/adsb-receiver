@@ -23,7 +23,7 @@
 # (systemctl, lslocks, ps, python3) runs under a 5 s timeout of its own. What it shows:
 #   - the last update run, from /var/lib/adsb-receiver/status.json (written last by update.sh),
 #     including a rollback and what it could not undo (rollback.complete, leftovers_possible),
-#     and, for a run inside a pull window, who opened it (opened_by: adsb-home-update or hand);
+#     and, for a run inside a maintenance window, who opened it (opened_by: adsb-home-update or hand);
 #   - on an incomplete first build (status.json says incomplete, and /opt/adsb-receiver/applied
 #     does not exist), the two trap lines of PLAN §9e's 2026-10-05 (a): the pin, and the one
 #     command out of it, with --role from status.json's role (only portable or stationary is
@@ -102,7 +102,7 @@ rev = (s.get("applied_rev") or "")[:12] or "none"
 out.append(f"  role {s.get('role')}, channel {s.get('channel')}; applied {rev}")
 how = s.get("mode")
 if s.get("trigger") == "window":
-    how = f"{how}, in a pull window opened by {s.get('opened_by')}"
+    how = f"{how}, in a maintenance window opened by {s.get('opened_by')}"
 out.append(f"  last update: {s.get('result')} at {s.get('finished_at')} ({how})")
 failed = s.get("failed_steps") or ([s["failed_step"]] if s.get("failed_step") else [])
 if s.get("failed_steps"):
@@ -185,7 +185,7 @@ else
   echo "  recording lock: free (not recording)"
 fi
 if [[ -r $WRITER_JSON ]] && command -v python3 >/dev/null; then
-  # writer.json outlives the writer (a crash, a pull window): whether it runs now is systemd's word.
+  # writer.json outlives the writer (a crash, a maintenance window): whether it runs now is systemd's word.
   wact=$(t systemctl is-active adsb-writer.service 2>/dev/null) || true
   WRITER_ACTIVE=${wact:-unknown} t python3 - "$WRITER_JSON" <<'PY' 2>/dev/null
 import json, os, re, stat, sys

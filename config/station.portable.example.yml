@@ -119,7 +119,7 @@ update:
   # 🎒 The home-gated window opener (PLAN §9f): at home, and only when an update
   #    is pending, it opens the pull window, which ends the recording session,
   #    updates the rig, and starts recording again. It runs about 4 minutes
-  #    after boot and once a day (setup/steps/70-portable-home-update.sh).
+  #    after boot and once a day (setup/steps/70-window-opener.sh).
   #    "At home" means the active Wi-Fi network's name (SSID) is this one.
   # ⭐ Unset or empty means the opener is OFF: it is opt-in. Then a recording rig
   #    updates only in a pull window opened by hand (tools/pull-archive

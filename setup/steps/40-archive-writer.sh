@@ -42,13 +42,13 @@
 #   - stopping (deactivating): waited for, up to 15 s, before deciding. Still
 #     stopping after that, or in maintenance: neither started nor restarted,
 #     with a warning.
-#   - not running: started, unless the pull window is active (starting the
+#   - not running: started, unless the maintenance window is active (starting the
 #     writer would stop the window, PLAN §9m) or the recording lock is held.
 #     If the lock is held, this step leaves the writer stopped, warns, and
 #     names the command that starts it: sudo systemctl start adsb-writer.
 #     update.sh holds the lock while it runs, and at its end starts the writer
-#     if it is enabled and inactive and the pull window is not active,
-#     activating or deactivating (setup/update.sh, PLAN §9f). The pull window
+#     if it is enabled and inactive and the maintenance window is not active,
+#     activating or deactivating (setup/update.sh, PLAN §9f). The maintenance window
 #     starts it when the window ends (setup/steps/60-portable-pull.sh, PLAN
 #     §9m).
 #   Both with --no-block: whether the preflights pass is readiness, not install.
@@ -87,7 +87,8 @@ SRC=$ADSB_REPO/bin/adsb-writer
 WRITER=/usr/local/bin/adsb-writer
 UNIT=adsb-writer.service
 UNIT_FILE=/etc/systemd/system/$UNIT
-WINDOW_UNIT=adsb-pull-window.service
+WINDOW_UNIT=adsb-maintenance-window.service
+OLD_WINDOW_UNIT=adsb-pull-window.service   # round 1 of the rename (#33 A4): both are checked
 STATE_DIR=/var/lib/adsb-receiver/writer
 MP=/var/lib/adsb-receiver/archive
 # Step 30's mount unit, named as step 30 names it. On the Pi it reads
@@ -188,7 +189,7 @@ Restart=on-failure
 RestartSec=30s
 
 [Install]
-# Load-bearing: after a reboot in the pull window, this is what brings the
+# Load-bearing: after a reboot in the maintenance window, this is what brings the
 # writer back (PLAN §9m).
 WantedBy=multi-user.target
 EOF
@@ -251,7 +252,7 @@ install_step() {
   need_preflights
   install_state_dir
 
-  local bin_changed unit_changed state window holders
+  local bin_changed unit_changed state window window_unit holders
   install_if_changed "$SRC" "$WRITER" 0755 root:root
   bin_changed=$CHANGED
   render_unit
@@ -291,12 +292,18 @@ install_step() {
       warn "$UNIT is in maintenance, which for a service means 'systemctl clean' is running on it: this step neither starts nor restarts it. Re-run this step once 'systemctl show -p ActiveState $UNIT' no longer says maintenance"
       ;;
     *)
+      # Either name (#33 A4, round 1). Still `active` only, as before (an adjacent gap, reported).
+      window_unit=$WINDOW_UNIT
       window=$(systemctl show -p ActiveState --value "$WINDOW_UNIT" 2>/dev/null) || true
+      if [[ $window != active ]]; then
+        window_unit=$OLD_WINDOW_UNIT
+        window=$(systemctl show -p ActiveState --value "$OLD_WINDOW_UNIT" 2>/dev/null) || true
+      fi
       holders=$(lock_holders)
       if [[ $window == active ]]; then
-        log "$WINDOW_UNIT is active: not starting $UNIT, which would end the pull window. The window's unit starts it when it ends (PLAN §9m)"
+        log "$window_unit is active: not starting $UNIT, which would end the maintenance window. The window's unit starts it when it ends (PLAN §9m)"
       elif [[ -n $holders ]]; then
-        warn "$LOCK is held (PID $(tr '\n' ' ' <<<"$holders")): $UNIT is ${state:-unknown} and this step LEAVES IT STOPPED. If the holder is update.sh, it starts the writer itself when it finishes (unless the pull window is active, whose end starts it). Otherwise, once the holder has finished (ps -p <PID>), start it with: sudo systemctl start $UNIT"
+        warn "$LOCK is held (PID $(tr '\n' ' ' <<<"$holders")): $UNIT is ${state:-unknown} and this step LEAVES IT STOPPED. If the holder is update.sh, it starts the writer itself when it finishes (unless the maintenance window is active, whose end starts it). Otherwise, once the holder has finished (ps -p <PID>), start it with: sudo systemctl start $UNIT"
       else
         log "$UNIT is ${state:-unknown}: starting it. The preflights decide whether it records; see journalctl -u $UNIT"
         guard_unit "$UNIT"

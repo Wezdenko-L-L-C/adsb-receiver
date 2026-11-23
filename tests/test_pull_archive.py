@@ -74,10 +74,15 @@ exit "${FAKE_RSYNC_RC:-$rc}"
 
 SYSTEMCTL = r"""
 printf 'systemctl %s\n' "$*" >>"$FAKE_LOG"
+# The new window's LoadState: loaded only when FAKE_NEW_UNIT is set (a round-1 rig, #33 A4).
+if [[ $1 == show ]]; then
+  [[ -n ${FAKE_NEW_UNIT:-} && ${*: -1} == adsb-maintenance-window.service ]] && echo loaded
+  exit 0
+fi
 if [[ $1 == is-active ]]; then
   case $2 in
     adsb-writer.service) s=$(cat "$FAKE_STATE/writer") ;;
-    adsb-pull-window.service) s=$(cat "$FAKE_STATE/window") ;;
+    adsb-pull-window.service|adsb-maintenance-window.service) s=$(cat "$FAKE_STATE/window") ;;
     *) s=inactive ;;
   esac
   echo "$s"
@@ -89,9 +94,10 @@ fi
 SUDO = r"""
 printf 'sudo %s\n' "$*" >>"$FAKE_LOG"
 [[ $1 == -n ]] && shift
-if [[ "$1 $2 $3" == "systemctl start adsb-pull-window.service" ]]; then
+[[ -z ${FAKE_SUDO_REFUSES:-} ]] || { echo "sudo: a password is required" >&2; exit 1; }
+if [[ "$1 $2" == "systemctl start" && $3 =~ ^adsb-(pull|maintenance)-window\.service$ ]]; then
   echo active >"$FAKE_STATE/window"; echo inactive >"$FAKE_STATE/writer"
-elif [[ "$1 $2 $3" == "systemctl stop adsb-pull-window.service" ]]; then
+elif [[ "$1 $2" == "systemctl stop" && $3 =~ ^adsb-(pull|maintenance)-window\.service$ ]]; then
   echo inactive >"$FAKE_STATE/window"; echo active >"$FAKE_STATE/writer"
   d=$FAKE_ARCHIVE/beast/$(date -u +%Y-%m-%d)
   mkdir -p "$d"
@@ -292,6 +298,31 @@ class PullArchive(unittest.TestCase):
         self.assertTrue((self.dest / "spool/batch-1").exists())
         self.assertFalse((self.beast / "2020-01-01").exists())
         self.assertIn("the writer is recording again", r.stdout)
+
+    def test_end_session_probes_the_new_window_and_falls_back_to_the_old(self):
+        # A rig without the maintenance window (before round 1): the probe, then the old name.
+        r = self.run_tool("--end-session")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("systemctl show -p LoadState --value adsb-maintenance-window.service", r.log)
+        self.assertLess(r.log.index("LoadState --value adsb-maintenance-window.service"),
+                        r.log.index("sudo -n systemctl start adsb-pull-window.service"))
+        self.assertNotIn("sudo -n systemctl start adsb-maintenance-window.service", r.log)
+
+    def test_end_session_uses_the_maintenance_window_when_loaded(self):
+        r = self.run_tool("--end-session", FAKE_NEW_UNIT=1)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("sudo -n systemctl start adsb-maintenance-window.service", r.log)
+        self.assertIn("sudo -n systemctl stop adsb-maintenance-window.service", r.log)
+        self.assertNotIn("sudo -n systemctl start adsb-pull-window.service", r.log)
+
+    def test_end_session_refused_by_sudo_says_so_and_moves_nothing(self):
+        # A stationary: the window is there, but no sudoers rule names it.
+        r = self.run_tool("--end-session", FAKE_NEW_UNIT=1, FAKE_SUDO_REFUSES=1)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("could not open adsb-maintenance-window.service", r.stderr)
+        self.assertIn("A stationary rig", r.stderr)
+        moves = [l for l in r.log.splitlines() if l.startswith("rsync ") and l != "rsync --help"]
+        self.assertEqual(moves, [], "nothing may be moved")
 
     def test_end_session_exit_24_stays_a_failure(self):
         self.file(f"{utc_day(0)}/20260101T000000Z.beast.pcap")

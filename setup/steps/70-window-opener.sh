@@ -1,19 +1,27 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 #
-# 70-portable-home-update: the home-gated window opener, by which the 🎒 portable updates itself
-# at home: bin/adsb-at-home, bin/adsb-home-update, adsb-home-update.service and its timer. PLAN
+# 70-window-opener: the window opener of both rigs (#33 A4), by which the 🎒 portable updates
+# itself at home and the 🏠 stationary updates itself nightly, unattended: bin/adsb-at-home, bin/adsb-home-update, adsb-home-update.service and its timer. PLAN
 # §9f's 2026-10-04 (night) update (ruled by Chris, option A), §9e's 2026-10-05 (a) (the reason
-# line), §9m (the pull window it opens).
+# line), §9m (the maintenance window it opens).
 #
-# Portable only: asserts station.role and refuses a position: block (PLAN §9b). Its own step, the
-# build's choice, not ruled: after 50-updater, which installs adsb-update with its --check mode,
-# and 60-portable-pull, which installs the window. ℹ️ After a rollback to a tree without this step,
+# Shared by both rigs since #33 A4 (it was 70-portable-home-update), so it asserts no role. It
+# reads station.role to render by role. The 🎒 portable keeps everything below: bin/adsb-at-home,
+# ExecCondition=, ADSB_HOME_STATE, the nmcli and yaml requirements, the position: refusal, the
+# update.home_ssid verify, and OnBootSec=4min. The 🏠 stationary gets the opener binary, the
+# tmpfiles directory, a service with no ExecCondition= (its pre-check is --check, whose gate is
+# PLAN §9h's on that rig), and a timer with OnCalendar=*-*-* 04:30:00 only: no OnBootSec=, so a
+# watchdog or power-cut boot triggers no update (step 50 made the same choice for
+# adsb-update.timer), and a first install fires nothing at once. The unit keeps the name
+# adsb-home-update on both rigs (Chris, 2026-11-22: it is status.json's opened_by). After
+# 50-updater, which installs adsb-update with its --check mode, and 58-maintenance-window, which
+# installs the window. ℹ️ After a rollback to a tree without this step,
 # what it installed stays (PLAN §9f: rollback does not undo creation); the opener then meets an
 # adsb-update with no --check, which exits 64, and it opens nothing (its "error" line).
 #
-#   setup/steps/70-portable-home-update.sh            install, then verify
-#   setup/steps/70-portable-home-update.sh --verify   verify only
+#   setup/steps/70-window-opener.sh            install, then verify
+#   setup/steps/70-window-opener.sh --verify   verify only
 #
 # Opt-in: with update.home_ssid unset or empty in station.yml, adsb-at-home says "off", and the
 # opener never runs. ⛔ Nothing here prints that value; the verify says only whether it is set, and
@@ -28,7 +36,7 @@
 #     anywhere (security review, 2026-10-09). It is root:root now too (lib.sh, ADSB_RUN_DIR); the
 #     opener keeps a directory of its own all the same. A tmpfiles.d entry rather than RuntimeDirectory=: the directory must
 #     outlive each run of the oneshot, since the banner reads the state between runs. Its own
-#     file, not 05-config's: the opener is portable-only. ⚠️ Belief, from systemd's
+#     file, not 05-config's. ⚠️ Belief, from systemd's
 #     documentation, not seen: `d` also corrects the owner and mode of a directory already there.
 #     The verify checks the result.
 #   - bin/adsb-at-home and bin/adsb-home-update -> /usr/local/bin, root:root 0755, by
@@ -88,14 +96,21 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 
 parse_args "$@"
 require_root "$@"
-require_role portable
-require_absent position
 
-# adsb-at-home's own needs too: nmcli, python3 and its yaml module.
-for t in systemctl systemd-analyze systemd-tmpfiles cmp timeout nmcli python3; do
+ROLE=$(station_get station.role) || die "station.yml has no station.role"
+[[ $ROLE == portable || $ROLE == stationary ]] || die "station.role is '$ROLE'; it must be portable or stationary"
+
+for t in systemctl systemd-analyze systemd-tmpfiles cmp timeout; do
   command -v "$t" >/dev/null || die "$t is not installed"
 done
-python3 -c 'import yaml' 2>/dev/null || die "python3's yaml module is missing (python3-yaml); adsb-at-home reads station.yml with it"
+if [[ $ROLE == portable ]]; then
+  require_absent position
+  # adsb-at-home's own needs: nmcli, python3 and its yaml module.
+  for t in nmcli python3; do
+    command -v "$t" >/dev/null || die "$t is not installed"
+  done
+  python3 -c 'import yaml' 2>/dev/null || die "python3's yaml module is missing (python3-yaml); adsb-at-home reads station.yml with it"
+fi
 
 AT_HOME_SRC=$ADSB_REPO/bin/adsb-at-home
 OPENER_SRC=$ADSB_REPO/bin/adsb-home-update
@@ -108,7 +123,7 @@ TMPFILES=/etc/tmpfiles.d/adsb-home-update.conf
 DAILY_AT='*-*-* 04:30:00'
 SERVICE=adsb-home-update.service
 TIMER=adsb-home-update.timer
-WINDOW=adsb-pull-window.service
+WINDOW=adsb-maintenance-window.service
 WRITER=adsb-writer.service
 
 WORK=$(mktemp -d)
@@ -142,7 +157,7 @@ install_if_changed() {
 
 render_tmpfiles() {
   cat >"$WORK/tmpfiles" <<EOF
-# Rendered by setup/steps/70-portable-home-update.sh. Do not edit; re-run the step. PLAN §9f.
+# Rendered by setup/steps/70-window-opener.sh. Do not edit; re-run the step. PLAN §9f.
 # The home-gated opener's own runtime directory: root's alone to write. Not /run/adsb-receiver
 # (the step's header).
 d $ADSB_HOME_DIR 0755 root root -
@@ -157,23 +172,31 @@ install_dir() {
 }
 
 render_service() {
+  local desc cond='' state=''
+  if [[ $ROLE == portable ]]; then
+    desc="home-gated window opener (portable): opens the maintenance window at home when an update is pending"
+    cond="# At home or not, read-only, from the active Wi-Fi SSID and update.home_ssid (unset: off).
+# An exit of 1 to 254 skips the run without failing the unit: 1 not at home or off, 2 cannot tell.
+ExecCondition=$AT_HOME
+"
+    state="Environment=ADSB_HOME_STATE=$ADSB_HOME_STATE
+"
+  else
+    desc="nightly window opener (stationary): opens the maintenance window when an update is pending and PLAN §9h's gate holds"
+  fi
   cat >"$WORK/service" <<EOF
-# Rendered by setup/steps/70-portable-home-update.sh. Do not edit; re-run the step. PLAN §9f.
+# Rendered by setup/steps/70-window-opener.sh ($ROLE). Do not edit; re-run the step. PLAN §9f.
 [Unit]
-Description=adsb-receiver home-gated window opener (portable): opens the pull window at home when an update is pending
+Description=adsb-receiver $desc
 # At boot the writer starts first (PLAN §9e); the window this opens is what ends its session.
 Wants=network-online.target
 After=network-online.target $WRITER
 
 [Service]
 Type=oneshot
-# At home or not, read-only, from the active Wi-Fi SSID and update.home_ssid (unset: off).
-# An exit of 1 to 254 skips the run without failing the unit: 1 not at home or off, 2 cannot tell.
-ExecCondition=$AT_HOME
-Environment=ADSB_WINDOW_MARK=$ADSB_WINDOW_MARK
+${cond}Environment=ADSB_WINDOW_MARK=$ADSB_WINDOW_MARK
 Environment=ADSB_RECORDING_LOCK=$ADSB_RECORDING_LOCK
-Environment=ADSB_HOME_STATE=$ADSB_HOME_STATE
-ExecStart=$OPENER
+${state}ExecStart=$OPENER
 # The opener removes its marker on every exit it sees; this covers a SIGKILL at the timeout.
 ExecStopPost=-/bin/rm -f $ADSB_WINDOW_MARK
 # Ruled. The opener bounds its own waits inside it.
@@ -183,17 +206,24 @@ EOF
 }
 
 render_timer() {
+  local boot='' why
+  if [[ $ROLE == portable ]]; then
+    boot="OnBootSec=4min
+"
+    why="# 4 min after boot, after adsb-update.timer's 3 min run, and daily at 04:30 local. No
+# Persistent=: it would add a second trigger at boot beside OnBootSec=."
+  else
+    why="# Daily at 04:30 local, and only then: no OnBootSec=, so a watchdog or power-cut boot triggers
+# no update (step 50's choice for adsb-update.timer); no Persistent=, for the same reason."
+  fi
   cat >"$WORK/timer" <<EOF
-# Rendered by setup/steps/70-portable-home-update.sh. Do not edit; re-run the step. PLAN §9f.
-# 4 min after boot, after adsb-update.timer's 3 min run, and daily. The daily time, 04:30 local,
-# is the implementer's pick, not ruled (the step's header). No Persistent=: it would add a second
-# trigger at boot beside OnBootSec=.
+# Rendered by setup/steps/70-window-opener.sh ($ROLE). Do not edit; re-run the step. PLAN §9f.
+$why
 [Unit]
-Description=adsb-receiver home-gated window opener timer (portable)
+Description=adsb-receiver window opener timer ($ROLE)
 
 [Timer]
-OnBootSec=4min
-OnCalendar=$DAILY_AT
+${boot}OnCalendar=$DAILY_AT
 
 [Install]
 WantedBy=timers.target
@@ -201,9 +231,11 @@ EOF
 }
 
 install_bins() {
-  [[ -f $AT_HOME_SRC ]] || die "$AT_HOME_SRC is missing from this checkout"
   [[ -f $OPENER_SRC ]] || die "$OPENER_SRC is missing from this checkout"
-  install_if_changed "$AT_HOME_SRC" "$AT_HOME" 0755 root:root
+  if [[ $ROLE == portable ]]; then
+    [[ -f $AT_HOME_SRC ]] || die "$AT_HOME_SRC is missing from this checkout"
+    install_if_changed "$AT_HOME_SRC" "$AT_HOME" 0755 root:root
+  fi
   install_if_changed "$OPENER_SRC" "$OPENER" 0755 root:root
 }
 
@@ -238,9 +270,9 @@ install_units() {
       unit restart "$TIMER"
     fi
   elif ! systemctl is-active --quiet "$TIMER"; then
-    warn "$TIMER is enabled but not started: it starts at the next boot. To start it now (it may open the pull window at once, if at home and an update is pending): sudo systemctl start $TIMER"
+    warn "$TIMER is enabled but not started: it starts at the next boot. To start it now (it may open the maintenance window at once, if at home and an update is pending): sudo systemctl start $TIMER"
   elif ((timer_changed)); then
-    warn "$TIMER changed; daemon-reload has run. To restart it now (it may open the pull window at once, if at home and an update is pending): sudo systemctl restart $TIMER"
+    warn "$TIMER changed; daemon-reload has run. To restart it now (it may open the maintenance window at once, if at home and an update is pending): sudo systemctl restart $TIMER"
   fi
 }
 
@@ -364,7 +396,8 @@ timer_check() {
 # its daily expression has a next elapse; update.home_ssid, if set, is a string; and the
 # predicate runs and gives a verdict. ⛔ Never starts the window or the opener.
 verify() {
-  local f src st
+  local f src st bins=("$OPENER")
+  [[ $ROLE == portable ]] && bins=("$AT_HOME" "$OPENER")
   render_tmpfiles
   cmp -s "$WORK/tmpfiles" "$TMPFILES" || die "$TMPFILES is missing or differs from its render; run this step without --verify"
   log "stat $ADSB_HOME_DIR (raw output follows)"
@@ -375,7 +408,7 @@ verify() {
   [[ $st == "root:root 755" ]] || die "$ADSB_HOME_DIR is $st, not root:root 0755: the opener refuses to write there; run this step without --verify"
   pass "$ADSB_HOME_DIR is a directory, root:root 0755, from $TMPFILES"
 
-  for f in "$AT_HOME" "$OPENER"; do
+  for f in "${bins[@]}"; do
     src=$AT_HOME_SRC
     [[ $f == "$OPENER" ]] && src=$OPENER_SRC
     log "stat $f (raw output follows)"
@@ -386,7 +419,7 @@ verify() {
     cmp -s "$src" "$f" || die "$f differs from $src; run this step without --verify"
     bash -n "$f" || die "$f does not parse (bash -n); see above"
   done
-  pass "$AT_HOME and $OPENER are this checkout's, and parse"
+  pass "${bins[*]}: this checkout's, and parse"
 
   # The parser's own answer: an updater that knows --check refuses it with --retry by name; one
   # that does not calls --check an unknown argument. Both exit 64 before anything runs.
@@ -413,7 +446,7 @@ verify() {
   [[ $load == loaded ]] || die "$SERVICE is '$load', not loaded; run this step without --verify"
   ! need_reload || die "systemd has not read the current $SERVICE or $TIMER (NeedDaemonReload=yes); run this step without --verify"
   load=$(systemctl show -p LoadState --value "$WINDOW" 2>/dev/null) || load=''
-  [[ $load == loaded ]] || die "$WINDOW, which the opener starts, is '$load', not loaded; run setup/steps/60-portable-pull.sh"
+  [[ $load == loaded ]] || die "$WINDOW, which the opener starts, is '$load', not loaded; run setup/steps/58-maintenance-window.sh"
   pass "$SERVICE and $TIMER match their render, load, and need no reload; $WINDOW is loaded (not started: a verify never starts it)"
 
   local en ac
@@ -434,6 +467,12 @@ verify() {
   # believed to read SubState dead (⚠️ belief, not seen), which timer_check would fail.
   if [[ $ac == active ]]; then
     timer_check 5 "sleep 1"
+  fi
+
+  # The rest is the portable's predicate (the header).
+  if [[ $ROLE == stationary ]]; then
+    pass "the stationary's opener has no predicate: its timer's run is gated by --check alone, PLAN §9h's gate included"
+    return 0
   fi
 
   # update.home_ssid: what kind of value, never the value. unset, string, string-ws (leading or

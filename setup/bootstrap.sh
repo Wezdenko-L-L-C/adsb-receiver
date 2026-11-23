@@ -44,7 +44,7 @@
 #
 # Done here before update.sh runs, on a recording rig (PLAN §9e's (b), ruled 2026-10-05, Chris):
 # on a first build (no /opt/adsb-receiver/applied) whose recording lock is held by
-# adsb-writer.service, this ends the recording session the one ruled way, the pull window, so the
+# adsb-writer.service, this ends the recording session the one ruled way, the maintenance window, so the
 # bootstrap stays one command. It starts adsb-pull-window.service, which stops the writer
 # (Conflicts=) and starts adsb-update.service (Wants=), the pinned run the timer would make: it
 # builds the EARLIER pin, the commit of the first build that is incomplete, not this bootstrap's
@@ -89,7 +89,7 @@
 #
 # The other thing done here: a reboot, once, after a printed 5 s notice, and only when all of these
 # hold (PLAN §9e's evening update):
-#   - this run started with no /opt/adsb-receiver/applied (a first build), and the pull window's
+#   - this run started with no /opt/adsb-receiver/applied (a first build), and the maintenance window's
 #     update, where one ran, did not create it;
 #   - this run asked for a reboot: a step or foundation script called lib.sh's need_reboot (the
 #     RTC overlay, a remounted archive drive, 00-drivers' DVB-module blacklist while
@@ -101,7 +101,7 @@
 #   - adsb-update.timer is enabled, so the build can finish after the boot;
 #   - the recording lock is free, or held only by the writer that this build started at its end
 #     (seconds of recording, which the shutdown's SIGTERM closes cleanly): started by update.sh's
-#     writer-start rule, or by the pull window's close above. It is told by its process having
+#     writer-start rule, or by the maintenance window's close above. It is told by its process having
 #     started during this run, whose clock starts before the window's wait, so a writer started
 #     anywhere in that wait reads as this build's too. The window's writer start is --no-block,
 #     so it may still be on its way when this is read; then the lock reads free. Any other
@@ -113,7 +113,7 @@
 # build again at the same commit while the recording lock is free (no writer running): on a
 # portable about 3 minutes after the boot; on a stationary, which has no boot timer, at its
 # nightly run (or by hand: sudo systemctl start adsb-update.service). On a recording portable the
-# writer holds the lock from every boot, so the build completes in the next pull window instead
+# writer holds the lock from every boot, so the build completes in the next maintenance window instead
 # (tools/pull-archive --end-session from the workstation, or sudo systemctl start
 # adsb-pull-window.service, then stop, on the rig). If a failed step cannot pass at that commit,
 # run this bootstrap again (BUILD.md §8), which pins to stable's tip; on a recording portable it
@@ -137,9 +137,11 @@
 
 set -euo pipefail
 
-readonly WINDOW=adsb-pull-window.service WRITER=adsb-writer.service UPDATE=adsb-update.service
+readonly WRITER=adsb-writer.service UPDATE=adsb-update.service
+# The window this run opens: resolve_window's pick (round 1 of the rename, #33 A4).
+WINDOW=adsb-maintenance-window.service
 readonly CLOCK_PREFLIGHT=/usr/local/bin/clock-preflight
-WINDOW_OPENED=0   # 1 once this run has asked for the pull window: only then does it close it
+WINDOW_OPENED=0   # 1 once this run has asked for the maintenance window: only then does it close it
 
 # lock_holder <lock>: "<PID> <unit>" of the process holding the recording lock, the unit read
 # from the PID's cgroup (empty when none is named there), nothing when the lock is free, or exit 1
@@ -157,7 +159,7 @@ lock_holder() {
 
 # lock_verdict <lock> <seconds this run has taken>: "free", "this build's writer (PID n)" when the
 # holder is adsb-writer.service and its process started during this run (update.sh starts the
-# writer as it ends, or the pull window's close does, so on a first build that is the only
+# writer as it ends, or the maintenance window's close does, so on a first build that is the only
 # recording there can be), or a reason not to reboot.
 lock_verdict() {
   local lock=$1 ran=$2 h pid unit age
@@ -177,19 +179,33 @@ lock_verdict() {
 clock_would_pass() {
   local out rc=0 why
   if [[ ! -x $CLOCK_PREFLIGHT ]]; then
-    echo "xx  $CLOCK_PREFLIGHT is not installed, so the writer could not start again after the pull window; the window was not opened, and the writer keeps recording" >&2
+    echo "xx  $CLOCK_PREFLIGHT is not installed, so the writer could not start again after the maintenance window; the window was not opened, and the writer keeps recording" >&2
     return 1
   fi
   out=$(timeout 60 "$CLOCK_PREFLIGHT" 2>&1 </dev/null) || rc=$?
   ((rc == 0)) && return 0
   why=$(grep -E '^xx  (NOT READY|CHECK FAILED TO RUN): ' <<<"$out" | tail -n1 | sed -E 's/^xx +//') || why=''
-  echo "xx  clock-preflight would refuse the writer's restart after the pull window (exit $rc: ${why:-no reason printed})." >&2
+  echo "xx  clock-preflight would refuse the writer's restart after the maintenance window (exit $rc: ${why:-no reason printed})." >&2
   echo "    The window was not opened, so the session is not ended, the writer keeps recording, and nothing was built." >&2
   echo "    On the rig: sudo $CLOCK_PREFLIGHT; chronyc tracking; chronyc sources. Run the bootstrap again once it passes." >&2
   return 1
 }
 
-# open_window <lock>: PLAN §9e's (b). Starts the pull window, which stops the writer (Conflicts=)
+# resolve_window: round 1 of the rename (#33 A4). Sets WINDOW to adsb-maintenance-window.service
+# if its LoadState is loaded, else to adsb-pull-window.service if that one's is; returns 1 when
+# neither is (no-unit).
+resolve_window() {
+  local u
+  for u in adsb-maintenance-window.service adsb-pull-window.service; do
+    if [[ $(systemctl show -p LoadState --value "$u" 2>/dev/null) == loaded ]]; then
+      WINDOW=$u
+      return 0
+    fi
+  done
+  return 1
+}
+
+# open_window <lock>: PLAN §9e's (b). Starts the maintenance window, which stops the writer (Conflicts=)
 # and starts adsb-update.service (Wants=), then waits for that update to finish, so update.sh
 # --bootstrap finds the lock free. close_window ends the window: main calls it once update.sh
 # returns, and main's EXIT trap calls it on every other path.
@@ -199,7 +215,7 @@ open_window() {
   # update (it waits on the window's stop, whose TimeoutStopSec= is 45 min, PLAN §9m), above the
   # update's own 40 min TimeoutStartSec=.
   local deadline=$((SECONDS + 45 * 60))
-  echo "==> the writer holds the recording lock; ending the session through the pull window, as ruled (PLAN §9e)"
+  echo "==> the writer holds the recording lock; ending the session through the maintenance window, as ruled (PLAN §9e)"
   # Set before the start, so a start interrupted by a signal is still closed by main's EXIT trap.
   WINDOW_OPENED=1
   if ! systemctl start "$WINDOW"; then
@@ -235,7 +251,7 @@ open_window() {
   echo "==> $UPDATE has finished ($st) after $((SECONDS - t)) s; the lock should now be free"
 }
 
-# close_window normal|trap: stops the pull window if this run opened it, once; the window's
+# close_window normal|trap: stops the maintenance window if this run opened it, once; the window's
 # ExecStopPost= then starts the writer (--no-block) (seen 2026-10-10 under the opener, not under
 # the bootstrap; PLAN §9e's (b) list).
 #   - normal (main, once update.sh returns): a blocking stop, through the window's
@@ -262,13 +278,13 @@ close_window() {
   if [[ $how == trap ]]; then
     st=$(systemctl show -p ActiveState --value "$UPDATE" 2>/dev/null) || st=''
     if [[ $st == activating ]]; then
-      echo "==> closing the pull window without waiting: it closes itself when $UPDATE finishes (up to the window's own 45 min wait), and the writer then starts by its ExecStopPost="
+      echo "==> closing the maintenance window without waiting: it closes itself when $UPDATE finishes (up to the window's own 45 min wait), and the writer then starts by its ExecStopPost="
       systemctl stop --no-block "$WINDOW" \
         || echo "!!  could not stop $WINDOW (exit $?): run 'sudo systemctl stop $WINDOW'; until then the writer is off" >&2
       return 0
     fi
   fi
-  echo "==> closing the pull window; it waits while $UPDATE is running, and its end starts the writer"
+  echo "==> closing the maintenance window; it waits while $UPDATE is running, and its end starts the writer"
   systemctl stop "$WINDOW" \
     || echo "!!  could not stop $WINDOW (exit $?): run 'sudo systemctl stop $WINDOW'; until then the writer is off" >&2
 }
@@ -395,7 +411,7 @@ main() {
 
   local first_build=1 before='' after='' gained='' mark t0=$SECONDS
   [[ -e $base/applied || -L $base/applied ]] && first_build=0
-  # Read before the pull window opens (below), so a reason its pinned run writes counts as this
+  # Read before the maintenance window opens (below), so a reason its pinned run writes counts as this
   # bootstrap's: this run started that run.
   before=$(cat "$flag" 2>/dev/null) || before=''
   # This run's own list of reboot reasons (lib.sh's need_reboot appends to it).
@@ -403,18 +419,17 @@ main() {
   # shellcheck disable=SC2064  # expanded now: $mark is local to main
   trap "rm -f '$mark'; close_window trap" EXIT
 
-  # A first build on a recording rig: the session ends through the pull window (header; PLAN §9e's
+  # A first build on a recording rig: the session ends through the maintenance window (header; PLAN §9e's
   # (b)), only where the window unit is loaded. Otherwise update.sh refuses below, naming the holder.
   # hint tells update.sh why the bootstrap did or did not end the session (ADSB_BOOTSTRAP_WINDOW),
   # so its refusal never tells the bootstrap's own user that the bootstrap would have ended it.
-  local h hpid hunit load hint=built old window_built=''
+  local h hpid hunit hint=built old window_built=''
   if ((first_build)); then
     hint=not-writer
     h=$(lock_holder "$lock") || h=''
     read -r hpid hunit <<<"${h:-}" || true
     if [[ $hunit == "$WRITER" ]]; then
-      load=$(systemctl show -p LoadState --value "$WINDOW" 2>/dev/null) || load=''
-      if [[ $load == loaded ]]; then
+      if resolve_window; then
         clock_would_pass || exit 1
         hint=opened
         open_window "$lock"
@@ -426,7 +441,7 @@ main() {
         fi
       else
         hint=no-unit
-        echo "!!  the writer (PID $hpid) holds the recording lock, and $WINDOW is '${load:-unknown}', not loaded, so the session is not ended here (PLAN §9e); update.sh refuses below" >&2
+        echo "!!  the writer (PID $hpid) holds the recording lock, and neither adsb-maintenance-window.service nor adsb-pull-window.service is loaded, so the session is not ended here (PLAN §9e); update.sh refuses below" >&2
       fi
     fi
   fi
@@ -446,7 +461,7 @@ main() {
   after=$(cat "$flag" 2>/dev/null) || after=''
   [[ -n $after ]] || exit "$rc"
   # What this run asked for: its own list, plus any line the flag gained (a step whose lib.sh
-  # predates the list, or the pull window's pinned run, which this run started). Only whether it is
+  # predates the list, or the maintenance window's pinned run, which this run started). Only whether it is
   # empty is used.
   gained=$(cat "$mark" 2>/dev/null) || gained=''
   if [[ -n $before ]]; then
@@ -461,7 +476,7 @@ main() {
   # A build the window's pinned run made seconds ago is named as such: "already had a build" would
   # be false for it. Either way the rule holds: never a reboot once `applied` exists.
   if [[ -n $window_built ]]; then
-    why+=("the pull window's pinned run completed the build at $window_built during this bootstrap, and a bootstrap never reboots once applied exists")
+    why+=("the maintenance window's pinned run completed the build at $window_built during this bootstrap, and a bootstrap never reboots once applied exists")
   elif ((first_build == 0)); then
     why+=("this rig already had a build, and a re-run never reboots it")
   fi
@@ -487,14 +502,14 @@ main() {
       echo "    about 3 minutes after the boot, if the recording lock is free. On a recording"
       echo "    portable the writer holds it from the boot, so the build completes in the next pull"
       echo "    window instead (tools/pull-archive --end-session from the workstation, or sudo"
-      echo "    systemctl start adsb-pull-window.service, then stop, on the rig)."
+      echo "    systemctl start adsb-maintenance-window.service, then stop, on the rig)."
     else
       echo "==> Rebooting in 5 seconds; the update timer runs the build again at its next scheduled"
       echo "    run (sooner by hand: sudo systemctl start adsb-update.service)."
     fi
     echo "    If a failed step cannot pass at this commit, run this bootstrap again (BUILD.md §8),"
     echo "    which pins to stable's tip; on a recording portable it ends the recording session itself,"
-    echo "    through the pull window, so that is the one command."
+    echo "    through the maintenance window, so that is the one command."
   fi
   echo "    Ctrl-C now to stay up, then reboot when ready."
   sleep 5

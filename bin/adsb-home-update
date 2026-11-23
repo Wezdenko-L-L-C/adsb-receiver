@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 #
-# adsb-home-update: the home-gated window opener of the 🎒 portable rig. PLAN §9f's 2026-10-04
+# adsb-home-update: the window opener of both rigs (#33 A4): home-gated on the 🎒 portable, nightly
+# on the 🏠 stationary. It is role-blind: it never reads station.yml; the role lives in update.sh
+# (whose --check runs the stationary's PLAN §9h gate) and in step 70's render (the portable's
+# ExecCondition= and boot trigger). PLAN §9f's 2026-10-04
 # (night) update, ruled by Chris (option A); the reason line is §9e's 2026-10-05 (a). Installed by
-# setup/steps/70-portable-home-update.sh to /usr/local/bin/adsb-home-update (copied, by rename, so
+# setup/steps/70-window-opener.sh to /usr/local/bin/adsb-home-update (copied, by rename, so
 # a running copy keeps its file), and run as root by adsb-home-update.service, a oneshot, once
-# its ExecCondition=, bin/adsb-at-home, has said "at home". Takes no arguments; the unit passes
+# its ExecCondition=, bin/adsb-at-home, has said "at home" (portable; the stationary's unit has none). Takes no arguments; the unit passes
 # ADSB_WINDOW_MARK and ADSB_RECORDING_LOCK, from setup/lib.sh, in its environment.
 #
 # ⛔ The marker lives in the opener's own directory, /run/adsb-home-update (lib.sh's
@@ -17,10 +20,11 @@
 #    else; and the marker is written after `rm -f`, with noclobber, so the write creates a new file
 #    (bash opens it O_EXCL) and never follows a link left at that path.
 #
-# An automatic update on a recording portable can only be an automatic opening of the pull window
+# An automatic update on a recording portable can only be an automatic opening of the maintenance window
 # (PLAN §9m), so this:
-#   1. ⚠️ the ruled guard: adsb-pull-window.service already active, activating or deactivating
-#      means there is nothing to open (a window by hand, tools/pull-archive --end-session, the
+#   1. ⚠️ the ruled guard: a maintenance window already active, activating or deactivating, under
+#      either name in round 1 of the rename (#33 A4: adsb-maintenance-window.service, which this
+#      opens, or adsb-pull-window.service), means there is nothing to open (a window by hand, tools/pull-archive --end-session, the
 #      bootstrap's (b));
 #   2. adsb-update.service already running (activating): its run is the update. The build's guard,
 #      not ruled: --check's fetch would race that run's fetch in the one clone;
@@ -32,8 +36,11 @@
 #      there is no place both could source. ⚠️ The first lslocks line for the lock is taken as the
 #      holder, as update.sh and bootstrap.sh take it; a writer still waiting on the lock is
 #      believed to be listed after its holder, not seen;
-#   4. `adsb-update --check` (no lock, writes nothing; stdout is its verdict, stderr its progress,
-#      read apart): 0 pending; 10, 11, 12, 14 not pending (unchanged or under the soak, the 24 h
+#   4. `adsb-update --check` (no lock; stdout is its verdict, stderr its progress, read apart; on
+#      the stationary it runs PLAN §9h's gate, so it is not "writes nothing" there: a scratch
+#      directory of its own, and archive-preflight's probe file on the drive, ⚠️ believed harmless
+#      beside a recording writer, not seen): 0 pending; 15 the stationary's gate holds (gate-held,
+#      warning, exit 1: a window would only run an update that exits 4); 10, 11, 12, 14 not pending (unchanged or under the soak, the 24 h
 #      backoff, the fetch failed, a rewind the timer refuses, whose line names the --rev that
 #      applies it: the build's mapping, not ruled); 13 a timer run would itself fail here, before any step (it says
 #      why: such a rig needs a hand, and a window would change nothing); anything else, "could
@@ -46,23 +53,29 @@
 #      starting again after the window, so nothing is opened (clock-not-ready), and its NOT READY
 #      or CHECK FAILED line is carried;
 #   6. if pending and the clock would pass: writes the marker (content "adsb-home-update"); reads adsb-update.service's
-#      InvocationID; starts the pull window, which stops the writer (Conflicts=) and starts
+#      InvocationID; starts the maintenance window, which stops the writer (Conflicts=) and starts
 #      adsb-update.service (Wants=); waits for a new InvocationID, the window's update dispatched
 #      (from systemd's documentation: each activation gets a new one; seen 2026-10-10 under the
 #      opener, PLAN §9f's record on hardware), then for
 #      that run to end; reads its outcome; stops the window, whose ExecStop= wait applies as for
-#      any closer and whose ExecStopPost= starts the writer; removes the marker.
+#      any closer and whose ExecStopPost= starts the writer; removes the marker; then waits, up to
+#      WRITER_BOUND, for the writer to hold the recording lock again (the lock, not is-active, is
+#      the recording signal: the writer takes it in ExecStart=, after its preflights), and its line
+#      reports the gap: "writer off N s, recording again", timed from just before the window's
+#      start, or "writer NOT recording N s after the close", at warning priority with exit 1.
 # The outcome: adsb-update.service's ExecMainStatus (update.sh's exit code, PLAN §9f: 0 applied,
-# unchanged, skipped or lock held; 1 failed; 2 rolled back; 3 incomplete), and status.json's result
+# unchanged, skipped or lock held; 1 failed; 2 rolled back; 3 incomplete; 4 not ready, the
+# stationary's gate flipped between --check and the window: opened-not-ready), and status.json's result
 # when this run wrote one (its finished_at not before the window opened; an unchanged or skipped
 # run writes none). That ExecMainStatus holds a finished oneshot's exit code: seen 2026-10-10, read
 # as 0 beside status.json's applied; ⚠️ a non-zero exit has not been read through it (PLAN §9f).
 #
 # Time: the unit's TimeoutStartSec=55min is ruled. Every wait here is bounded inside it, with 2 min
 # left over for ExecCondition= and the close, so a slow run ends with its real cause in the line,
-# not with systemd's SIGTERM: --check 10 min (its fetch is bounded at 5); the clock check 1 min; the dispatch 10 min; the
-# update 45 min (the window's TimeoutStopSec=, above the update's own 40 min); the close 2 min.
-# Each later bound is cut to what the budget has left. ⚠️ That TimeoutStartSec= also counts the
+# not with systemd's SIGTERM: --check 12 min (its fetch is bounded at 5; the stationary's gate
+# adds about 5 more at worst, about 573 s in all, so 12 min, not 10, leaves margin); the clock check 1 min; the dispatch 10 min; the
+# update 45 min (the window's TimeoutStopSec=, above the update's own 40 min); the close 2 min;
+# the writer's return 2 min. Each later bound is cut to what the budget has left. ⚠️ That TimeoutStartSec= also counts the
 # ExecCondition= run: belief, not seen; the margin covers adsb-at-home's 20 s at most.
 #
 # Every exit closes what it opened: a window this run started is stopped (with --no-block while
@@ -74,13 +87,14 @@
 #
 # Its record: exactly one line per run, "ADSB-HOME-UPDATE <decision>: ...", on stdout, so the
 # journal has it under adsb-home-update.service (journalctl -u adsb-home-update -g ADSB-HOME-UPDATE).
-# Decisions: window-active, update-running, lock-held, not-pending, run-would-fail,
-# clock-not-ready, opened-applied, opened-unchanged, opened-incomplete, opened-rolled-back, opened-failed, error,
+# Decisions: window-active, update-running, lock-held, not-pending, gate-held, run-would-fail,
+# clock-not-ready, opened-applied, opened-not-ready, opened-unchanged, opened-incomplete, opened-rolled-back, opened-failed, error,
 # interrupted. Under systemd it carries a journal priority prefix, <5> notice or <4> warning, as
 # update.sh's ADSB-UPDATE-SKIPPED does. When adsb-at-home says anything but "at home", this does
 # not run, and adsb-at-home's own tagged line is the record. Exit 0 for the guards, not-pending,
 # opened-applied and opened-unchanged; 1 otherwise, so a run that ended without the update done
-# shows as failed, as adsb-update.service itself does. The build's mapping, not ruled.
+# shows as failed, as adsb-update.service itself does; and 1, at warning priority, whatever the
+# decision, when the writer is not recording again after the close. The build's mapping, not ruled.
 # ⛔ No SSID, and no config value, anywhere: it never reads station.yml, and --check's line names
 #    commits, steps and times only.
 # ⛔ It never stops the writer itself: the window does, the ruled way to end a session (PLAN §9f).
@@ -107,38 +121,41 @@
 
 set -uo pipefail
 
-readonly WINDOW=adsb-pull-window.service UPDATE=adsb-update.service WRITER=adsb-writer.service
+readonly WINDOW=adsb-maintenance-window.service OLD_WINDOW=adsb-pull-window.service UPDATE=adsb-update.service WRITER=adsb-writer.service
 readonly UPDATER=/usr/local/sbin/adsb-update
 readonly CLOCK_PREFLIGHT=/usr/local/bin/clock-preflight
 readonly STATUS=/var/lib/adsb-receiver/status.json
 readonly OWNER_UID=0                   # who must own the marker's directory: root
 readonly BUDGET=$((55 * 60))           # the unit's TimeoutStartSec=, ruled
 readonly MARGIN=120                    # left for ExecCondition= and the line
-readonly CHECK_BOUND=600
+readonly CHECK_BOUND=720             # the stationary's gate: the header's "Time"
 readonly CLOCK_BOUND=60
 readonly DISPATCH_BOUND=600
 readonly UPDATE_BOUND=$((45 * 60))
 readonly CLOSE_BOUND=120
+readonly WRITER_BOUND=120
 readonly POLL=5
 MARK=${ADSB_WINDOW_MARK:-} LOCK=${ADSB_RECORDING_LOCK:-}
-SAID=0 OPENED=0 MARKED=0 CLOSE_MSG='' TMPD=''
+SAID=0 OPENED=0 MARKED=0 CLOSE_MSG='' TMPD='' WARN=0 GAP_MSG=''
 
 # say <decision> <text>: the run's one line; a second call prints nothing.
 say() {
   ((SAID)) && return 0
   SAID=1
   local prio=5 pre=''
-  case $1 in error|interrupted|run-would-fail|clock-not-ready|opened-failed|opened-rolled-back) prio=4 ;; esac
+  case $1 in error|interrupted|gate-held|run-would-fail|clock-not-ready|opened-failed|opened-rolled-back|opened-not-ready) prio=4 ;; esac
+  ((WARN)) && prio=4
   [[ -n ${INVOCATION_ID:-} ]] && pre="<$prio>"
   printf '%sADSB-HOME-UPDATE %s: %s\n' "$pre" "$1" "$2"
 }
 
 # left: seconds of the budget still unspent.
 left() { echo $((BUDGET - MARGIN - SECONDS)); }
-# bounded <seconds>: that, or what the budget has left for it before the close, if less.
+# bounded <seconds>: that, or what the budget has left for it before the close and the writer's
+# return, if less.
 bounded() {
   local l
-  l=$(( $(left) - CLOSE_BOUND ))
+  l=$(( $(left) - CLOSE_BOUND - WRITER_BOUND ))
   if ((l < $1)); then echo "$((l > 0 ? l : 0))"; else echo "$1"; fi
 }
 
@@ -220,6 +237,29 @@ lock_holder_unit() {
   echo "${unit:-PID $pid}"
 }
 
+# writer_back <epoch the window was asked for>: after the close, waits up to WRITER_BOUND (or what
+# the budget has left) for the writer to hold the recording lock again. Sets GAP_MSG; returns 1 if
+# it did not.
+writer_back() {
+  local b t h
+  b=$(left)
+  ((b > WRITER_BOUND)) && b=$WRITER_BOUND
+  ((b < 0)) && b=0
+  t=$SECONDS
+  while :; do
+    h=$(lock_holder_unit) || h=''
+    if [[ $h == "$WRITER" ]]; then
+      GAP_MSG="writer off $(( $(date +%s) - $1 )) s, recording again"
+      return 0
+    fi
+    if ((SECONDS - t >= b)); then
+      GAP_MSG="writer NOT recording $((SECONDS - t)) s after the close (the recording lock is ${h:+held by }${h:-free})"
+      return 1
+    fi
+    sleep "$POLL"
+  done
+}
+
 # status_since <epoch>: status.json's result if update.sh wrote it at or after then, else nothing.
 status_since() {
   python3 - "$STATUS" "$1" 2>/dev/null <<'PY' || true
@@ -232,11 +272,11 @@ PY
 }
 
 main() {
-  local win upd rc line holder inv0 inv st job t0 t1 t0e b code result how word out why
+  local w win upd rc line holder inv0 inv st job t0 t1 t0e b code result how word out why
 
   if ((EUID != 0)); then say error "run as root; adsb-home-update.service runs it"; exit 1; fi
   if [[ $MARK != /* || $LOCK != /* ]]; then
-    say error "ADSB_WINDOW_MARK or ADSB_RECORDING_LOCK is not set; this runs from adsb-home-update.service, which sets them (setup/steps/70-portable-home-update.sh)"
+    say error "ADSB_WINDOW_MARK or ADSB_RECORDING_LOCK is not set; this runs from adsb-home-update.service, which sets them (setup/steps/70-window-opener.sh)"
     exit 1
   fi
   if ! dir_safe "${MARK%/*}"; then
@@ -250,11 +290,13 @@ main() {
   TMPD=$(mktemp -d) || { say error "mktemp failed"; exit 1; }
 
   # 1 to 3: the guards.
-  win=$(systemctl is-active "$WINDOW" 2>/dev/null) || true
-  if [[ $win == active || $win == activating || $win == deactivating ]]; then
-    say window-active "the pull window is already $win, so there is nothing to open"
-    exit 0
-  fi
+  for w in "$WINDOW" "$OLD_WINDOW"; do
+    win=$(systemctl is-active "$w" 2>/dev/null) || true
+    if [[ $win == active || $win == activating || $win == deactivating ]]; then
+      say window-active "a maintenance window ($w) is already $win, so there is nothing to open"
+      exit 0
+    fi
+  done
   upd=$(systemctl is-active "$UPDATE" 2>/dev/null) || true
   if [[ $upd == activating ]]; then
     say update-running "$UPDATE is already running, so there is nothing to open"
@@ -277,6 +319,7 @@ main() {
     0) ;;
     10|11|12|14) say not-pending "$line"; exit 0 ;;
     13) say run-would-fail "$line"; exit 1 ;;
+    15) say gate-held "$line"; exit 1 ;;
     124) say error "adsb-update --check did not finish in ${CHECK_BOUND} s, so whether an update is pending is unknown; nothing opened"; exit 1 ;;
     *) line=$(grep -E '^xx ' "$TMPD/err" | tail -n1 | sed -E 's/^xx +//') || line=''
        say error "adsb-update --check exited $rc, so whether an update is pending is unknown: ${line:-(no reason printed)}; nothing opened"
@@ -331,7 +374,7 @@ main() {
     [[ -n $inv && $inv != "$inv0" ]] && break
     if ((SECONDS - t0 >= b)); then
       close_window normal || true
-      say error "opened the pull window ($line), but $UPDATE was not dispatched within $b s, so no update ran; $CLOSE_MSG"
+      say error "opened the maintenance window ($line), but $UPDATE was not dispatched within $b s, so no update ran; $CLOSE_MSG"
       exit 1
     fi
     sleep "$POLL"
@@ -346,7 +389,7 @@ main() {
     [[ ($st == inactive || $st == failed) && -z $job ]] && break
     if ((SECONDS - t1 >= b)); then
       close_window trap || true
-      say error "opened the pull window ($line), but $UPDATE was still ${st:-unknown}${job:+ (a start job queued)} $((SECONDS - t1)) s after its dispatch, the most the opener's 55 min allows; $CLOSE_MSG"
+      say error "opened the maintenance window ($line), but $UPDATE was still ${st:-unknown}${job:+ (a start job queued)} $((SECONDS - t1)) s after its dispatch, the most the opener's 55 min allows; $CLOSE_MSG"
       exit 1
     fi
     sleep "$POLL"
@@ -364,6 +407,7 @@ main() {
        rc=0 ;;
     2) word=opened-rolled-back ;;
     3) word=opened-incomplete ;;
+    4) word=opened-not-ready ;;
     *) word=opened-failed ;;
   esac
   if ! close_window normal; then
@@ -372,7 +416,10 @@ main() {
   fi
   rm -f -- "$MARK"
   MARKED=0
-  say "$word" "$line; $how; $CLOSE_MSG"
+  if ! writer_back "$t0e"; then
+    WARN=1 rc=1
+  fi
+  say "$word" "$line; $how; $CLOSE_MSG; $GAP_MSG"
   exit "$rc"
 }
 

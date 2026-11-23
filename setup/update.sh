@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # setup/update.sh: the updater. PLAN §9f (what it does), §9g (channels), §9h (the stationary gate
-# and the denylist), §9m (the recording lock and the pull window).
+# and the denylist), §9m (the recording lock and the maintenance window).
 #
 # Installed by setup/steps/50-updater.sh as /usr/local/sbin/adsb-update, and run by
-# adsb-update.service (a oneshot, from adsb-update.timer and from the pull window). Run by hand as
+# adsb-update.service (a oneshot, from adsb-update.timer and from the maintenance window). Run by hand as
 # root for the by-hand modes. Self-contained: it sources nothing, because from /usr/local/sbin
 # there is no ../lib.sh. The one value it needs from the steps' contract, ADSB_RC_OTHER_ROLE, it
 # reads from the tree being run's own setup/lib.sh, so it interprets the exit code that tree emits;
@@ -60,7 +60,7 @@
 #     runs the first build again at that same commit, pinned (after each boot and daily; offline
 #     too, since the commit is already in the clone, so an offline rig spends one attempt per
 #     boot) while the recording lock is free; on a recording portable the writer holds it from
-#     every boot, so the pull window's run is the one that completes it. It follows the channel
+#     every boot, so the maintenance window's run is the one that completes it. It follows the channel
 #     only after the first build completes. The timer with no `applied` and no such status
 #     refuses: there is no build on this rig.
 #
@@ -99,7 +99,7 @@
 #    and setup/bootstrap.sh is the one thing that may act on it, once, on a first build.
 # ⛔ Its own code never stops the writer (a step may: 40 restarts it when its unit or binary
 #    changed, under the lock, so it is not recording then). At its end it starts the writer only if
-#    the writer is enabled and inactive and the pull window is not active, activating or
+#    the writer is enabled and inactive and the maintenance window is not active, activating or
 #    deactivating.
 # ⛔ The update path takes no role flag: the role comes from station.yml. --role exists only with
 #    --bootstrap, to write that station.yml before any step runs.
@@ -122,8 +122,12 @@
 # when a signal arrived before anything changed (nothing recorded then), or during a first build
 # (recorded as incomplete). --check has its own, below.
 #
-# --check (PLAN §9f's 2026-10-04 (night) update; §9e's 2026-10-05 (a)): no lock, and nothing
-# written: no status.json, no log directory, nothing under /var/lib, no apt heal. It reads
+# --check (PLAN §9f's 2026-10-04 (night) update; §9e's 2026-10-05 (a)): no lock, and none of the
+# rig's state written: no status.json, no log directory, nothing under /var/lib, no apt heal.
+# ⚠️ Not "writes nothing" on the 🏠 stationary since #33 A4: its gate (below) writes a scratch
+# directory of its own (mktemp, removed on exit), and archive-preflight writes and removes a probe
+# file on the archive drive. That this is harmless beside a recording writer (it renames no .part
+# while adsb-writer.service is active) is belief, not seen on hardware. It reads
 # station.yml, status.json and `applied` (a dangling `applied` is read through applied-rev, as a
 # run would recover it, but nothing is recreated), fetches, and runs the same resolver a timer run
 # does, then the same 24 h backoff. So "pending" means a timer-mode run in a window would try a
@@ -133,27 +137,34 @@
 #   - An incomplete first build (status.json: result incomplete, candidate_rev) is always pending,
 #     with no fetch, since the pin does not move. Its line is §9e's (a) reason line, from
 #     status.json's result, candidate_rev, failed_steps and finished_at only.
-#   - The 🏠 stationary's gate is not evaluated (it runs the preflights; --check answers the 🎒
-#     portable opener's question).
+#   - On the 🏠 stationary, a candidate that would be pending meets PLAN §9h's gate first
+#     (check_gate, #33 A4): the same readiness and gate_holds a run calls before changing anything,
+#     so the two cannot drift. If it holds, the line is "not pending: PLAN §9h's gate would hold it
+#     back (<the checks not ok>); ..." and the exit is 15: a window would stop the writer for a run
+#     that exits 4 and changes nothing. Not run on the 🎒 portable. Its worst case is about 573 s
+#     (the 5 min fetch, two preflights at 120 s, tailscale's 30 s, readsb's 3 s).
 #   - Where a timer run would itself fail before any step (no build on the rig; `applied`
 #     dangling with applied-rev unusable, where the run would record failed; the pinned commit
 #     missing from the clone; no clone; no origin/stable; station.yml unreadable; git unable to
 #     tell whether the candidate descends from the applied commit), --check says so
 #     on stdout, "not pending: a timer run here would fail too, before any step: <why>", and exits
 #     13: the rig needs a hand, and a window would change nothing.
-#   - A signal ends it at once, with 128+N, its fetch killed: it has written nothing, so there is
-#     nothing to clean up. (Its fetch runs in the background so that `wait` can be interrupted;
+#   - A signal ends it at once, with 128+N, its fetch or its gate's checks killed (the whole process
+#     tree, check_signal): it has written nothing but the gate's scratch directory, which its exit
+#     removes. (Its fetch runs in the background so that `wait` can be interrupted;
 #     that `timeout` passes the signal on to git is GNU timeout's documented behavior, not seen.)
 # Exit codes: 0 pending; 10 not pending (the channel is unchanged, or its tip is under the soak,
 # or not yet seen by a timer run, which starts its soak: --check records nothing); 11 not pending
 # (the candidate failed within 24 h: the backoff); 12 not pending (the fetch failed); 13 not
 # pending, a timer run would fail (above); 14 not pending, a timer run would refuse the candidate
-# as a rewind (it does not descend from the applied commit; only --rev applies it); 1 could not
+# as a rewind (it does not descend from the applied commit; only --rev applies it); 15 not
+# pending, the 🏠 stationary's PLAN §9h gate holds (a run would exit 4, changing nothing); 1 could not
 # tell (not root, a tool missing), with an "xx  FAIL:" line on stderr; 64 bad usage; 128+N after
 # a signal.
 #
 # status.json's trigger and opened_by (the same update), read once, when the run takes the lock:
-#   - adsb-pull-window.service active, activating or deactivating: trigger window, and opened_by
+#   - a maintenance window (adsb-maintenance-window.service, or in round 1 of the rename, #33 A4,
+#     adsb-pull-window.service: window_open checks both) active, activating or deactivating: trigger window, and opened_by
 #     adsb-home-update if the opener's marker (/run/adsb-home-update/window-opened-by) exists AND
 #     adsb-home-update.service is activating (the opener is running), else hand (a window started
 #     by hand, by tools/pull-archive --end-session, or by setup/bootstrap.sh's (b)). A marker left behind with no
@@ -163,7 +174,7 @@
 #     The implementer's choice, not ruled.
 # A timer run that finds the lock held prints one line holding ADSB-UPDATE-SKIPPED (under systemd
 # it starts with a <N> priority prefix, which the journal turns into the line's priority: warning
-# when the pull window is open, where the writer should have stopped first, PLAN §9m). A by-hand
+# when the maintenance window is open, where the writer should have stopped first, PLAN §9m). A by-hand
 # run that finds the lock held prints the holder and advice for it instead, and exits 1.
 #
 # What has run on hardware: the portable, mobile-adsb: the first build through setup/bootstrap.sh
@@ -194,7 +205,9 @@ readonly HOME_DIR=/run/adsb-home-update
 readonly WINDOW_MARK=$HOME_DIR/window-opened-by
 readonly ETC_YML=/etc/adsb-receiver/station.yml
 readonly WRITER_UNIT=adsb-writer.service
-readonly WINDOW_UNIT=adsb-pull-window.service
+# The maintenance window (#33 A4), and the name it had, which the rename's round 2 removes: in round
+# 1 every reader of "is a window open" checks both (window_open).
+readonly WINDOW_UNIT=adsb-maintenance-window.service OLD_WINDOW_UNIT=adsb-pull-window.service
 readonly HOME_UNIT=adsb-home-update.service
 readonly FIRST_STEP=50-updater
 # The soak's role default (PLAN §9g's 2026-10-05 update); update.soak_days in station.yml overrides
@@ -218,7 +231,7 @@ readonly SEC_UPDATE_TIMEOUT=300 SEC_UU_TIMEOUT=900
 readonly RC_FAILED=1 RC_ROLLED_BACK=2 RC_INCOMPLETE=3 RC_NOT_READY=4 RC_USAGE=64
 # --check's "not pending" codes (the header).
 readonly RC_CHECK_NONE=10 RC_CHECK_BACKOFF=11 RC_CHECK_NO_FETCH=12 RC_CHECK_WOULD_FAIL=13
-readonly RC_CHECK_REWIND=14
+readonly RC_CHECK_REWIND=14 RC_CHECK_GATE=15
 
 # --- State ---------------------------------------------------------------------
 
@@ -520,8 +533,26 @@ take_lock() {
   LOCKED=1
 }
 
+# window_open: is a maintenance window open, under either name (round 1 of the rename, #33 A4)?
+# Sets WIN to the open one's state (active, activating or deactivating) and WIN_NAME to its unit,
+# and returns 0; otherwise WIN is the new name's state and it returns 1.
+WIN='' WIN_NAME=''
+window_open() {
+  local u s first=''
+  for u in "$WINDOW_UNIT" "$OLD_WINDOW_UNIT"; do
+    s=$(systemctl is-active "$u" 2>/dev/null) || true
+    [[ -n $first ]] || first=${s:-unknown}
+    if [[ $s == active || $s == activating || $s == deactivating ]]; then
+      WIN=$s WIN_NAME=$u
+      return 0
+    fi
+  done
+  WIN=$first WIN_NAME=$WINDOW_UNIT
+  return 1
+}
+
 # lock_held_by_hand: the refusal of a run by hand, or by setup/bootstrap.sh, that finds the lock
-# held, with advice for the holder it names: the writer (a recording session), a pull window's
+# held, with advice for the holder it names: the writer (a recording session), a maintenance window's
 # update, or anything else. ADSB_BOOTSTRAP_WINDOW is setup/bootstrap.sh's hint, read only under
 # --bootstrap: why the bootstrap did or did not end the session itself (opened, no-unit, built,
 # not-writer). It is passed because nothing else tells this script that its caller is the bootstrap
@@ -531,15 +562,16 @@ take_lock() {
 lock_held_by_hand() {
   local holder win why='' again='run this again'
   holder=$(lock_holder)
-  win=$(systemctl is-active "$WINDOW_UNIT" 2>/dev/null) || true
+  window_open || true
+  win=$WIN
   [[ $MODE == bootstrap ]] && again='run the bootstrap again'
   printf 'xx  the recording lock is held by %s.\n' "$holder" >&2
   if [[ $holder == "$WRITER_UNIT "* ]]; then
     if [[ $MODE == bootstrap ]]; then
       case ${ADSB_BOOTSTRAP_WINDOW:-} in
-        no-unit) why="$WINDOW_UNIT is not loaded on this rig" ;;
+        no-unit) why="neither $WINDOW_UNIT nor $OLD_WINDOW_UNIT is loaded on this rig" ;;
         built) why="this rig already has a build, and the bootstrap ends a session only on a first build" ;;
-        opened) why="it ended one through the pull window, and the writer holds the lock again" ;;
+        opened) why="it ended one through the maintenance window, and the writer holds the lock again" ;;
         not-writer) why="the writer did not hold the lock when the bootstrap looked" ;;
       esac
     fi
@@ -549,11 +581,11 @@ lock_held_by_hand() {
       printf '    A recording session is on: run the bootstrap (setup/bootstrap.sh), which ends it itself on\n' >&2
       printf '    a first build; or end it by hand.\n' >&2
     fi
-    printf '    By hand: start the pull window (sudo systemctl start %s), %s once the\n' "$WINDOW_UNIT" "$again" >&2
+    printf '    By hand: start the maintenance window (sudo systemctl start %s), %s once the\n' "$WINDOW_UNIT" "$again" >&2
     printf '    adsb-update.service it starts has finished, then stop the window (sudo systemctl stop %s);\n' "$WINDOW_UNIT" >&2
     printf '    or, where no window unit exists, stop the writer by hand (sudo systemctl stop %s) and %s.\n' "$WRITER_UNIT" "$again" >&2
   elif [[ $win == active || $win == activating || $win == deactivating ]]; then
-    printf '    A pull window is open and its update is running; wait for it to finish, then %s.\n' "$again" >&2
+    printf '    A maintenance window is open and its update is running; wait for it to finish, then %s.\n' "$again" >&2
   else
     printf '    %s holds the lock; wait for it to finish, then %s.\n' "$holder" "$again" >&2
   fi
@@ -561,15 +593,16 @@ lock_held_by_hand() {
 
 # lock_held_timer: the timer's lock-held exit is 0 (ruled), so it is told apart by its line: it
 # starts ADSB-UPDATE-SKIPPED, and under systemd it carries a journal priority (the <N> prefix,
-# SyslogLevelPrefix=): warning when the pull window is open, where the writer should already have
+# SyslogLevelPrefix=): warning when the maintenance window is open, where the writer should already have
 # stopped (PLAN §9m's ordering), notice otherwise.
 lock_held_timer() {
   local holder win prio=5 why="a recording session is on, so no update (PLAN §9f)"
   holder=$(lock_holder)
-  win=$(systemctl is-active "$WINDOW_UNIT" 2>/dev/null) || true
+  window_open || true
+  win=$WIN
   if [[ $win == active || $win == activating || $win == deactivating ]]; then
     prio=4
-    why="the pull window is $win, so the writer should have stopped before this run; it has not, and this window updates nothing (PLAN §9m's ordering did not hold)"
+    why="the maintenance window ($WIN_NAME) is $win, so the writer should have stopped before this run; it has not, and this window updates nothing (PLAN §9m's ordering did not hold)"
   fi
   local pre=''
   [[ -n ${INVOCATION_ID:-} ]] && pre="<$prio>"
@@ -586,16 +619,17 @@ release_lock() {
 }
 
 # writer_start_rule: at the end of a run, after the lock is released (PLAN §9f, §9m). Inside the
-# pull window a start would stop the window mid-pull; the window's own end starts the writer, and
+# maintenance window a start would stop the window mid-pull; the window's own end starts the writer, and
 # a window that is deactivating is waiting for this run to end before it does. A refusing writer
 # is activating (auto-restart), not inactive, so it is left alone.
 writer_start_rule() {
   local en act win
   en=$(systemctl is-enabled "$WRITER_UNIT" 2>/dev/null) || true
   act=$(systemctl is-active "$WRITER_UNIT" 2>/dev/null) || true
-  win=$(systemctl is-active "$WINDOW_UNIT" 2>/dev/null) || true
+  window_open || true
+  win=$WIN
   if [[ $en == enabled && $act == inactive && $win != active && $win != activating && $win != deactivating ]]; then
-    log "the writer is enabled and inactive, and no pull window is open: starting it"
+    log "the writer is enabled and inactive, and no maintenance window is open: starting it"
     systemctl start --no-block "$WRITER_UNIT" || warn "systemctl start $WRITER_UNIT failed"
   fi
 }
@@ -606,7 +640,8 @@ writer_start_rule() {
 # unit running, is the record.
 window_context() {
   local win
-  win=$(systemctl is-active "$WINDOW_UNIT" 2>/dev/null) || true
+  window_open || true
+  win=$WIN
   if [[ $win == active || $win == activating || $win == deactivating ]]; then
     TRIGGER=window OPENED_BY=hand
     if [[ -e $WINDOW_MARK ]] \
@@ -1373,7 +1408,7 @@ examine_applied() {
   fi
   if [[ $LAST_RESULT == incomplete && -n $LAST_CAND ]]; then
     [[ $MODE == timer ]] \
-      || fail "the first build is incomplete (status.json) and stays pinned at the bootstrap's commit $(sha12 "$LAST_CAND") until it completes (the timer with the lock free, or a pull window on a recording portable); --rev waits until then. If the pinned commit itself cannot pass, run the one-command bootstrap again (BUILD.md §8)"
+      || fail "the first build is incomplete (status.json) and stays pinned at the bootstrap's commit $(sha12 "$LAST_CAND") until it completes (the timer with the lock free, or a maintenance window on a recording portable); --rev waits until then. If the pinned commit itself cannot pass, run the one-command bootstrap again (BUILD.md §8)"
     git -C "$REPO" cat-file -e "$LAST_CAND^{commit}" 2>/dev/null \
       || fail "the incomplete first build's commit $(sha12 "$LAST_CAND") is not in the clone; run the bootstrap again (it builds stable's tip without the soak, PLAN §9g)"
     FIRST_BUILD=1 PIN=$LAST_CAND
@@ -1418,13 +1453,49 @@ in_backoff() {
 # shellcheck disable=SC2317,SC2329  # invoked by trap (0.9 says SC2317, 0.11 SC2329)
 # check_signal <128+N>: --check's signal handler: kill its fetch, if one runs, and exit.
 check_signal() {
-  [[ -n $CHECK_CHILD ]] && kill "$CHECK_CHILD" 2>/dev/null
+  [[ -n $CHECK_CHILD ]] && kill_tree "$CHECK_CHILD"
   exit "$1"
+}
+
+# shellcheck disable=SC2317,SC2329  # invoked from check_signal, a trap (0.9 says SC2317, 0.11 SC2329)
+# kill_tree <pid>: SIGTERM to the process and all its descendants, the deepest first, so neither a
+# preflight under its timeout nor git under its own is left running. Without pgrep (procps) it
+# reaches the process alone, as before #33 A4.
+kill_tree() {
+  local c
+  for c in $(pgrep -P "$1" 2>/dev/null); do kill_tree "$c"; done
+  kill "$1" 2>/dev/null
+  return 0
+}
+
+# check_gate: --check's PLAN §9h gate, 🏠 stationary only (#33 A4; the header). The run's own
+# readiness and gate_holds, in a scratch directory of its own, removed on exit. readiness runs in
+# the background and is waited for, as the fetch is, so a signal ends the wait at once and
+# check_signal kills its children. Returns when the gate passes; prints the one line and exits 15
+# when it holds.
+check_gate() {
+  local bad
+  WORK=$(mktemp -d) || fail "mktemp failed, so the stationary's gate could not run"
+  trap 'rm -rf -- "$WORK"' EXIT
+  log "the stationary's gate (PLAN §9h), as a run checks it before changing anything"
+  readiness &
+  CHECK_CHILD=$!
+  wait "$CHECK_CHILD" || true
+  CHECK_CHILD=''
+  if gate_holds; then
+    log "the gate passes"
+    return 0
+  fi
+  cat "$WORK/readiness.tsv" >&2
+  bad=$(awk -F'\t' '$3 != "ok" { printf "%s%s %s", sep, $1, $3; sep = ", " }' "$WORK/readiness.tsv")
+  printf "not pending: PLAN §9h's gate would hold it back (%s); %s's tip %s is the candidate, applied is %s, and a window would change nothing\n" \
+    "${bad:-the checks did not all run}" "$CHANNEL" "$(sha12 "$CAND")" "$(sha12 "$OLD_SHA")"
+  exit "$RC_CHECK_GATE"
 }
 
 # check_pending: --check (the header). The timer run's path up to the point where it would start
 # changing the rig, reading only: no lock, no apt heal, no worktree, no status.json, no log
-# directory. Prints its one verdict line on stdout and exits. Its fail() is exit 13 (above).
+# directory (on the stationary, its gate's scratch directory, check_gate). Prints its one verdict line on stdout and exits. Its fail() is exit 13 (above).
 check_pending() {
   local f rev=''
   CHECKING=1
@@ -1494,6 +1565,9 @@ check_pending() {
   if in_backoff; then
     printf 'not pending: %s\n' "$BACKOFF_MSG"
     exit "$RC_CHECK_BACKOFF"
+  fi
+  if [[ $ROLE == stationary ]]; then
+    check_gate
   fi
   printf "pending: %s's tip %s is the candidate; applied is %s\n" "$CHANNEL" "$(sha12 "$CAND")" "$(sha12 "$OLD_SHA")"
   exit 0
@@ -1619,8 +1693,9 @@ main() {
     command -v "$t" >/dev/null || fail "$t is not installed"
   done
   if [[ $MODE == check ]]; then
-    # Before the scratch directory, the EXIT trap and the lock: --check writes nothing, so a
-    # signal ends it at once (the header).
+    # Before the scratch directory, the EXIT trap and the lock: --check writes none of the run's
+    # state (its stationary gate keeps a scratch directory of its own, check_gate), so a signal
+    # ends it at once (the header).
     trap 'check_signal 143' TERM
     trap 'check_signal 130' INT
     trap 'check_signal 129' HUP
@@ -1809,7 +1884,7 @@ main() {
     # carry on as after an ordinary incomplete build; status.json still says incomplete.
     local code=$RC_INCOMPLETE
     ((TERMINATED)) && code=$(sig_exit)
-    warn "the build is INCOMPLETE: ${FAILED_STEPS[*]}. Each step's log is in $RUN_LOGS. Every update timer run (after each boot, and daily) runs the build again at this same commit while the recording lock is free (a rig with no writer running), so a step waiting for hardware completes once it is plugged in. On a recording portable the writer holds the lock from every boot, so the build completes in the next pull window instead (tools/pull-archive --end-session from the workstation, or sudo systemctl start adsb-pull-window.service, then stop, on the rig). If a failed step cannot pass at this commit, run the one-command bootstrap again (BUILD.md §8), which pins to stable's tip. The archive drive is the exception: only the bootstrap formats it, so a drive plugged in later is formatted by hand (step 30 prints the command), or by running the bootstrap again"
+    warn "the build is INCOMPLETE: ${FAILED_STEPS[*]}. Each step's log is in $RUN_LOGS. Every update timer run (after each boot, and daily) runs the build again at this same commit while the recording lock is free (a rig with no writer running), so a step waiting for hardware completes once it is plugged in. On a recording portable the writer holds the lock from every boot, so the build completes in the next maintenance window instead (tools/pull-archive --end-session from the workstation, or sudo systemctl start adsb-maintenance-window.service, then stop, on the rig). If a failed step cannot pass at this commit, run the one-command bootstrap again (BUILD.md §8), which pins to stable's tip. The archive drive is the exception: only the bootstrap formats it, so a drive plugged in later is formatted by hand (step 30 prints the command), or by running the bootstrap again"
     readiness
     write_status "$code"
     STAGE=finished

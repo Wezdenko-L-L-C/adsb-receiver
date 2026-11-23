@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # adsb-at-home: is the 🎒 portable rig on its home Wi-Fi? PLAN §9f's 2026-10-04 (night) update,
-# the home-gated window opener. Installed by setup/steps/70-portable-home-update.sh to
+# the home-gated window opener. Installed by setup/steps/70-window-opener.sh to
 # /usr/local/bin/adsb-at-home (copied, so it runs outside the clone), and run as
 # adsb-home-update.service's ExecCondition=, as root. Takes no arguments.
 #
