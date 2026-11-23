@@ -361,7 +361,11 @@ EOF
   #    repo (PLAN §9f): change it here.
   # 📋 Not yet from station.yml: `--device 0` is what ran. Selecting the stick
   #    by its EEPROM serial (dongles.adsb, RADIOS.md §5 rule 2) is a follow-up.
-  #    The stationary rig's position source is open (#33). ⚠️ A fixed
+  #    The stationary rig's position source is open (#33). Corrected
+  #    2026-11-22: no longer open. #33 A7 (Chris, 2026-11-14 22:00) chose a
+  #    static responder, and 15-stationary-position serves station.yml's
+  #    position on 127.0.0.1:2947 in gpsd's protocol; this line is unchanged
+  #    and role-blind. ⚠️ A fixed
   #    --lat/--lon is not the easy answer it looks: readsb then prints
   #    `Using lat: … lon: …` to its journal at every start, and --quiet does not
   #    suppress it (readsb.c:121; read in readsb's source at the pin, not seen
@@ -417,7 +421,11 @@ EOF
   #    - The stationary rig runs no gpsd (20-portable-clock is portable-only,
   #      and no stationary clock step exists), so there the connector dials a
   #      closed loopback port and is inert; the stationary's position source
-  #      stays open (#33). Without silent_fail readsb logs the first 9 failed
+  #      stays open (#33). Corrected 2026-11-22: #33 A7 ruled it a static
+  #      responder (Chris, 2026-11-14 22:00), and 15-stationary-position,
+  #      which runs after this step, now listens there with station.yml's
+  #      position (bin/adsb-position); until that step has run, the connector
+  #      is inert as above. Without silent_fail readsb logs the first 9 failed
   #      dials, then the 10th and every 200th (net_io.c,
   #      suppressConnectError()). No silent_fail token: it would also hide a
   #      gpsd failure on the portable.
@@ -1196,7 +1204,7 @@ verify() {
       || die "something listens on port ${GPSD_ADDR##*:} (gpsd), but readsb (PID $rpid) has no established connection to $GPSD_ADDR after 20 s; check: journalctl -u readsb for connector errors, and systemctl status gpsd gpsd.socket"
     pass "readsb holds an established connection to gpsd on $GPSD_ADDR"
   else
-    log "nothing listens on port ${GPSD_ADDR##*:} on this rig (no gpsd here, or not yet set up), so readsb's gpsd connector is idle and readsb has no position source here; one for a rig without gpsd is open in #33"
+    log "nothing listens on port ${GPSD_ADDR##*:} on this rig (no gpsd here, or not yet set up), so readsb's gpsd connector is idle and readsb has no position source here; on the stationary rig, setup/steps/15-stationary-position.sh provides it"
     pass "no gpsd listens on port ${GPSD_ADDR##*:}: readsb's gpsd connector has nothing to follow here (idle, not a fault)"
   fi
 

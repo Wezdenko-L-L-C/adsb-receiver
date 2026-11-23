@@ -684,6 +684,9 @@ on the other rig `update.sh` skips it.*
 - `10-decoder`: `readsb`, built from source at a pinned commit with RTL-SDR support, against the
   packaged `librtlsdr` 2.0.2, and never installed from apt; and `tar1090`, installed by its own
   installer from a pinned commit. ⚠️ Its aircraft database, `tar1090-db`, is not pinned. Step 1.
+- `15-stationary-position` 🏠: `bin/adsb-position`, a socket-activated responder that serves
+  `station.yml`'s position to readsb on `127.0.0.1:2947` in gpsd's protocol. *Added 2026-11-22;
+  step 4b below.*
 - `20-portable-clock` 🎒: `gpsd`, `chrony`, the RTC and `bin/clock-preflight`. Step 2.
 - `20-stationary-clock` 🏠: `chrony` on NTP only, `bin/clock-preflight`, and on Wi-Fi the burst
   timer. *Added 2026-11-22.*
@@ -844,6 +847,11 @@ and no script can pass them for you:
    ```
 
    `archive.min_free_gb=4` suits a small USB drive (the template's 20 is for the Pi 5's NVMe).
+
+   *Added 2026-11-22:* the surveyed position reaches readsb through step `15-stationary-position`
+   (#33 A7, a static responder on `127.0.0.1:2947`; no gpsd, no `--lat`/`--lon`). Latitude and
+   longitude are required: without them the step fails and the rig is not ready. Its `--verify`
+   checks that readsb's `receiver.json` matches `station.yml` within 1 m, and never prints the position.
 
    *D. The check:* about 20 minutes after the build, the store shows `<host>/beast/<today>/` with
    files, and on the rig `sudo cat /var/lib/adsb-uploader/state.json` says `"result": "ok"`.

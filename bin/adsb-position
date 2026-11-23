@@ -1,0 +1,200 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+#
+# adsb-position: the 🏠 stationary rig's receiver position, served to readsb in gpsd's protocol on
+# 127.0.0.1:2947. Chris, 2026-11-14 22:00, #33 A7, "Static responder": a small root-started,
+# socket-activated unit speaks gpsd's protocol there with the surveyed position from station.yml,
+# and step 10 stays shared and role-blind. Installed by setup/steps/15-stationary-position.sh to
+# /usr/local/bin/adsb-position, and run by adsb-position@.service, one instance per connection
+# (adsb-position.socket, Accept=yes): the socket is the instance's stdin and stdout. Takes no
+# arguments.
+#
+# ⛔ It is not gpsd, and has no device and no clock: PLAN rejects running gpsd on the stationary.
+#    Its TPV carries no "time" field, so nothing can take it for a time source; a GPS time source
+#    on the stationary is not built (Chris's 2026-11-14 answer leaves it for later).
+#
+# The position comes in as a systemd credential, "position" (LoadCredential=), a JSON object
+# {"lat": <deg>, "lon": <deg>, "alt_m": <m above sea level, or null>} that the step renders from
+# station.yml's position: block. The unit's dynamic user never opens station.yml, which is
+# root-only and holds more than a position.
+#
+# ⛔ The position is never printed (PLAN §5, "The one position source, and the surface rule"): no
+#    message here carries a coordinate, and stderr goes to the journal. Only a client that sends
+#    ?WATCH gets it, on a loopback socket; readsb then serves it anyway, in receiver.json.
+#
+# What readsb needs, read in its source at the step-10 pin (v3.16.17, 094720939c...), not seen on a
+# rig:
+#   - net_io.c, checkServiceConnected(): once connected, a gpsd_in connector sends
+#     ?WATCH={"enable":true,"json":true}; and nothing else.
+#   - net_io.c, handle_gpsd(): it reads newline-terminated lines, drops spaces, ignores any line
+#     without "class":"TPV", and takes "lat": and "lon": (both required) and "alt": (optional,
+#     metres AMSL: receiver.json shows it as alt_m_amsl), each value ended by a comma or the
+#     line's end. It ignores a lat outside ±89.9, a lon outside ±180, and |lat| and |lon| both
+#     under 0.1. It reads no "mode" and no "time". One TPV sets the position until readsb
+#     restarts; each TPV rewrites receiver.json and gpsd.json.
+#   - gpsd_in has no input heartbeat (net_io.c, serviceInit: no_heartbeat), so an idle connection
+#     is never dropped; a closed one is redialled every --net-connector-delay (15 s).
+# So this sends a VERSION line at once (step 10's verify reads one before it sends anything), and
+# after a ?WATCH that enables, a WATCH line and a TPV, then the TPV again every REPEAT_S, until
+# the client closes.
+#
+# Exit codes: 0 the client closed; 1 no usable position credential (the reason, never a value, on
+# stderr; the connection closes with nothing sent).
+
+import json
+import math
+import os
+import select
+import sys
+import time
+
+RELEASE = "adsb-position"
+REPEAT_S = 60.0
+CRED_NAME = "position"
+MAX_LINE = 4096
+
+
+class PositionError(Exception):
+    """A position that readsb would not take. The message never carries a value."""
+
+
+def _number(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
+def check_position(lat, lon, alt_m):
+    """(lat, lon, alt_m or None), as readsb's handle_gpsd() would take them, or PositionError."""
+    if lat is None or lon is None:
+        raise PositionError("latitude and longitude are not both set")
+    if not _number(lat) or not _number(lon):
+        raise PositionError("latitude and longitude must both be numbers, in degrees")
+    if not -89.9 <= lat <= 89.9 or not -180 <= lon <= 180:
+        raise PositionError("latitude must be within ±89.9 and longitude within ±180 degrees "
+                            "(readsb ignores a position outside them)")
+    if abs(lat) < 0.1 and abs(lon) < 0.1:
+        raise PositionError("latitude and longitude are both within 0.1 degree of zero, which "
+                            "readsb ignores as implausible")
+    if alt_m is not None and (not _number(alt_m) or not -500 <= alt_m <= 10000):
+        raise PositionError("altitude_m must be null, or a number of metres above sea level "
+                            "between -500 and 10000")
+    return float(lat), float(lon), None if alt_m is None else float(alt_m)
+
+
+def render_credential(lat, lon, alt_m):
+    """The credential's text for a checked position."""
+    lat, lon, alt_m = check_position(lat, lon, alt_m)
+    return json.dumps({"lat": lat, "lon": lon, "alt_m": alt_m}) + "\n"
+
+
+def load_position(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except OSError as e:
+        raise PositionError(f"cannot read the position credential: {e.strerror}") from None
+    except ValueError:
+        raise PositionError("the position credential is not JSON") from None
+    if not isinstance(doc, dict):
+        raise PositionError("the position credential is not a JSON object")
+    return check_position(doc.get("lat"), doc.get("lon"), doc.get("alt_m"))
+
+
+def _line(obj):
+    # Compact, as gpsd writes: handle_gpsd() ends each value at a comma.
+    return (json.dumps(obj, separators=(",", ":")) + "\r\n").encode()
+
+
+def version_line():
+    return _line({"class": "VERSION", "release": RELEASE, "rev": RELEASE,
+                  "proto_major": 3, "proto_minor": 11})
+
+
+def watch_line(enable):
+    return _line({"class": "WATCH", "enable": enable, "json": enable})
+
+
+def tpv_line(pos):
+    lat, lon, alt_m = pos
+    tpv = {"class": "TPV", "device": "static", "mode": 3 if alt_m is not None else 2,
+           "lat": lat, "lon": lon}
+    if alt_m is not None:
+        tpv["alt"] = alt_m
+    return _line(tpv)
+
+
+def error_line():
+    return _line({"class": "ERROR", "message": "unrecognized request"})
+
+
+def parse_request(raw):
+    """One request line → ("watch", bool), ("version",) or ("unknown",). gpsd's requests are
+    ?NAME; or ?NAME={json}; ."""
+    s = raw.strip().rstrip(";").strip()
+    if s in ("?VERSION", "?VERSION="):
+        return ("version",)
+    if s == "?WATCH":
+        return ("watch", True)
+    if s.startswith("?WATCH="):
+        try:
+            arg = json.loads(s[len("?WATCH="):])
+        except ValueError:
+            return ("unknown",)
+        if isinstance(arg, dict):
+            return ("watch", arg.get("enable", True) is not False)
+    return ("unknown",)
+
+
+def _send(fd, data):
+    while data:
+        data = data[os.write(fd, data):]
+
+
+def serve(rfd, wfd, pos, repeat_s=REPEAT_S, now=time.monotonic):
+    """Serve one connection until the client closes. Returns 0."""
+    try:
+        _send(wfd, version_line())
+        buf = b""
+        next_tpv = None
+        while True:
+            timeout = None if next_tpv is None else max(0.0, next_tpv - now())
+            ready, _, _ = select.select([rfd], [], [], timeout)
+            if ready:
+                chunk = os.read(rfd, 4096)
+                if not chunk:
+                    return 0
+                buf += chunk
+                while b"\n" in buf:
+                    raw, buf = buf.split(b"\n", 1)
+                    req = parse_request(raw.decode("utf-8", "replace"))
+                    if req[0] == "watch":
+                        _send(wfd, watch_line(req[1]))
+                        next_tpv = now() if req[1] else None
+                    elif req[0] == "version":
+                        _send(wfd, version_line())
+                    elif raw.strip():
+                        _send(wfd, error_line())
+                if len(buf) > MAX_LINE:
+                    return 0
+            if next_tpv is not None and now() >= next_tpv:
+                _send(wfd, tpv_line(pos))
+                next_tpv = now() + repeat_s
+    except (BrokenPipeError, ConnectionResetError):
+        return 0
+
+
+def main():
+    cdir = os.environ.get("CREDENTIALS_DIRECTORY")
+    if not cdir:
+        print("adsb-position: no CREDENTIALS_DIRECTORY; run it as adsb-position@.service, which "
+              "hands the position in by LoadCredential=", file=sys.stderr)
+        return 1
+    try:
+        pos = load_position(os.path.join(cdir, CRED_NAME))
+    except PositionError as e:
+        print(f"adsb-position: {e}; re-run setup/steps/15-stationary-position.sh", file=sys.stderr)
+        return 1
+    return serve(0, 1, pos)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
