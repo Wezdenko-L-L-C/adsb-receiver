@@ -43,7 +43,7 @@ exit 1
 PASSWD = """\
 root:x:0:0:root:/root:/bin/bash
 daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin
-chris:x:1000:1000:,,,:/home/chris:/bin/bash
+rigadmin:x:1000:1000:,,,:/home/rigadmin:/bin/bash
 adsb-receiver:x:999:999::/nonexistent:/usr/sbin/nologin
 """
 
@@ -103,16 +103,16 @@ class Step58(unittest.TestCase):
         self.assertIn("to each of the 3 accounts but root, except those holding a general grant (none)", r.stdout)
 
     def test_a_general_grant_is_named_not_failed(self):
-        self.grant("chris ALL")
+        self.grant("rigadmin ALL")
         r = self.run_fn("no_sudo_grant_opens_window")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("holding a general grant (chris)", r.stdout)
+        self.assertIn("holding a general grant (rigadmin)", r.stdout)
 
     def test_a_grant_naming_the_new_window_fails(self):
-        self.grant(f"chris /usr/bin/systemctl stop {W}")
+        self.grant(f"rigadmin /usr/bin/systemctl stop {W}")
         r = self.run_fn("no_sudo_grant_opens_window")
         self.assertNotEqual(r.returncode, 0, r.stdout)
-        self.assertIn(f"chris: /usr/bin/systemctl stop {W}", r.stderr)
+        self.assertIn(f"rigadmin: /usr/bin/systemctl stop {W}", r.stderr)
 
     def test_a_grant_to_a_service_account_for_the_old_window_fails(self):
         self.grant(f"adsb-receiver /usr/bin/systemctl start {OLD}")

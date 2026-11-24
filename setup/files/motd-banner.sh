@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # The login banner, installed by setup/steps/50-updater.sh as /etc/update-motd.d/50-adsb-receiver.
-# pam_motd runs /etc/update-motd.d at each SSH login, as root. Seen on mobile-adsb, 2026-10-04:
+# pam_motd runs /etc/update-motd.d at each SSH login, as root. Seen on the portable, 2026-10-04:
 # /etc/pam.d/sshd line 33 has `pam_motd.so motd=/run/motd.dynamic` without noupdate, and
 # /run/motd.dynamic was rewritten at an SSH login with 10-uname's output. As root, seen there
 # 2026-10-15 (libpam-modules 1.7.0-5): pam_motd.so carries `run-parts --lsbsysinit

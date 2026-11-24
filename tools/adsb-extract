@@ -34,7 +34,7 @@
 #       ("!! FAILS"), and the rest are still read.
 #       A complete file with records but no frames (events only, or readsb's
 #       all-zero keepalives only) is warned about, not failed: "!! no frames",
-#       with its event kinds and counts, so an outage shows (Chris, 2026-10-10;
+#       with its event kinds and counts, so an outage shows (ruled 2026-10-10;
 #       ✅ seen: 7 such files on 2026-10-05, written while readsb was
 #       disconnected, and the writer writes a file for every interval it is
 #       up). The totals line counts warned files apart from failing ones.

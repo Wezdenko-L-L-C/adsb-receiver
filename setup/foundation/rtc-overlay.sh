@@ -8,7 +8,7 @@
 #    timer-driven update writes it. update.sh --bootstrap runs it on a portable's first build,
 #    which a human started by hand.
 #
-# What it does, and nothing else (Chris, 2026-10-04):
+# What it does, and nothing else (ruled 2026-10-04):
 #   - refuses any role but portable (the stationary rig has no RTC, PLAN §9l);
 #   - if /dev/rtc0 already exists, writes nothing. On a Pi 4 (the portable rig), which has no RTC
 #     of its own, rtc0 can only be an added one. ⚠️ On a Pi 5 the SoC's own RTC is rtc0 and a
@@ -116,7 +116,7 @@ echo "----"
 still=$(missing_lines) || die "could not re-read $CONFIG; restore $backup and look"
 [[ -z $still ]] || die "after the write, $CONFIG still lacks, in effect: $(paste -sd ' ' <<<"$still"). Restore $backup and look"
 need_reboot "the RTC overlay was added to config.txt (setup/foundation/rtc-overlay.sh)"
-# The one check nothing here can make (Chris, 2026-10-04). update.sh records NOTE: lines in this
+# The one check nothing here can make (ruled 2026-10-04). update.sh records NOTE: lines in this
 # run's status.json notes and in its foundation.notes, which every later status.json carries forward.
 echo "NOTE: If this is a ZS-042 board with a CR2032, the charge path must already be removed (BUILD.md §6b); nothing here can check it."
 pass "added to $CONFIG: ${missing[*]}"

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # tools/pull-archive, run end to end against a fake rig in a temporary directory: the live pull
-# (the default) and --end-session (Chris, 2026-11-11), and the clock check both run.
+# (the default) and --end-session (ruled 2026-11-11), and the clock check both run.
 #
 # No rig and no network. Stubs on PATH stand in for the rig's side:
 #   - ssh: skips the -o options and the host, rewrites the rig's archive path to the fake one, logs

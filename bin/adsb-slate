@@ -42,7 +42,7 @@
 #   Seen on the 🎒 portable 2026-10-10, read-only: with no panel attached,
 #   both HDMI connectors read disconnected and there is no
 #   /sys/class/graphics/fb0. Then tty1 is an 80x25 console whose screen
-#   buffer is written: recorded by Chris on the 🎒 portable 2026-10-10 (sudo
+#   buffer is written: recorded on the 🎒 portable 2026-10-10 (sudo
 #   cat /dev/vcs1, no panel): 80x25, the buffer is written (it held getty's
 #   output). This program's own writes land there too: seen on the 🎒
 #   portable 2026-10-10, no panel, step 80's verify reading /dev/vcsu1. Both
@@ -215,7 +215,7 @@ def parse_tracking(text):
 #     time since its last update, so the bound alone might already catch a
 #     stale reference (HOLDOVER, below).
 BOUND_OK_S = 0.020
-# HOLDOVER, ruled (Chris, 2026-11-12 21:17), not gap-filled:
+# HOLDOVER, ruled 2026-11-12 21:17, not gap-filled:
 # SYNCED also needs chrony's reference to be recent, by a fixed age that
 # depends on what kind of reference it is, read from chrony's stratum. Older,
 # the word is HOLDOVER: the clock runs on its last estimate.

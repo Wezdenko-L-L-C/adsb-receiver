@@ -3,7 +3,7 @@
 #
 # 15-stationary-position: the 🏠 stationary rig's receiver position, from
 # station.yml's position: block, served to readsb on 127.0.0.1:2947 in gpsd's
-# protocol by bin/adsb-position, a socket-activated static responder. Chris,
+# protocol by bin/adsb-position, a socket-activated static responder. Ruled
 # 2026-11-14 22:00, #33 A7 ("Static responder"); BUILD.md §8 step 4b.
 #
 # Stationary only: asserts station.role. On the 🎒 portable, gpsd owns

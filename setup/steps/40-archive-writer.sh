@@ -128,7 +128,7 @@ need_preflights() {
   [[ -x $ARCHIVE_PREFLIGHT ]] || die "$ARCHIVE_PREFLIGHT is not installed: run setup/steps/30-archive-drive.sh first"
 }
 
-# The archive mount is Wants= + After=, not RequiresMountsFor= (Chris, 2026-10-04,
+# The archive mount is Wants= + After=, not RequiresMountsFor= (ruled 2026-10-04,
 # option A1; PLAN §9m). RequiresMountsFor= adds Requires=, and with Requires= a
 # failed mount fails the writer's start JOB before any process runs: the writer
 # is left inactive/dead, Result=success, NRestarts=0, Restart= never fires, and

@@ -31,7 +31,7 @@
 #     never renumbered. ℹ️ Its PRIMARY group is adsb-operator: that is a
 #     choice made here, not in PLAN §9m, so that anything it creates outside a
 #     setgid directory is still group adsb-operator.
-#   - The installing user (SUDO_USER) joins adsb-operator (Chris, 2026-10-04).
+#   - The installing user (SUDO_USER) joins adsb-operator (ruled 2026-10-04).
 #   - /etc/tmpfiles.d/adsb-receiver.conf: /run/adsb-receiver and the recording
 #     lock file, /run/adsb-receiver/recording.lock (PLAN §9f, §9i), both
 #     root:root (0755 and 0644): root writes there by name, so the writer's user
@@ -173,7 +173,7 @@ install_group_and_user() {
       --shell /usr/sbin/nologin --gid "$GROUP_NAME" "$USER_NAME"
   fi
 
-  # The installing user joins the group (Chris, 2026-10-04). Under update.sh
+  # The installing user joins the group (ruled 2026-10-04). Under update.sh
   # from a timer, or from a root shell, there is no SUDO_USER, and nobody is
   # added.
   if [[ -z ${SUDO_USER:-} || $SUDO_USER == root ]]; then

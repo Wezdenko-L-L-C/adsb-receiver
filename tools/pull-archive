@@ -11,7 +11,7 @@
 # starting with -, and a target or destination starting with -, is refused with the usage line
 # (exit 64).
 #
-# Two modes (Chris, 2026-11-11). The default is a live pull: it moves the files the writer has
+# Two modes (ruled 2026-11-11). The default is a live pull: it moves the files the writer has
 # closed while the writer keeps recording. --end-session is the pull as it was before that day: it
 # ends the recording session, and the update runs in its window. The 2026-11-11 ruling supersedes
 # "the pull ends the recording session" (2026-10-04) as the default.
@@ -56,7 +56,7 @@
 #    file) and the open .part. The count of files left includes them.
 #
 # --end-session: THE PULL THAT ENDS THE RECORDING SESSION
-# 0. Checks the clock first (ruled 2026-11-11 19:01; how, Chris, 2026-11-12 01:02): runs the rig's
+# 0. Checks the clock first (ruled 2026-11-11 19:01; how, ruled 2026-11-12 01:02): runs the rig's
 #    /usr/local/bin/clock-preflight over ssh, as the login, with no sudo, bounded here at
 #    clock_preflight_timeout seconds. It is the check the writer's start runs (its unit's
 #    ExecStartPre=), and it judges chrony's error bound against clock.max_offset_ms, read from
@@ -101,13 +101,13 @@
 # --end-session, the trap still closes the window). One while pruning, or during the clock check,
 # is warned about, and the run goes on.
 # The move: rsync --remove-source-files, which deletes each source file only after it transferred:
-# a move, not a copy (Chris). *.part and lost+found are excluded; .torn files are included. Owner,
+# a move, not a copy (ruled). *.part and lost+found are excluded; .torn files are included. Owner,
 # group and mode are not copied (the Pi's group means nothing here); --fsync, where this rsync has
 # it, puts each file on disk here before its source is deleted. --safe-links: a symlink pointing
 # outside the tree, or an absolute one, is not copied and stays on the rig, without a line (the
 # writer makes none). It prints rsync's statistics for what moved, the count of files left on the
 # drive, and the total now in the destination (everything there, not only this pull).
-# The clock check (Chris, 2026-11-11), in both modes: reads the rig's chrony over the same ssh,
+# The clock check (ruled 2026-11-11), in both modes: reads the rig's chrony over the same ssh,
 # read-only, no sudo. It raises a loud banner when `chronyc -n sources` marks no source selected
 # ('*'), when the reference time in `chronyc -n -c tracking` (its fourth field) is more than 3600 s
 # older than the rig's `date +%s` or more than 60 s ahead of it (within 60 s is jitter), or when it
@@ -129,7 +129,7 @@
 # non-zero it warns loudly, naming the files to look at, but the exit status stays the move's: the
 # move succeeded, and a .torn file is an expected outcome of a power cut. A file with no frames (an
 # outage: events or keepalives only) is --decode's own "!! no frames" line, which exits 0, so it
-# raises no banner here (Chris, 2026-10-10).
+# raises no banner here (ruled 2026-10-10).
 # ⚠️ A file rsync found already identical here is deleted from the rig without being named, so it
 #    is not decoded (a rerun after a pull that died part-way).
 # ⚠️ Once moved, this workstation holds the only copy until it is uploaded onward (PLAN §9m).

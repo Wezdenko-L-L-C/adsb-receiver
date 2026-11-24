@@ -833,7 +833,7 @@ check "Z status.json's channel is stable" [ "$(S 's["channel"]')" = stable ]
 echo "== Y. update.soak_days in station.yml overrides the role default, both ways"
 set_soak() { sed -i '/^update:/,$d' "$SB/etc/station.yml"; printf 'update:\n  soak_days: %s\n' "$1" >>"$SB/etc/station.yml"; }
 dated() { # <days ago> <message>: a commit pushed to main and stable, which this rig first saw that
-  # long ago: the soak counts from stable-tip-seen, not the commit date (Chris, 2026-10-15)
+  # long ago: the soak counts from stable-tip-seen, not the commit date (ruled 2026-10-15)
   echo "# $2" >>"$R/setup/steps/00-a.sh"; git -C "$R" add -A
   gc commit -qm "$2"; push main
   printf '%s %s\n' "$(sha)" "$(( $(date +%s) - $1 * 86400 ))" >"$SB/var/stable-tip-seen"

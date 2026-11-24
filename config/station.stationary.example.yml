@@ -120,7 +120,7 @@ uploader:
   #    the drive. That is a valid rig.
   enabled: false
   # The store is a Google Drive shared drive, reached by rclone as a service
-  #    account that is a member of that drive only (Chris, 2026-11-22).
+  #    account that is a member of that drive only (ruled 2026-11-22).
   # ⛔ This repo never names the store (PLAN §9m, B). The ID goes here, in the
   #    installed copy, which is gitignored and root-only. It is the last part
   #    of the shared drive's URL: drive.google.com/drive/folders/<this>.

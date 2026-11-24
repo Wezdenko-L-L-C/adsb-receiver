@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # adsb-position: the 🏠 stationary rig's receiver position, served to readsb in gpsd's protocol on
-# 127.0.0.1:2947. Chris, 2026-11-14 22:00, #33 A7, "Static responder": a small root-started,
+# 127.0.0.1:2947. Ruled 2026-11-14 22:00, #33 A7, "Static responder": a small root-started,
 # socket-activated unit speaks gpsd's protocol there with the surveyed position from station.yml,
 # and step 10 stays shared and role-blind. Installed by setup/steps/15-stationary-position.sh to
 # /usr/local/bin/adsb-position, and run by adsb-position@.service, one instance per connection
@@ -11,7 +11,7 @@
 #
 # ⛔ It is not gpsd, and has no device and no clock: PLAN rejects running gpsd on the stationary.
 #    Its TPV carries no "time" field, so nothing can take it for a time source; a GPS time source
-#    on the stationary is not built (Chris's 2026-11-14 answer leaves it for later).
+#    on the stationary is not built (the 2026-11-14 ruling leaves it for later).
 #
 # The position comes in as a systemd credential, "position" (LoadCredential=), a JSON object
 # {"lat": <deg>, "lon": <deg>, "alt_m": <m above sea level, or null>} that the step renders from

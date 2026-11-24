@@ -4,7 +4,7 @@
 # 06-journal: make the systemd journal persistent, with a size cap. BUILD.md §8 names it, after
 # its list of what the one command does without asking. The shape is PLAN §9f's "A persistent
 # journal is a separate, small step" (under "Open, ruled to be decided later"); ruled to be built,
-# right after step 5, by Chris on 2026-10-10.
+# right after step 5, as ruled on 2026-10-10.
 #
 # Shared by both rigs, so it reads no station.yml and asserts no role. It matters most on the 🏠
 # stationary, where a watchdog reboot would otherwise erase its own cause; on the 🎒 portable it
@@ -78,7 +78,7 @@
 #     through its tee, which ignores SIGPIPE (setup/update.sh, start_run_log's tee): its journal
 #     copy could lose lines, but run.log stays complete. systemd-journal-flush.service does not Require, BindsTo or
 #     PartOf journald (read on the portable, 2026-10-10), so the restart does not reach it.
-#   The restart happens only under update.sh (ADSB_UPDATE_RUN is set; ruled by Chris, 2026-10-10),
+#   The restart happens only under update.sh (ADSB_UPDATE_RUN is set; ruled 2026-10-10),
 #   as 50-updater and 70-window-opener start their timers only there: update.sh holds the
 #   recording lock, so no session is recording. Run by hand, no lock is held, and a
 #   restart on a recording rig could drop the writer's stdout stream, which nobody has seen

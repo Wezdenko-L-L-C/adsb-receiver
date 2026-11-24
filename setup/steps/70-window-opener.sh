@@ -4,7 +4,7 @@
 # 70-window-opener: the window opener of both rigs (#33 A4), by which the 🎒 portable updates
 # itself at home and the 🏠 stationary updates itself nightly, unattended: bin/adsb-home-update,
 # adsb-home-update.service and its timer on both rigs, and bin/adsb-at-home on the 🎒 portable
-# only. PLAN §9f's 2026-10-04 (night) update (ruled by Chris, option A), §9e's 2026-10-05 (a) (the reason
+# only. PLAN §9f's 2026-10-04 (night) update (ruled, option A), §9e's 2026-10-05 (a) (the reason
 # line), §9m (the maintenance window it opens).
 #
 # Shared by both rigs since #33 A4 (it was 70-portable-home-update), so it asserts no role. It
@@ -15,7 +15,7 @@
 # PLAN §9h's on that rig), and a timer with OnCalendar=*-*-* 04:30:00 only: no OnBootSec=, so a
 # watchdog or power-cut boot triggers no update (step 50 made the same choice for
 # adsb-update.timer), and a first install fires nothing at once. The unit keeps the name
-# adsb-home-update on both rigs (Chris, 2026-11-22: it is status.json's opened_by). After
+# adsb-home-update on both rigs (ruled 2026-11-22: it is status.json's opened_by). After
 # 50-updater, which installs adsb-update with its --check mode, and 58-maintenance-window, which
 # installs the window. ℹ️ After a rollback to a tree without this step, what it installed stays
 # (PLAN §9f: rollback does not undo creation), its timer included:

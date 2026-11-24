@@ -93,7 +93,7 @@ uploader:
   #    time the rig sees a network — BUILD.md §7 rule 3.
   #
   # Corrected 2026-10-10: the uploader is not written, and nothing reads this
-  #    block yet (BUILD.md §7). Both rigs get one (Chris, 2026-10-10, PLAN
+  #    block yet (BUILD.md §7). Both rigs get one (ruled 2026-10-10, PLAN
   #    §9i), built and first proven on this rig at home. Its design is issue
   #    #1, and the keys below may change with it. Until it lands, the data is
   #    moved off by tools/pull-archive (PLAN §9m).

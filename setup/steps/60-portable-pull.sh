@@ -25,7 +25,7 @@
 #     After= the writer) and pulls in the update oneshot (Wants=adsb-update.service, itself After=
 #     the writer), so an update runs in every window, whoever opened it: tools/pull-archive
 #     --end-session (which pulls the archive inside it), the home opener, the bootstrap, or a hand
-#     (Chris, 2026-10-04: the pull ends the recording session; since 2026-11-11 that is true of
+#     (ruled 2026-10-04: the pull ends the recording session; since 2026-11-11 that is true of
 #     --end-session only, and a default pull leaves the writer recording and opens no window).
 #     Stopping it first waits (ExecStop=, up to TimeoutStopSec=45min) while that update is
 #     activating (running), so in the usual case the writer does not start only to block on the
@@ -151,7 +151,7 @@ ExecStart=/bin/sleep infinity
 # than blocked on the lock. 45 min is above the update's own 40 min TimeoutStartSec=.
 ExecStop=/bin/sh -c 'while $SYSTEMCTL is-active $UPDATE | grep -qx activating; do sleep 5; done'
 TimeoutStopSec=45min
-# Chris's 2 h cap: it bounds how long a window keeps the writer off, whoever opened it
+# The ruled 2 h cap: it bounds how long a window keeps the writer off, whoever opened it
 # (tools/pull-archive --end-session, a hand, the opener, the bootstrap); a default, live pull opens
 # no window and never stops the writer. An update still running at the cap is the lock's job: the
 # writer starts, waits on the lock, then records.

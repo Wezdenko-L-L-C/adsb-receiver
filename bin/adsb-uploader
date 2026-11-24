@@ -13,7 +13,7 @@
 #
 # THE STORE
 #   A Google Drive shared drive, reached through rclone's drive backend as a
-#   service account that is a member of that drive only (Chris, 2026-11-22).
+#   service account that is a member of that drive only (ruled 2026-11-22).
 #   ⛔ This repo never names the store (PLAN §9m, B): its ID and the folder
 #   that stands for its root come from /etc/adsb-receiver/uploader.conf, which
 #   step 45 renders from the gitignored station.yml. No rclone.conf is used:

@@ -42,7 +42,7 @@
 #    (with rollback, and on a stationary with the gate): stable's tip WITHOUT the soak, however
 #    young it is. The timer is what waits out the soak (PLAN §9g).
 #
-# Done here before update.sh runs, on a recording rig (PLAN §9e's (b), ruled 2026-10-05, Chris):
+# Done here before update.sh runs, on a recording rig (PLAN §9e's (b), ruled 2026-10-05):
 # on a first build (no /opt/adsb-receiver/applied) whose recording lock is held by
 # adsb-writer.service, this ends the recording session the one ruled way, the maintenance window, so the
 # bootstrap stays one command. It starts adsb-maintenance-window.service, or in round 1 of the
@@ -123,7 +123,7 @@
 # Everything is inside functions, run by the last line (main), so a download cut short runs
 # nothing, or stops at the usage check.
 #
-# What has run on hardware: the portable, mobile-adsb, on 2026-10-04 (incomplete: steps failed
+# What has run on hardware: the portable, on 2026-10-04 (incomplete: steps failed
 # on a hung stick) and on 2026-10-05 (applied, and the reboot taken). ⚠️ Unverified: all of it on
 # the stationary. ⚠️ Not run on hardware: the pull-window path above (written 2026-10-05, after
 # both runs). It runs only on a second bootstrap of an incomplete, recording first build, which has

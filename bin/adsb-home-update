@@ -5,7 +5,7 @@
 # on the 🏠 stationary. It is role-blind: it never reads station.yml; the role lives in update.sh
 # (whose --check runs the stationary's PLAN §9h gate) and in step 70's render (the portable's
 # ExecCondition= and boot trigger). PLAN §9f's 2026-10-04
-# (night) update, ruled by Chris (option A); the reason line is §9e's 2026-10-05 (a). Installed by
+# (night) update, ruled (option A); the reason line is §9e's 2026-10-05 (a). Installed by
 # setup/steps/70-window-opener.sh to /usr/local/bin/adsb-home-update (copied, by rename, so
 # a running copy keeps its file), and run as root by adsb-home-update.service, a oneshot, once
 # its ExecCondition=, bin/adsb-at-home, has said "at home" (portable; the stationary's unit has none). Takes no arguments; the unit passes

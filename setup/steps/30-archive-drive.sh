@@ -39,7 +39,7 @@
 #    login banner in seconds, and `journalctl -u 'systemd-fsck@*'` shows a run.
 #    If the native unit cannot do both, the fallback is the fstab with
 #    nofail,x-systemd.device-timeout=10s, which conflicts with the denylist and
-#    goes back to Chris (PLAN §9m).
+#    goes back for a ruling (PLAN §9m).
 
 set -euo pipefail
 # shellcheck source=setup/lib.sh

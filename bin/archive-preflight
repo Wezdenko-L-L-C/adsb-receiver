@@ -20,7 +20,7 @@
 #    that if this lets it start. Below archive.min_free_gb it warns.
 #
 # It also repairs, and reports each repair, then carries on (PLAN §9m):
-#   - creates a missing beast/ or spool/ (Chris, 2026-10-04), so a spare drive
+#   - creates a missing beast/ or spool/ (ruled 2026-10-04), so a spare drive
 #     formatted with the label records in the field with no step run;
 #   - group and mode drift under beast/ and spool/;
 #   - a torn .part becomes .torn, ⛔ never deleted, and never one that is live
@@ -116,7 +116,7 @@ read -r src mfstype opts <<<"$fm"
 [[ ,$opts, == *,rw,* ]] || notready "$MP is mounted read-only; errors=remount-ro may have tripped. Check dmesg, then fsck the drive"
 # --- Repairs, before the probe: report each, then carry on ----------------------
 
-# A missing beast/ or spool/ is created (Chris, 2026-10-04): a spare drive,
+# A missing beast/ or spool/ is created (ruled 2026-10-04): a spare drive,
 # formatted by hand with the label, then records with no step run.
 # ⛔ Never a symlink: -d, chown and chmod follow one, and the writer would then
 #    record wherever it points. The drive comes from outside the rig, so this is
@@ -131,7 +131,7 @@ for d in beast spool; do
   fi
 done
 
-# Group and modes (Chris, 2026-10-04): the pull reads and deletes as a member of
+# Group and modes (ruled 2026-10-04): the pull reads and deletes as a member of
 # adsb-operator, so anything the group cannot reach would pile up. Before the
 # probe, so a beast/ that has drifted is fixed rather than refused.
 repair() {

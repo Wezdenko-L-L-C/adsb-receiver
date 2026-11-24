@@ -13,8 +13,8 @@
 #
 # Shared by both rigs, so it asserts no role. It does read station.role, only to render the cap
 # (RuntimeMaxSec=) and to choose the verify's sudoers check:
-#   - portable: 2 h, Chris's cap on how long a window keeps the writer off, as the old unit has it;
-#   - stationary: 50 min (Chris, 2026-11-22, ruling 1 of the A4 design): above adsb-update.service's
+#   - portable: 2 h, the ruled cap on how long a window keeps the writer off, as the old unit has it;
+#   - stationary: 50 min (ruled 2026-11-22, ruling 1 of the A4 design): above adsb-update.service's
 #     own TimeoutStartSec=40min (step 50), so the cap never fires mid-update. A lower cap would not
 #     shorten the gap: at the cap ExecStopPost= starts the writer, which then waits on the lock
 #     until the update ends (⚠️ belief, not seen), so the update's own 40 min is the real bound.
@@ -107,11 +107,11 @@ install_if_changed() {
 render_unit() {
   local cap_why
   if [[ $ROLE == portable ]]; then
-    cap_why="# Chris's 2 h cap: it bounds how long a window keeps the writer off, whoever opened it
+    cap_why="# The ruled 2 h cap: it bounds how long a window keeps the writer off, whoever opened it
 # (tools/pull-archive --end-session, a hand, the opener, the bootstrap). An update still running
 # at the cap is the lock's job: the writer starts, waits on the lock, then records."
   else
-    cap_why="# 50 min (Chris, 2026-11-22): above the update's own 40 min TimeoutStartSec=, so the cap never
+    cap_why="# 50 min (ruled 2026-11-22): above the update's own 40 min TimeoutStartSec=, so the cap never
 # fires mid-update; the update's 40 min, not this cap, bounds the recording gap."
   fi
   cat >"$WORK/unit" <<EOF

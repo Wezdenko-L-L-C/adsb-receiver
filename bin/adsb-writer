@@ -70,7 +70,7 @@
 #
 # SPACE (the min_free_gb backstop, PLAN §9m)
 #   At start, before the first .part, and after each rotation, if free space is
-#   below --min-free-gb (GiB). Check first, delete nothing (Chris, 2026-10-04):
+#   below --min-free-gb (GiB). Check first, delete nothing (ruled 2026-10-04):
 #   the files expiry may delete are the closed ones, *.beast.pcap and *.torn
 #   with their .N variants; never a .part, and at a rotation never the file it
 #   just closed. If free space plus what deleting all of them would return
@@ -108,7 +108,7 @@
 #     bound = |system time| + root dispersion + root delay / 2 (chronyc(1))
 #     UNSYNCED: leap status not Normal, Insert second or Delete second;
 #       HOLDOVER: the reference was last updated longer ago than a fixed age
-#       by its kind, from chrony's stratum (Chris, 2026-11-12 21:17):
+#       by its kind, from chrony's stratum (ruled 2026-11-12 21:17):
 #       HOLDOVER_GPS_S (96 s) at stratum 1, a refclock, HOLDOVER_NTP_S
 #       (2112 s) at stratum 2 or more, an NTP server, and the GPS's 96 s for
 #       stratum 0 or a stratum that is not a whole number (the slate's

@@ -6,7 +6,7 @@
 # installed with its keys, and a timer that asks chrony for a burst of NTP
 # samples every 15 minutes. BUILD.md §6 and §8 step 2; PLAN §9c.
 #
-# The burst timer (Chris, 2026-11-12 21:08): adsb-chrony-burst.timer starts
+# The burst timer (ruled 2026-11-12 21:08): adsb-chrony-burst.timer starts
 # adsb-chrony-burst.service every 15 minutes, a oneshot running
 # `/usr/bin/chronyc burst 2/8` as _chrony. By chronyc(1)'s burst good/max, read
 # in chrony 4.8's man page on a workstation, not the rig's 4.6.1: up to 8
@@ -41,7 +41,7 @@
 #     RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6, the socket and its
 #     localhost fallback. TimeoutStartSec=30s bounds a chronyc that hangs.
 #     ⚠️ Not run under this sandbox on a Pi when written.
-#   - ExecStart= carries systemd's "-" prefix (Chris, 2026-11-13 21:24, the
+#   - ExecStart= carries systemd's "-" prefix (ruled 2026-11-13 21:24, the
 #     option "A refused burst isn't a failure"), so chronyc failing does not
 #     fail the run. ⚠️ Belief, not seen on a Pi: in the field the NTP sources
 #     stay in chrony's table, offline (PLAN §5's note on the 12-minute GPS
@@ -82,7 +82,7 @@
 #     the timer does within minutes, and the verify may not start a run to
 #     find out. The next verify judges the run that follows.
 #
-# The preflight's keys (Chris, 2026-11-12 01:02): clock.max_offset_ms,
+# The preflight's keys (ruled 2026-11-12 01:02): clock.max_offset_ms,
 # clock.require_disciplined and clock.source are rendered from station.yml,
 # which is root-only, into /etc/adsb-receiver/clock.conf, root:root 0644, so
 # clock-preflight runs as any user: tools/pull-archive --end-session runs it
@@ -127,7 +127,7 @@
 #     only; that package carries no udev rule or unit (Debian's file list).
 #   - gpspipe, on trixie, is in gpsd-clients, not gpsd-tools (dpkg -S on the
 #     Pi, and Debian's file lists, 2026-10-04). gpsd-tools has cgps, gpsmon
-#     and gpssnmp. gpsd-clients is kept for gpspipe (Chris, 2026-10-04).
+#     and gpssnmp. gpsd-clients is kept for gpspipe (ruled 2026-10-04).
 #
 # ⛔ It never writes config.txt on the boot partition, which is on the PLAN
 #    §9h denylist. With no /dev/rtc0 it fails. The overlay is written by the

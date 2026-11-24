@@ -5,7 +5,7 @@
 # now? PLAN §9i, BUILD.md §7 rule 4. Installed by setup/steps/20-portable-clock.sh
 # to /usr/local/bin/clock-preflight (copied, so it runs outside the clone).
 # Runs as any user: its keys come from /etc/adsb-receiver/clock.conf, which
-# step 20 renders from the root-only station.yml, root:root 0644 (Chris,
+# step 20 renders from the root-only station.yml, root:root 0644 (ruled
 # 2026-11-12 01:02). Run as root by the writer's ExecStartPre=+, by update.sh's
 # readiness record and by the root openers (bin/adsb-home-update,
 # setup/bootstrap.sh); as the login, with no sudo, by tools/pull-archive
@@ -26,7 +26,7 @@
 # It prints its raw evidence.
 #
 # ⭐ Ready on ANY disciplined source: NTP at home, GPS in the field. That is
-#    Chris's reading of BUILD.md §7 rule 4, 2026-10-04: the rule is
+#    The ruled reading of BUILD.md §7 rule 4, 2026-10-04: the rule is
 #    "disciplined", and GPS is required in the field by construction, because
 #    there is no network there. So the preflight stays role-neutral, and the
 #    stationary rig's clock step can install it too. It does not read
@@ -145,7 +145,7 @@ echo "----"
 # bin/adsb-slate's parse_tracking(), holdover_after_s() and clock_state(),
 # copied (the header); BOUND_OK_S, HOLDOVER_GPS_S and HOLDOVER_NTP_S are the
 # slate's. HOLDOVER is a fixed age by the reference's kind, from chrony's
-# stratum (Chris, 2026-11-12 21:17): 96 s at stratum 1, a refclock (2 x 16 s,
+# stratum (ruled 2026-11-12 21:17): 96 s at stratum 1, a refclock (2 x 16 s,
 # the refclock's poll, + 64 s); 2112 s at stratum 2 or more, an NTP server
 # (2 x 1024 s, chrony's default maxpoll, + 64 s); the GPS's 96 s for stratum 0
 # or a stratum that is not a whole number. The update interval is printed and

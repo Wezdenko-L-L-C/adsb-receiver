@@ -8,7 +8,7 @@
 # a Google Drive shared drive"); the mirror rule in §9m.
 #
 # Stationary only, for now: asserts station.role. Both rigs get the uploader
-# (Chris, 2026-10-10, PLAN §9i); the 🎒 portable's needs the at-home and
+# (ruled 2026-10-10, PLAN §9i); the 🎒 portable's needs the at-home and
 # metered-link guards §9i records, which are not built, so its gate stays
 # until they are. The portable template's own uploader: block is untouched.
 #

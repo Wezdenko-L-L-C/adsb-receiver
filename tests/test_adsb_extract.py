@@ -262,7 +262,7 @@ class ExtractTest(unittest.TestCase):
         self.assertIn("!! FAILS: torn: ", text)
 
     def test_decode_events_only_or_keepalives_only_warns(self):
-        # (Chris), 2026-10-10: a warning with the events, exit 0, not a failure.
+        # Ruled 2026-10-10: a warning with the events, exit 0, not a failure.
         status, text = self.decode_file([])
         self.assertEqual(status, 0, text)
         self.assertIn("!! no frames: events: start 1, stop 1\n", text)

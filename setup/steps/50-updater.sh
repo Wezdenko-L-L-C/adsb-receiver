@@ -16,7 +16,7 @@
 #     old version. ➡️ A new updater takes effect at the next run.
 #   - /etc/systemd/system/adsb-update.service (Type=oneshot) and adsb-update.timer.
 #   - /etc/update-motd.d/50-adsb-receiver, the login banner (from setup/files/motd-banner.sh),
-#     which pam_motd runs at each SSH login, as root. Seen on mobile-adsb, 2026-10-04:
+#     which pam_motd runs at each SSH login, as root. Seen on the portable, 2026-10-04:
 #     /etc/pam.d/sshd line 33 has `pam_motd.so motd=/run/motd.dynamic` without noupdate, and
 #     /run/motd.dynamic was rewritten at an SSH login with 10-uname's output; as root, 2026-10-15
 #     (the banner's header has the evidence). The banner times out its own commands, so a hung
@@ -32,7 +32,7 @@
 #    rig under the operator's hands: the step enables the timer, which then starts at the next
 #    boot, and prints the command to start it now.
 #
-# What has run on hardware: the step as of `398ad28`, on the 🎒 portable, mobile-adsb, under
+# What has run on hardware: the step as of `398ad28`, on the 🎒 portable, under
 # update.sh: at 11:18 on 2026-10-10, the run that applied `398ad28`, every step's install and verify
 # were ok, this one's included (PLAN §9f's records).
 # ⚠️ Unverified: all of it on the 🏠 stationary, which is not built.

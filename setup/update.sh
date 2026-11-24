@@ -30,9 +30,9 @@
 # candidate (both roles: stable's tip, only once this rig has seen that tip for update.soak_days:
 # 0 on the 🎒 portable, 7 on the 🏠 stationary, unless station.yml sets it. The first sight is
 # recorded in /var/lib/adsb-receiver/stable-tip-seen, "<sha> <epoch>", by the timer run that sees
-# a tip it has not recorded (Chris, 2026-10-15); 0 is no age check at all, so it never reads the
+# a tip it has not recorded (ruled 2026-10-15); 0 is no age check at all, so it never reads the
 # clock or that file) → unchanged, under the soak, a candidate that does not descend from the
-# applied commit (a rewind, refused: ADSB-UPDATE-SKIPPED rewind, Chris, 2026-10-15; --rev is
+# applied commit (a rewind, refused: ADSB-UPDATE-SKIPPED rewind, ruled 2026-10-15; --rev is
 # the way back), or one that failed in the last 24 h, means exit having written nothing to the
 # rig's applied state (timer mode; the soak's first-sight record aside) → a detached worktree for
 # the candidate, under /opt/adsb-receiver/worktrees/<sha12> → every step with --skip-other-role, then
@@ -179,7 +179,7 @@
 # when the maintenance window is open, where the writer should have stopped first, PLAN §9m). A by-hand
 # run that finds the lock held prints the holder and advice for it instead, and exits 1.
 #
-# What has run on hardware: the portable, mobile-adsb: the first build through setup/bootstrap.sh
+# What has run on hardware: the portable: the first build through setup/bootstrap.sh
 # on 2026-10-04 (incomplete: steps failed on a hung stick) and on 2026-10-05 (applied), and a
 # --rev run of 42b5115. ⚠️ Unverified: all of it on the stationary.
 
@@ -191,7 +191,7 @@ readonly WT_DIR=$BASE/worktrees
 readonly APPLIED=$BASE/applied
 readonly STATE=/var/lib/adsb-receiver
 readonly APPLIED_REV=$STATE/applied-rev
-# The soak's clock (Chris, 2026-10-15): "<sha> <epoch>", the tip of stable a timer run last saw and
+# The soak's clock (ruled 2026-10-15): "<sha> <epoch>", the tip of stable a timer run last saw and
 # when it first saw it. Read and written only with a soak above 0, so never on a portable that
 # keeps the default (soak 0 returns before it, in resolve_candidate).
 readonly TIP_SEEN=$STATE/stable-tip-seen
@@ -217,7 +217,7 @@ readonly FIRST_STEP=50-updater
 # wait is 0 days for every rig, and the stationary's is set here in code too, not only in its
 # station.yml (#47, 2026-11-22; it was 7). A soak above 0 still works when station.yml sets one:
 # the days count from this rig's first sight of stable's tip (TIP_SEEN), not from its commit date
-# (Chris, 2026-10-15): a commit dated long ago, or by a skewed clock, still waits the whole soak.
+# (ruled 2026-10-15): a commit dated long ago, or by a skewed clock, still waits the whole soak.
 readonly SOAK_DAYS_PORTABLE=0 SOAK_DAYS_STATIONARY=0
 readonly FETCH_TIMEOUT=300
 readonly PREFLIGHT_TIMEOUT=120
@@ -767,7 +767,7 @@ resolve_candidate() {
     return 0
   fi
   # Soak (PLAN §9g's evening update): stable's TIP, and only once this rig has seen that same tip
-  # for soak_days (Chris, 2026-10-15: counted from the first sight, TIP_SEEN, not from the commit
+  # for soak_days (ruled 2026-10-15: counted from the first sight, TIP_SEEN, not from the commit
   # date). Never "the newest commit older than soak_days": that would apply a bad commit the day it
   # turned old, whatever younger revert followed it. With the tip, a revert on main (the brake)
   # moves the tip, which restarts the clock, and the bad commit is never applied alone.
@@ -835,7 +835,7 @@ is_forward() {
 }
 
 # rewind_refused: the timer's refusal of a candidate that is not ahead of the applied commit
-# (Chris, 2026-10-15). Exit 0, like the lock-held exit, so it is told apart by its line, which
+# (ruled 2026-10-15). Exit 0, like the lock-held exit, so it is told apart by its line, which
 # starts ADSB-UPDATE-SKIPPED and, under systemd, carries priority warning (<4>): a hand is needed.
 rewind_refused() {
   local pre=''
@@ -1825,7 +1825,7 @@ main() {
     log "unchanged: $CHANNEL is still $(sha12 "$CAND"), which is applied. Nothing was written to the rig's applied state"
     STAGE=finished; release_lock; writer_start_rule; exit 0
   fi
-  # Never backwards or sideways on the timer (Chris, 2026-10-15): timer mode, --retry included, on a
+  # Never backwards or sideways on the timer (ruled 2026-10-15): timer mode, --retry included, on a
   # built rig. --rev is the deliberate way back or aside; a first build has nothing to rewind from.
   if [[ $MODE == timer && $FIRST_BUILD -eq 0 && -n $OLD_SHA ]]; then
     local frc=0

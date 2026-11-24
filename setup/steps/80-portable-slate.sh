@@ -48,7 +48,7 @@
 # ⚠️ Belief, not seen: DRM's fbdev setup is deferred to the first hotplug, and
 # fbcon then takes tty1 over at the panel's mode with its default font.
 # With no framebuffer tty1 is an 80x25 console and its screen buffer (what
-# /dev/vcs1 reads) is written: recorded by Chris on the 🎒 portable 2026-10-10
+# /dev/vcs1 reads) is written: recorded on the 🎒 portable 2026-10-10
 # (sudo cat /dev/vcs1, no panel): 80x25 (`stty -F /dev/tty1 size`), the
 # buffer is written (it held getty's prompt). The renderer's own writes under
 # this unit land there too: seen on the 🎒 portable 2026-10-10, no panel, by
@@ -363,7 +363,7 @@ PY
 # Checked here (PLAN §9c, the observable effect): the renderer is the unit's
 # main process, unprivileged, and its UTC line is on tty1's screen, near the
 # system clock and advancing. With no panel, tty1's buffer is still written:
-# recorded by Chris on the 🎒 portable 2026-10-10 (sudo cat /dev/vcs1, no
+# recorded on the 🎒 portable 2026-10-10 (sudo cat /dev/vcs1, no
 # panel): 80x25, the buffer is written (getty's output). The renderer's own
 # output is written there too: seen by this verify on the 🎒 portable
 # 2026-10-10, no panel. Both are recorded in PLAN §5.

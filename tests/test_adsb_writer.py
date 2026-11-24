@@ -689,7 +689,7 @@ class ProbeTest(unittest.TestCase):
 
 
 class ReadsbVersion(unittest.TestCase):
-    """The start event's readsb= key (Chris, 2026-11-18): a version token, or unknown, never a raise."""
+    """The start event's readsb= key (ruled 2026-11-18): a version token, or unknown, never a raise."""
 
     @staticmethod
     def fake(stdout="", stderr="", exc=None):

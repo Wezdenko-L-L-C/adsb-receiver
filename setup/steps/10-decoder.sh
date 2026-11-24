@@ -23,9 +23,9 @@
 #     and the pin's debian/ copies on 2026-10-04). `--device 0`, as ran.
 #     ⚠️ Since 2026-10-10 /etc/default/readsb differs from upstream's in
 #     NET_OPTIONS too: readsb's sockets bind to loopback, and its input
-#     listeners are off (Chris, 2026-10-10). Since 2026-10-27 NET_OPTIONS
+#     listeners are off (ruled 2026-10-10). Since 2026-10-27 NET_OPTIONS
 #     also carries a gpsd connector: readsb takes the receiver position from
-#     the rig's gpsd, live and exact (Chris, 2026-10-27, #35). Since
+#     the rig's gpsd, live and exact (ruled 2026-10-27, #35). Since
 #     2026-11-05 JSON_OPTIONS differs too: no --range-outline-hours, which is
 #     inert under the gpsd connector. Why, in render_readsb.
 #   - A drop-in, /etc/systemd/system/readsb.service.d/adsb-receiver.conf: ours,
@@ -39,11 +39,11 @@
 #     script's 4th argument), so it does not fetch tar1090's master.
 #     ⚠️ That installer always fetches tar1090-db, the aircraft database, from
 #     that repo's master. The database is NOT pinned; only tar1090 is.
-#     Accepted, Chris 2026-10-04: it is lookup data, not code.
+#     Accepted, ruled 2026-10-04: it is lookup data, not code.
 #   - tar1090's installer also enables a second lighttpd door on port 8504
 #     (the conf-enabled link 95-tar1090-otherport.conf, which no package owns).
 #     Every run, after the installer's turn, this step removes that link if it
-#     exists, and only then restarts lighttpd: :80 is the one LAN door (Chris,
+#     exists, and only then restarts lighttpd: :80 is the one LAN door (ruled
 #     PLAN §5 ruling 7). ⚠️ The installer restarts lighttpd itself with :8504
 #     open, so a run that reinstalls tar1090 leaves :8504 open for the seconds
 #     until this step's own restart; and a run whose installer fails stops
@@ -61,9 +61,9 @@
 # ⛔ No verify opens the stick; readsb is the only opener. This verify reads
 #    readsb's own open of the stick from its journal: the tuner, the V4 line
 #    and the EEPROM strings. The tuner/V4/counterfeit table lives here now,
-#    moved from 00-drivers on 2026-10-05 (ruled by Chris, on fable-architect's
+#    moved from 00-drivers on 2026-10-05 (ruled on fable-architect's
 #    call). It informs and never gates: its odd combinations warn, and the
-#    step passes on streaming (ruled by Chris, 2026-10-05).
+#    step passes on streaming (ruled 2026-10-05).
 
 set -euo pipefail
 # shellcheck source=setup/lib.sh
@@ -128,7 +128,7 @@ READSB_USER=readsb
 #    Corrected 2026-10-10: BUILD.md §4 is not rewritten; it carries a dated
 #    correction after its code block saying what the steps do, with the recipe
 #    kept beside it. "No V4 is coming" was not a ruling when written; it is now:
-#    no genuine V4 is available, and the portable runs on a genuine V3 (Chris,
+#    no genuine V4 is available, and the portable runs on a genuine V3 (ruled
 #    2026-10-10, PLAN §9j).
 BUILD_PKGS=(git ca-certificates gcc make libc6-dev pkg-config libusb-1.0-0-dev
   librtlsdr-dev librtlsdr0 libncurses-dev zlib1g zlib1g-dev libzstd1 libzstd-dev)
@@ -234,7 +234,7 @@ sha256_of() {
 
 refuse_apt_readsb() {
   if pkg_installed readsb; then
-    die "the apt package readsb is installed. trixie's packaged readsb cannot drive an RTL-SDR (PLAN §9j). Remove it (apt-get remove readsb), then run this step again"
+    die "the apt package readsb is installed. trixie's packaged readsb cannot drive an RTL-SDR (BUILD.md §4, \"The V4 fails silently on old drivers\"). Remove it (apt-get remove readsb), then run this step again"
   fi
 }
 
@@ -369,7 +369,7 @@ EOF
   #    by its EEPROM serial (dongles.adsb, RADIOS.md §5 rule 2) is a follow-up.
   #    The stationary rig's position comes from 15-stationary-position, which
   #    serves station.yml's position on 127.0.0.1:2947 in gpsd's protocol
-  #    (#33 A7, "Static responder", Chris, 2026-11-14 22:00), so this line is
+  #    (#33 A7, "Static responder", ruled 2026-11-14 22:00), so this line is
   #    role-blind. ⚠️ A fixed
   #    --lat/--lon is not the easy answer it looks: readsb then prints
   #    `Using lat: … lon: …` to its journal at every start, and --quiet does not
@@ -378,7 +378,7 @@ EOF
   #    position source, and the surface rule"). The hazard is recorded in
   #    PLAN §5, "Update 2026-10-27: #35's receiver position, exact everywhere,
   #    from gpsd live".
-  # ⛔ NET_OPTIONS: loopback only, and no input listeners (Chris, 2026-10-10).
+  # ⛔ NET_OPTIONS: loopback only, and no input listeners (ruled 2026-10-10).
   #    Until then this was upstream's line: raw input on 30001 and BEAST input
   #    on 30004 and 30104, with every listener on all addresses, IPv4 and IPv6
   #    (seen with `ss -ltn` on the portable, 2026-10-10). Anyone on the same
@@ -410,7 +410,7 @@ EOF
   #    of a run).
   # ⭐ NET_OPTIONS' --net-connector 127.0.0.1,2947,gpsd_in: readsb follows the
   #    rig's gpsd live and takes the receiver position from it, exact, at home
-  #    and away, with no home check (Chris, 2026-10-27, #35). It supersedes the
+  #    and away, with no home check (ruled 2026-10-27, #35). It supersedes the
   #    home/away accuracy gate and the field-only range outline of 2026-10-10.
   #    Both roles carry it. Read in readsb's source at the pin, not seen on a
   #    rig:
@@ -426,7 +426,7 @@ EOF
   #    - The stationary rig runs no gpsd (only 20-portable-clock installs it;
   #      20-stationary-clock is NTP only). There 15-stationary-position, which
   #      runs after this step, listens on 127.0.0.1:2947 with station.yml's
-  #      position (bin/adsb-position; #33 A7, Chris, 2026-11-14 22:00). Until
+  #      position (bin/adsb-position; #33 A7, ruled 2026-11-14 22:00). Until
   #      that step has run, the connector dials a closed loopback port and is
   #      inert. Without silent_fail readsb logs the first 9 failed
   #      dials, then the 10th and every 200th (net_io.c,
@@ -620,7 +620,7 @@ install_tar1090() {
   #     is cleared.
   # It writes /usr/local/share/tar1090, /etc/default/tar1090 (only if absent),
   # the tar1090 unit and user, and /etc/lighttpd, and restarts tar1090 and
-  # lighttpd. ⚠️ It fetches tar1090-db from master (accepted, Chris 2026-10-04).
+  # lighttpd. ⚠️ It fetches tar1090-db from master (accepted 2026-10-04).
   log "running tar1090's installer from the pinned checkout"
   (cd "$TAR1090_SRC" && run env -u TAR1090_UPDATE_DIR bash ./install.sh "$JSON_DIR" "" "" "$TAR1090_SRC") \
     || rc=$?
@@ -647,7 +647,7 @@ install_tar1090() {
   run install -m 0644 -o root -g root "$WORK/tstamp" "$TAR1090_STAMP"
 }
 
-# close_tar1090_otherport: :8504 closes, and :80 is the one LAN door (Chris,
+# close_tar1090_otherport: :8504 closes, and :80 is the one LAN door (ruled
 # PLAN §5 ruling 7). tar1090's install.sh at the pin writes
 # 95-tar1090-otherport.conf, its whole web config inside
 # $SERVER["socket"] == ":8504" (lines 237-243), and links it into
@@ -878,7 +878,7 @@ check_tuner() {
   # ℹ️ This table informs; it never gates. No branch fails: a hardware verdict
   #    is not an update gate, and the stick is already streaming. Until
   #    2026-10-05 the odd combinations below failed the verify (in 00-drivers,
-  #    then here). Ruled by Chris, 2026-10-05: "I will not be using the
+  #    then here). Ruled 2026-10-05: "I will not be using the
   #    counterfeit radios anymore."
   local v4word=no
   ((v4)) && v4word=yes
@@ -902,11 +902,11 @@ check_tuner() {
     #     Kept as a warning for the record.
     warn "################################################################"
     warn "The EEPROM claims RTL-SDR Blog / V4, but the tuner is $tuner, not R828D."
-    warn "That is the counterfeit-V4 signature recorded in docs/PLAN.md §9j."
+    warn "That is the counterfeit-V4 signature (docs/BUILD.md §4, \"The V4 fails silently on old drivers\")."
     warn "################################################################"
   else
     log "reads as a non-V4 stick: no Blog or V4 in the EEPROM strings"
-    warn "If the case says V4, a non-R828D tuner is the counterfeit signature in docs/PLAN.md §9j."
+    warn "If the case says V4, a non-R828D tuner is the counterfeit signature (docs/BUILD.md §4, \"The V4 fails silently on old drivers\")."
   fi
   pass "readsb opened the stick: tuner $tuner; library V4 line: $v4word; EEPROM strings: '${maker:-?}' / '${product:-?}'"
 }
@@ -920,7 +920,7 @@ verify() {
     printf '%s\n' "$out"
     echo "----"
     if [[ ${out%%:*} == readsb ]]; then
-      die "$READSB_BIN belongs to the readsb package; trixie's packaged readsb cannot drive an RTL-SDR (PLAN §9j). Remove it and run this step"
+      die "$READSB_BIN belongs to the readsb package; trixie's packaged readsb cannot drive an RTL-SDR (BUILD.md §4, \"The V4 fails silently on old drivers\"). Remove it and run this step"
     fi
     die "$READSB_BIN belongs to the package ${out%%:*}, not to this step's build. Remove it and run this step"
   fi
@@ -1136,7 +1136,7 @@ verify() {
   # Then gpsd itself must be serving on $GPSD_ADDR, readsb's address: its
   # VERSION banner within 10 s of a connect (gpsd_banner). That is install
   # tier, true indoors and out; whether gpsd has a fix is the sky's, and no
-  # verify here reads it (PLAN §9c, "two tiers"; Chris, 2026-11-05). It is
+  # verify here reads it (PLAN §9c, "two tiers"; ruled 2026-11-05). It is
   # what keeps step 20's gpsd.socket from passing for gpsd: systemd accepts a
   # connect on that port even while gpsd behind it is broken.
   ss_out=$(ss -ltnH 2>&1) || die "ss -ltnH failed: $ss_out"
