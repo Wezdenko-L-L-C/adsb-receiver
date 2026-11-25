@@ -12,9 +12,13 @@
 # ExecCondition=, ADSB_HOME_STATE, the nmcli and yaml requirements, the position: refusal, the
 # update.home_ssid verify, and OnBootSec=4min. The 🏠 stationary gets the opener binary, the
 # tmpfiles directory, a service with no ExecCondition= (its pre-check is --check, whose gate is
-# PLAN §9h's on that rig), and a timer with OnCalendar=*-*-* 04:30:00 only: no OnBootSec=, so a
-# watchdog or power-cut boot triggers no update (step 50 made the same choice for
-# adsb-update.timer), and a first install fires nothing at once. The unit keeps the name
+# PLAN §9h's on that rig), and a timer with OnCalendar=*-*-* 04:30:00 only: no OnBootSec= and no
+# Persistent=, and a first install fires nothing at once. ⚠️ That does not keep a boot from firing
+# it: a stationary with no clock battery boots at the time saved in
+# /var/lib/systemd/timesync/clock, and chrony's forward step past 04:30 makes the timer elapse at
+# once (seen on the Pi 4, 2026-11-24; PLAN §9f, update 2026-11-25, left as is until the Pi 5's
+# battery-backed clock). ℹ️ Step 50's adsb-update.timer is configured otherwise on that rig:
+# OnCalendar=*-*-* 03:30:00 with Persistent=true. The unit keeps the name
 # adsb-home-update on both rigs (ruled 2026-11-22: it is status.json's opened_by). After
 # 50-updater, which installs adsb-update with its --check mode, and 58-maintenance-window, which
 # installs the window. ℹ️ After a rollback to a tree without this step, what it installed stays
@@ -72,11 +76,13 @@
 #     adsb-update's 3 min boot run, which a recording writer turns into a lock-held exit), and on
 #     the 🏠 stationary no OnBootSec= (above). 04:30 was the implementer's pick; it is ratified,
 #     provisionally, for both rigs (A4(e) of #33; PLAN §9f's update of 2026-11-14). Its reasons
-#     when picked: it is apart from adsb-update.timer's own daily run at midnight; and, a belief,
+#     when picked: it is apart from adsb-update.timer's own daily run (midnight on the 🎒 portable; 03:30 plus up to
+#     30 min of random delay on the 🏠 stationary); and, a belief,
 #     not measured, a rig records the fewest aircraft then, so the window's gap would cost least.
 #     No Persistent=: on the 🎒 portable, a rig that was off at 04:30 would fire again at boot
 #     beside OnBootSec=, two triggers for one boot, and the boot trigger already covers a rig
-#     switched on at home; on the 🏠 stationary, a boot triggers no update at all (above). No
+#     switched on at home; on the 🏠 stationary, this timer has no boot trigger of its own,
+#     though a clock step past 04:30 at boot still fires it (above). No
 #     RandomizedDelaySec=: one rig, nothing to spread.
 #
 # Starting, as 50-updater does for its own timer: the timer is enabled; under update.sh
@@ -227,8 +233,8 @@ render_timer() {
     why="# 4 min after boot, after adsb-update.timer's 3 min run, and daily at 04:30 local. No
 # Persistent=: it would add a second trigger at boot beside OnBootSec=."
   else
-    why="# Daily at 04:30 local, and only then: no OnBootSec=, so a watchdog or power-cut boot triggers
-# no update (step 50's choice for adsb-update.timer); no Persistent=, for the same reason."
+    why="# Daily at 04:30 local: no OnBootSec= and no Persistent=. A clock step past 04:30 at boot
+# still fires it (PLAN §9f, update 2026-11-25)."
   fi
   cat >"$WORK/timer" <<EOF
 # Rendered by setup/steps/70-window-opener.sh ($ROLE). Do not edit; re-run the step. PLAN §9f.

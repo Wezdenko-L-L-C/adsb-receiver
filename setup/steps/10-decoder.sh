@@ -121,7 +121,7 @@ READSB_USER=readsb
 
 # readsb's own list for this commit is `required_packages` in its source, plus
 # git and ca-certificates to fetch it.
-# ⚠️ BUILD.md §4 says to purge the packaged librtlsdr and build osmocom's. This
+# ⚠️ BUILD.md §4 ("Drivers first") says to purge the packaged librtlsdr and build osmocom's. This
 #    step does the opposite, and installs librtlsdr0 and librtlsdr-dev from
 #    apt: no V4 is coming, and 00-drivers uses the packaged 2.0.2. BUILD.md §4
 #    is queued for a rewrite (PLAN §9's consequences table).
@@ -891,10 +891,10 @@ check_tuner() {
     warn "That should not happen; report it."
     warn "################################################################"
   elif [[ $tuner == *R828D* ]]; then
-    # (b) An R828D with no V4 line: the BUILD.md §4 silent failure, a V4 on a
+    # (b) An R828D with no V4 line: the BUILD.md §4 silent failure ("The V4 fails silently on old drivers"), a V4 on a
     #     library without V4 support. It may half-work.
     warn "################################################################"
-    warn "R828D tuner but no 'RTL-SDR Blog V4 Detected': the librtlsdr in use may lack V4 support (BUILD.md §4)."
+    warn "R828D tuner but no 'RTL-SDR Blog V4 Detected': the librtlsdr in use may lack V4 support (BUILD.md §4, \"The V4 fails silently on old drivers\")."
     warn "The stick is streaming, so this is a warning, not a failure (ruled 2026-10-05)."
     warn "################################################################"
   elif [[ "$maker $product" =~ [Bb]log|V4 ]]; then
